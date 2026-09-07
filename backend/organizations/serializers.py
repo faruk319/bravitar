@@ -1,6 +1,20 @@
 from rest_framework import serializers
 
 from .constants import Role, Vertical
+
+
+def validate_selectable_verticals(value, allowed_extra=frozenset()):
+    """Only verticals with a plugin behind them can be chosen."""
+    unknown = set(value) - set(Vertical.VALUES)
+    if unknown:
+        raise serializers.ValidationError(f"Unknown vertical(s): {', '.join(sorted(unknown))}")
+
+    unavailable = set(value) - set(Vertical.IMPLEMENTED) - set(allowed_extra)
+    if unavailable:
+        raise serializers.ValidationError(
+            f"Not available yet: {', '.join(sorted(unavailable))}."
+        )
+    return list(dict.fromkeys(value))
 from .models import APIKey, Branch, Membership, Organization
 
 
@@ -23,10 +37,7 @@ class OrganizationSignupSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def validate_verticals(self, value):
-        unknown = set(value) - set(Vertical.VALUES)
-        if unknown:
-            raise serializers.ValidationError(f"Unknown vertical(s): {', '.join(sorted(unknown))}")
-        return value
+        return validate_selectable_verticals(value)
 
 
 class MembershipSerializer(serializers.ModelSerializer):
@@ -51,10 +62,10 @@ class OrganizationSettingsSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug", "plan", "custom_domain", "domain_verified"]
 
     def validate_verticals(self, value):
-        unknown = set(value) - set(Vertical.VALUES)
-        if unknown:
-            raise serializers.ValidationError(f"Unknown vertical(s): {', '.join(sorted(unknown))}")
-        return list(dict.fromkeys(value))
+        # An academy already on a vertical that has since been withdrawn keeps
+        # it — it just can't be added to. Stranding them would be worse.
+        already_on = set(getattr(self.instance, "verticals", None) or [])
+        return validate_selectable_verticals(value, allowed_extra=already_on)
 
 
 class TeamMemberSerializer(serializers.ModelSerializer):

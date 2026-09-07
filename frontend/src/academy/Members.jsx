@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiPage } from '../lib/api'
+import StudentDetail from './StudentDetail'
 import { useBranches } from './useBranches'
 
 const STATUSES = ['active', 'trial', 'paused', 'left']
 
-export default function Members() {
+export default function Members({ role }) {
   const branches = useBranches()
   const [students, setStudents] = useState(null)
   const [search, setSearch] = useState('')
@@ -14,7 +15,10 @@ export default function Members() {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ full_name: '', phone: '', email: '' })
   const [refresh, setRefresh] = useState(0)
+  const [selected, setSelected] = useState(null)
   const [error, setError] = useState(null)
+
+  const canEdit = ['owner', 'manager'].includes(role)
 
   useEffect(() => {
     let cancelled = false
@@ -54,6 +58,18 @@ export default function Members() {
     }
   }
 
+  if (selected) {
+    return (
+      <StudentDetail
+        student={selected}
+        branches={branches}
+        canEdit={canEdit}
+        onClose={() => setSelected(null)}
+        onSaved={() => setRefresh((n) => n + 1)}
+      />
+    )
+  }
+
   return (
     <>
       <h1>Members</h1>
@@ -70,12 +86,14 @@ export default function Members() {
           <option value="">All branches</option>
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
-        <button type="button" onClick={() => setAdding((v) => !v)}>
-          {adding ? 'Cancel' : '+ Add member'}
-        </button>
+        {canEdit && (
+          <button type="button" onClick={() => setAdding((v) => !v)}>
+            {adding ? 'Cancel' : '+ Add member'}
+          </button>
+        )}
       </div>
 
-      {adding && (
+      {canEdit && adding && (
         <form className="card wide set-entry" onSubmit={addStudent}>
           <label>Name
             <input required value={form.full_name}
@@ -111,7 +129,12 @@ export default function Members() {
               <tbody>
                 {students.items.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.full_name}</td>
+                    <td>
+                      <button type="button" className="link"
+                              onClick={() => setSelected(s)}>
+                        {s.full_name}
+                      </button>
+                    </td>
                     <td>{s.phone || '—'}</td>
                     <td>{s.branch_name || '—'}</td>
                     <td><span className={`pill ${s.status}`}>{s.status}</span></td>

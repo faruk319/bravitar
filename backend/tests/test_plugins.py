@@ -183,12 +183,12 @@ class PersonalRecordTests(TenantAPITestCase):
         self.exercise = Exercise.objects.create(
             name="Bench", slug="bench", primary_muscle="chest"
         )
-        self.session = self.client_for(self.staff).post(
+        self.session = self.client_for(self.manager).post(
             "/api/gym/sessions/", {}, format="json"
         ).data
 
     def log(self, reps, weight, is_warmup=False):
-        return self.client_for(self.staff).post(
+        return self.client_for(self.manager).post(
             f"/api/gym/sessions/{self.session['id']}/sets/",
             {"exercise_id": self.exercise.id, "reps": reps, "weight": weight,
              "is_warmup": is_warmup},

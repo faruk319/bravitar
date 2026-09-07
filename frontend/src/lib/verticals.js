@@ -16,6 +16,7 @@ const CORE_MODULES = [
 export const VERTICALS = [
   {
     value: 'gym',
+    implemented: true,
     label: 'Gym / Fitness',
     modules: [
       { key: 'exercises', label: 'Exercise Library' },
@@ -28,6 +29,7 @@ export const VERTICALS = [
   },
   {
     value: 'swimming',
+    implemented: true,
     label: 'Swimming Academy',
     modules: [
       { key: 'lanes', label: 'Lanes & Pool Slots' },
@@ -36,6 +38,7 @@ export const VERTICALS = [
   },
   {
     value: 'dance',
+    implemented: false,
     label: 'Dance Academy',
     modules: [
       { key: 'styles', label: 'Dance Styles' },
@@ -44,6 +47,7 @@ export const VERTICALS = [
   },
   {
     value: 'karate',
+    implemented: true,
     label: 'Karate / Martial Arts',
     modules: [
       { key: 'belts', label: 'Belts & Gradings' },
@@ -52,6 +56,7 @@ export const VERTICALS = [
   },
   {
     value: 'football',
+    implemented: false,
     label: 'Football Academy',
     modules: [
       { key: 'teams', label: 'Teams & Squads' },
@@ -59,6 +64,13 @@ export const VERTICALS = [
     ],
   },
 ]
+
+/**
+ * Verticals an academy can actually choose. Dance and football are described
+ * here so the platform knows about them, but offering a module with nothing
+ * behind it is worse than not listing it — the backend refuses them too.
+ */
+export const SELECTABLE_VERTICALS = VERTICALS.filter((v) => v.implemented)
 
 export function verticalLabel(value) {
   return VERTICALS.find((v) => v.value === value)?.label ?? value

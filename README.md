@@ -84,25 +84,28 @@ subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
 
 `owner > manager > staff`, each including everything below it.
 
-| Role | Can |
-|---|---|
-| **Owner** | Everything, including settings and who has access |
-| **Manager** | Runs the academy, and handles fees and invoices |
-| **Staff / Trainer** | Runs sessions: members, batches, registers, training content |
+| Role | Can | Status |
+|---|---|---|
+| **Owner** | Everything, including settings and who has access | live |
+| **Manager** | Runs the academy, and handles fees and invoices | live |
+| **Staff / Trainer** | Runs sessions: members, batches, registers | wired, off |
+| **Member** | Their own things only | wired, off |
+
+Only owner and manager can sign in today — the product is being built around
+the two roles that run an academy. Staff and member are fully wired and their
+permissions are tested; turning either on is a line in `Role.ASSIGNABLE` and
+`Role.CAN_SIGN_IN`. Existing rows keep their role, so nobody has to be
+re-invited, and anyone in a switched-off role is told which one rather than
+getting a bare error.
 
 The split that gives *manager* meaning: anyone running the academy can read
 the books, but raising an invoice or recording a payment is a manager's job —
 a trainer runs sessions, a manager bills for them. That is one line in
 `Role.MANAGES` if you'd rather trainers took payments too.
 
-**Member sign-in is deliberately switched off.** Members are tracked as
-`Student` records, not logins — a Student is an enrolment, a Membership is a
-login, and most students (children especially) never need one. A member-role
-Membership is preserved but grants nothing, and `member` can't be handed out
-from the team screen. Switching it on later is adding `MEMBER` to
-`Role.CAN_SIGN_IN` and `Role.ASSIGNABLE`; nobody's existing link to their
-academy is lost in the meantime. Someone in that state gets told so rather
-than seeing a bare error, and isn't shown an academy they'd be refused from.
+Members are tracked as `Student` records rather than logins regardless — a
+Student is an enrolment, a Membership is a login, and most students (children
+especially) never need one.
 
 ### Invitations
 
@@ -239,6 +242,17 @@ branches, ~48 members, 5 batches, 8 weeks of attendance, 3 months of invoices
 and an enquiry pipeline — for clicking through the whole thing.
 
 ## Vertical plugins (Phase 5)
+
+`Vertical.IMPLEMENTED` lists the verticals that actually have a plugin behind
+them. Dance and football are named in the model because the platform knows
+about them, but they can't be selected at signup or in settings, and the API
+refuses them — offering an academy a module with nothing behind it is worse
+than not listing it. An academy already on a withdrawn vertical keeps it and
+can switch it off; it just can't be added to.
+
+Turning a vertical on brings both its modules **and** its settings: pools
+appear under Settings only for a swimming academy, the belt ladder only for a
+karate one.
 
 Each vertical is its own Django app gated by its own `RequiresVertical`
 subclass, so a gym-only academy gets 403 from `/api/swimming/` and

@@ -42,9 +42,10 @@ class IsOrganizationMember(BasePermission):
             return False
 
         if membership.role not in Role.CAN_SIGN_IN:
+            label = dict(Role.CHOICES).get(membership.role, membership.role)
             self.message = (
-                "Member sign-in isn't available yet. Ask your academy for a "
-                "staff account if you need access."
+                f"{label} sign-in isn't available yet. Ask your academy for an "
+                "owner or manager account if you need access."
             )
             return False
 

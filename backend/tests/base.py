@@ -41,9 +41,9 @@ class TenantAPITestCase(APITestCase):
 
         self.owner = self.add_member(self.org, "owner-1", "owner@example.com", Role.OWNER)
         self.manager = self.add_member(self.org, "manager-1", "manager@example.com", Role.MANAGER)
+        # Staff and member are wired but switched off. Both rows exist
+        # precisely to prove they grant nothing while that is the case.
         self.staff = self.add_member(self.org, "staff-1", "staff@example.com", Role.STAFF)
-        # Member sign-in is switched off, so this row exists precisely to prove
-        # it grants nothing.
         self.member = self.add_member(self.org, "member-1", "member@example.com", Role.MEMBER)
         self.outsider = make_user("outsider-1", "outsider@example.com")
 

@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { apiFetch } from '../lib/api'
 import { orgUrl } from '../lib/tenant'
-import { VERTICALS } from '../lib/verticals'
+import { SELECTABLE_VERTICALS } from '../lib/verticals'
 
 function slugify(value) {
   return value
@@ -81,7 +81,7 @@ export default function CreateOrgForm() {
           This decides which modules you get. You can add more later.
         </p>
         <div className="vertical-grid">
-          {VERTICALS.map((vertical) => (
+          {SELECTABLE_VERTICALS.map((vertical) => (
             <label key={vertical.value} className="checkbox">
               <input
                 type="checkbox"

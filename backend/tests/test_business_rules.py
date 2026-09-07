@@ -75,7 +75,7 @@ class AttendanceTests(TenantAPITestCase):
         ).data
 
     def mark(self, status):
-        return self.client_for(self.staff).post(
+        return self.client_for(self.manager).post(
             "/api/attendance/mark/",
             {"batch": self.batch["id"], "date": "2026-01-05",
              "marks": [{"student": self.student.id, "status": status}]},

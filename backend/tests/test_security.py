@@ -24,44 +24,44 @@ class ProgressPhotoPrivacyTests(TenantAPITestCase):
     """Progress photos are pictures of someone's body. Being in the same
     academy — even as its owner — is not a reason to see them."""
 
-    def upload_as_staff(self):
-        return self.client_for(self.staff).post(
+    def upload_as_manager(self):
+        return self.client_for(self.manager).post(
             "/api/gym/body/photos/",
             {"image": a_jpeg(), "pose": "front", "taken_on": "2026-01-01"},
             format="multipart",
         )
 
     def test_owner_uploads_and_reads_their_own(self):
-        created = self.upload_as_staff()
+        created = self.upload_as_manager()
         self.assertEqual(created.status_code, 201)
 
-        response = self.client_for(self.staff).get(
+        response = self.client_for(self.manager).get(
             f"/api/gym/body/photos/{created.data['id']}/image/"
         )
         self.assertEqual(response.status_code, 200)
 
     def test_the_academy_owner_cannot_read_a_members_photo(self):
-        created = self.upload_as_staff()
+        created = self.upload_as_manager()
         response = self.client_for(self.owner).get(
             f"/api/gym/body/photos/{created.data['id']}/image/"
         )
         self.assertEqual(response.status_code, 404)
 
     def test_photos_do_not_appear_in_another_persons_list(self):
-        self.upload_as_staff()
+        self.upload_as_manager()
         self.assertEqual(
             self.client_for(self.owner).get("/api/gym/body/photos/").data["count"], 0
         )
 
     def test_anonymous_cannot_read_a_photo(self):
-        created = self.upload_as_staff()
+        created = self.upload_as_manager()
         response = self.client_for(None).get(
             f"/api/gym/body/photos/{created.data['id']}/image/"
         )
         self.assertEqual(response.status_code, 403)
 
     def test_the_url_returned_is_the_guarded_view_not_a_media_path(self):
-        created = self.upload_as_staff()
+        created = self.upload_as_manager()
         self.assertTrue(created.data["image_url"].endswith("/image/"))
         self.assertNotIn("/media/", created.data["image_url"])
 

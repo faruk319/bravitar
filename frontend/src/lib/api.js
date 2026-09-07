@@ -21,9 +21,36 @@ export async function apiFetch(path, options = {}) {
   const body = response.status === 204 ? null : await response.json().catch(() => null)
 
   if (!response.ok) {
-    throw new ApiError(body?.detail || `Request failed (${response.status})`, response.status, body)
+    throw new ApiError(errorMessage(body, response.status), response.status, body)
   }
   return body
+}
+
+/**
+ * Turns a DRF error body into something worth showing a person.
+ *
+ * Permission errors arrive as {detail}, but field validation arrives as
+ * {field: ["message"]} — and that's most of them: an overpaid invoice, a full
+ * batch, a double-booked lane. Reading only `detail` reduced every one of
+ * those to "Request failed (400)" and threw away the actual reason.
+ */
+export function errorMessage(body, status) {
+  if (!body) return `Request failed (${status})`
+  if (typeof body === 'string') return body
+  if (body.detail) return body.detail
+
+  const messages = Object.entries(body).flatMap(([field, value]) => {
+    const texts = Array.isArray(value) ? value : [value]
+    return texts
+      .filter((text) => typeof text === 'string')
+      .map((text) =>
+        // A field name adds nothing when the message already reads as a
+        // sentence about it.
+        field === 'non_field_errors' || /^[A-Z]/.test(text) ? text : `${field}: ${text}`,
+      )
+  })
+
+  return messages.length ? messages.join(' ') : `Request failed (${status})`
 }
 
 /**
@@ -79,7 +106,7 @@ export async function apiUpload(path, formData) {
 
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new ApiError(body?.detail || `Upload failed (${response.status})`, response.status, body)
+    throw new ApiError(errorMessage(body, response.status), response.status, body)
   }
   return body
 }

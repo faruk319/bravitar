@@ -14,6 +14,12 @@ class Vertical:
     ]
     VALUES = [value for value, _ in CHOICES]
 
+    # Verticals that actually have a plugin behind them. Dance and football
+    # are named here because the platform knows about them, but offering an
+    # academy a module with nothing behind it is worse than not listing it —
+    # so they can't be selected until their plugin ships.
+    IMPLEMENTED = [GYM, SWIMMING, KARATE]
+
 
 class Plan:
     FREE = "free"
@@ -32,11 +38,12 @@ class Role:
 
     OWNER > MANAGER > STAFF, each including everything below it.
 
-    MEMBER is deliberately not sign-in-able yet. Members are tracked as
-    Student records — a Student is an enrolment, a Membership is a login, and
-    most students (children especially) never need one. The role is kept
-    defined so existing rows stay valid and member sign-in can be switched on
-    later without losing who was already linked.
+    Only OWNER and MANAGER can sign in today. STAFF and MEMBER are fully
+    wired but switched off while the product is built around the two roles
+    that run the academy; turning either on is a line in `ASSIGNABLE` and
+    `CAN_SIGN_IN`. Members are tracked as Student records regardless — a
+    Student is an enrolment, a Membership is a login, and most students
+    (children especially) never need one.
     """
 
     OWNER = "owner"
@@ -51,11 +58,14 @@ class Role:
         (MEMBER, "Member"),
     ]
 
-    # Roles an owner can actually hand out today.
-    ASSIGNABLE = [OWNER, MANAGER, STAFF]
+    # Roles an owner can hand out today. Staff and member are defined and
+    # their permissions are wired, but neither is switched on yet — the
+    # product is being built around owners and managers first. Existing rows
+    # keep their role so nobody has to be re-invited when they are enabled.
+    ASSIGNABLE = [OWNER, MANAGER]
 
     # Roles that may sign in and use the API at all.
-    CAN_SIGN_IN = [OWNER, MANAGER, STAFF]
+    CAN_SIGN_IN = [OWNER, MANAGER]
 
     # Everything an owner can do; managers run the academy including its money.
     MANAGES = [OWNER, MANAGER]

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../lib/api'
-import { VERTICALS } from '../lib/verticals'
+import PluginSettings from './PluginSettings'
+import { SELECTABLE_VERTICALS, VERTICALS } from '../lib/verticals'
 
 export default function Settings({ org, role, onOrgChange }) {
   const [name, setName] = useState(org.name)
@@ -13,6 +14,13 @@ export default function Settings({ org, role, onOrgChange }) {
   const [error, setError] = useState(null)
 
   const isOwner = role === 'owner'
+
+  // What this academy can pick from: everything shipped, plus anything it is
+  // already on, so a withdrawn vertical stays visible and switchable-off.
+  const choosable = [
+    ...SELECTABLE_VERTICALS,
+    ...VERTICALS.filter((v) => !v.implemented && org.verticals.includes(v.value)),
+  ]
 
   useEffect(() => {
     let cancelled = false
@@ -103,7 +111,7 @@ export default function Settings({ org, role, onOrgChange }) {
             switch it back on and the data is still there.
           </p>
           <div className="vertical-grid">
-            {VERTICALS.map((vertical) => (
+            {choosable.map((vertical) => (
               <label key={vertical.value} className="checkbox">
                 <input
                   type="checkbox"
@@ -167,6 +175,12 @@ export default function Settings({ org, role, onOrgChange }) {
           </form>
         )}
       </div>
+
+      <PluginSettings
+        verticals={org.verticals}
+        branches={branches ?? []}
+        canEdit={isOwner}
+      />
     </>
   )
 }

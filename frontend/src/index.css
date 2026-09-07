@@ -360,3 +360,7 @@ button.link {
 .picker { position: relative; display: block; }
 .picker input { width: 100%; }
 .picked { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0; }
+
+.link.tiny { font-size: 0.7rem; padding: 0; }
+.lane-slot .link.tiny { align-self: flex-start; }
+optgroup { font-weight: 600; }

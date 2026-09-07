@@ -8,7 +8,7 @@ from .base import TenantAPITestCase, make_user
 
 
 class InvitationTests(TenantAPITestCase):
-    def invite(self, email, role=Role.STAFF):
+    def invite(self, email, role=Role.MANAGER):
         return self.client_for(self.owner).post(
             "/api/organizations/current/team/", {"email": email, "role": role}, format="json"
         )
@@ -29,7 +29,7 @@ class InvitationTests(TenantAPITestCase):
         response = self.client_for(newcomer).get("/api/organizations/current/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["role"], Role.STAFF)
+        self.assertEqual(response.data["role"], Role.MANAGER)
 
         membership = Membership.objects.get(email="coach@example.com")
         self.assertEqual(membership.user_id, "coach-uuid")
@@ -80,7 +80,7 @@ class LastOwnerTests(TenantAPITestCase):
         membership = self.owner_membership()
         response = self.client_for(self.owner).patch(
             f"/api/organizations/current/team/{membership.id}/",
-            {"role": Role.STAFF}, format="json",
+            {"role": Role.MANAGER}, format="json",
         )
         self.assertEqual(response.status_code, 400)
         membership.refresh_from_db()
@@ -95,16 +95,16 @@ class LastOwnerTests(TenantAPITestCase):
         self.assertTrue(Membership.objects.filter(pk=membership.pk).exists())
 
     def test_can_step_down_once_someone_else_owns_it(self):
-        staff_membership = Membership.objects.get(organization=self.org, user_id=self.staff.id)
+        other = Membership.objects.get(organization=self.org, user_id=self.manager.id)
         promote = self.client_for(self.owner).patch(
-            f"/api/organizations/current/team/{staff_membership.id}/",
+            f"/api/organizations/current/team/{other.id}/",
             {"role": Role.OWNER}, format="json",
         )
         self.assertEqual(promote.status_code, 200)
 
         demote = self.client_for(self.owner).patch(
             f"/api/organizations/current/team/{self.owner_membership().id}/",
-            {"role": Role.STAFF}, format="json",
+            {"role": Role.MANAGER}, format="json",
         )
         self.assertEqual(demote.status_code, 200)
         self.assertEqual(Membership.objects.filter(organization=self.org, role=Role.OWNER).count(), 1)
