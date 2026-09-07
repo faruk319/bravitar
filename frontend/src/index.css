@@ -266,3 +266,16 @@ button.link {
 .photo { margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .photo img { width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block; }
 .photo-placeholder { width: 100%; aspect-ratio: 3/4; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+
+/* Macro meters */
+.meter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 1rem; }
+.meter { display: flex; flex-direction: column; gap: 0.3rem; }
+.meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.meter-value { font-weight: 600; }
+
+.meter-track { height: 8px; border-radius: 999px; background: #dbe7fb; overflow: hidden; }
+.meter-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.2s; }
+.meter-fill.warning { background: #fab219; }
+.meter-fill.critical { background: #d03b3b; }
+
+.meal-heading { font-size: 0.95rem; margin: 0.9rem 0 0.2rem; }

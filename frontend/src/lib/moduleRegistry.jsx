@@ -1,5 +1,6 @@
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
+import Nutrition from '../gym/Nutrition'
 import RoutineBuilder from '../gym/RoutineBuilder'
 
 /**
@@ -11,4 +12,5 @@ export const MODULE_COMPONENTS = {
   exercises: ExerciseLibrary,
   workouts: RoutineBuilder,
   bodylog: BodyLog,
+  nutrition: Nutrition,
 }

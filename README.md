@@ -8,8 +8,9 @@ for the full vision, architecture, and build phases.
 
 Phase 3 — Gym/Fitness plugin, in chunks. Done: guided sessions (pre-fill,
 rest timer, PR detection, estimated 1RM, progression rules, supersets) and
-the body log (measurements, weight chart, private progress photos).
-Remaining: nutrition, muscle map and activity heatmap.
+the body log (measurements, weight chart, private progress photos) and
+nutrition (food library, macro targets, daily log).
+Remaining: muscle map and activity heatmap.
 
 ## Local dev domains
 
@@ -39,6 +40,7 @@ pip install -r requirements.txt
 cp .env.example .env   # fill in Supabase DB + JWT/URL settings
 python manage.py migrate
 python manage.py seed_exercises   # shared exercise library (safe to re-run)
+python manage.py seed_foods       # shared food library (safe to re-run)
 python manage.py runserver
 ```
 
@@ -117,6 +119,21 @@ body. Photo files are stored under an unguessable path in `MEDIA_ROOT`, which
 is deliberately *not* wired to a static/media URL: the only way to read one is
 the ownership-checked view, so the frontend fetches it with its bearer token
 and renders an object URL. Production should move these to object storage.
+
+### Nutrition (`nutrition/`)
+
+- `GET/POST /api/gym/nutrition/foods/` — shared food library plus this org's
+  own entries (`?search=`); adding is owner/staff only
+- `GET/PUT /api/gym/nutrition/plan/` — the caller's daily macro targets
+- `GET/POST /api/gym/nutrition/log/?date=` — what was eaten that day
+- `GET /api/gym/nutrition/summary/?date=` — totals against targets, split by meal
+
+Macros are stored **per 100 g**, so a portion is a straight ratio — 200 g of
+something at 165 kcal/100 g is 330 kcal. The seeded values in
+`nutrition/seed_data.py` are approximate reference figures, not label-accurate:
+brands vary and cooking changes weight, so anyone tracking closely should add a
+custom food from their own packaging. Like the body log, a person's food log and
+targets are visible only to them.
 
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it

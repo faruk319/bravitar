@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "exercises",
     "workouts",
     "bodylog",
+    "nutrition",
 ]
 
 MIDDLEWARE = [
