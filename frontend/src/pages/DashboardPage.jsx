@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { useAuth } from '../auth/AuthContext'
 import { apiFetch } from '../lib/api'
+import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
 import { rootUrl } from '../lib/tenant'
 import { modulesForVerticals, verticalLabel } from '../lib/verticals'
 
@@ -41,6 +42,7 @@ export default function DashboardPage() {
 
   const modules = modulesForVerticals(org.verticals)
   const activeModule = modules.find((m) => m.key === active)
+  const ModuleComponent = activeModule ? MODULE_COMPONENTS[activeModule.key] : null
 
   return (
     <div className="layout">
@@ -72,12 +74,16 @@ export default function DashboardPage() {
 
       <main className="content">
         {activeModule ? (
-          <>
-            <h1>{activeModule.label}</h1>
-            <p className="muted">
-              This module is not built yet — it arrives in a later phase.
-            </p>
-          </>
+          ModuleComponent ? (
+            <ModuleComponent />
+          ) : (
+            <>
+              <h1>{activeModule.label}</h1>
+              <p className="muted">
+                This module is not built yet — it arrives in a later phase.
+              </p>
+            </>
+          )
         ) : (
           <>
             <h1>Dashboard</h1>

@@ -168,3 +168,44 @@ button.link {
   .layout { grid-template-columns: 1fr; }
   .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
 }
+
+/* Gym plugin */
+.card.wide { width: 100%; max-width: 52rem; }
+
+.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+.filters input, .filters select { font: inherit; padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.filters input[type="search"] { flex: 1; min-width: 12rem; }
+
+.exercise-list, .routine-list, .search-results { list-style: none; padding: 0; margin: 0.5rem 0 0; display: flex; flex-direction: column; gap: 0.4rem; }
+
+.exercise-list li, .routine-list li {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.7rem;
+  vertical-align: middle;
+}
+
+.search-results li { padding: 0; }
+
+.routine-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.routine-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 0.3rem 0.4rem; }
+.routine-table td { padding: 0.25rem 0.4rem; border-top: 1px solid var(--border); }
+.routine-table input { width: 5rem; padding: 0.3rem 0.4rem; }
+
+.row-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+.content select { font: inherit; }

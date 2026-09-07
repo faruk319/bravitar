@@ -21,4 +21,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('accounts.urls')),
     path('api/organizations/', include('organizations.urls')),
+    # Gym/fitness vertical plugin
+    path('api/gym/exercises/', include('exercises.urls')),
+    path('api/gym/', include('workouts.urls')),
 ]

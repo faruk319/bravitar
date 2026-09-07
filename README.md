@@ -6,8 +6,8 @@ for the full vision, architecture, and build phases.
 
 ## Status
 
-Phase 1 — Core Platform. Backend and dashboard shell done; next up is
-Phase 2 (Gym/Fitness plugin).
+Phase 2 — Gym/Fitness plugin MVP: exercise library, routine builder, and
+workout logging. Next up is Phase 3 (guided sessions, body log, nutrition).
 
 ## Local dev domains
 
@@ -36,6 +36,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in Supabase DB + JWT/URL settings
 python manage.py migrate
+python manage.py seed_exercises   # shared exercise library (safe to re-run)
 python manage.py runserver
 ```
 
@@ -64,6 +65,26 @@ projects.
 Requests are scoped to an Organization by, in order: `X-API-Key` header,
 `Host` header matching a verified `custom_domain`, or `Host` header
 subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
+
+### Gym/fitness plugin (`exercises/`, `workouts/`)
+
+Every endpoint below is gated by `HasGymVertical` — an organization that
+didn't select the gym vertical gets a 403, which is what makes the plugin
+system real on the backend rather than just a UI filter.
+
+- `GET/POST /api/gym/exercises/` — the shared library plus this org's custom
+  exercises; supports `?search=`, `?muscle=`, `?equipment=`, `?category=`.
+  Creating is owner/staff only, and the exercise is scoped to that org.
+- `GET /api/gym/exercises/meta/` — muscle/equipment/category vocabulary
+- `GET/POST /api/gym/routines/`, `GET/PUT/DELETE /api/gym/routines/<id>/` —
+  routines with nested exercise targets; scoped to the caller
+- `POST /api/gym/sessions/`, `POST /api/gym/sessions/<id>/sets/`,
+  `POST /api/gym/sessions/<id>/complete/` — workout logging
+
+Exercises with `organization = null` are the shared library seeded by
+`seed_exercises`; anything else belongs to one academy. Routines and set logs
+validate that a referenced exercise is actually visible to the caller's org,
+so one academy can't reference another's custom exercise.
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.

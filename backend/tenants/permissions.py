@@ -27,6 +27,18 @@ class IsOrganizationMember(BasePermission):
         return True
 
 
+class IsOrganizationStaff(IsOrganizationMember):
+    """Owners and staff/trainers — the people who run the academy, as opposed
+    to the members who attend it."""
+
+    message = "Only owners and staff can do this."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        return request.membership.role in (Role.OWNER, Role.STAFF)
+
+
 class IsOrganizationOwner(IsOrganizationMember):
     message = "Only the organization owner can do this."
 
@@ -34,3 +46,22 @@ class IsOrganizationOwner(IsOrganizationMember):
         if not super().has_permission(request, view):
             return False
         return request.membership.role == Role.OWNER
+
+
+class RequiresVertical(IsOrganizationMember):
+    """Gates a vertical plugin's endpoints to organizations that actually
+    selected that vertical. Subclass and set `vertical`; this is what keeps a
+    dance academy from reaching the gym plugin's API.
+    """
+
+    vertical = None
+
+    @property
+    def message(self):
+        return f"This organization does not have the '{self.vertical}' module enabled."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        organization = get_current_organization(request)
+        return self.vertical in (organization.verticals or [])
