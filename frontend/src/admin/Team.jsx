@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../lib/api'
 
+// Members aren't sign-in-able yet — they're tracked under Members as
+// enrolment records, not logins. Keep this list in step with Role.ASSIGNABLE.
 const ROLES = [
-  { value: 'owner', label: 'Owner', hint: 'Full control, including settings and billing.' },
-  { value: 'staff', label: 'Staff / Trainer', hint: 'Runs the academy day to day.' },
-  { value: 'member', label: 'Member', hint: 'Can see their own things only.' },
+  { value: 'owner', label: 'Owner', hint: 'Everything, including settings and who has access.' },
+  { value: 'manager', label: 'Manager', hint: 'Runs the academy and handles fees and invoices.' },
+  { value: 'staff', label: 'Staff / Trainer', hint: 'Runs sessions: members, batches, registers.' },
 ]
 
 export default function Team({ role }) {
@@ -71,7 +73,10 @@ export default function Team({ role }) {
   return (
     <>
       <h1>Team</h1>
-      <p className="muted">Who can get into this academy, and what they can do.</p>
+      <p className="muted">
+        Who can sign in to this academy, and what they can do. Students are
+        tracked under Members — they don't get logins yet.
+      </p>
 
       {isOwner && (
         <form className="card wide" onSubmit={invite}>

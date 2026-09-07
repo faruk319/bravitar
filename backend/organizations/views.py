@@ -57,8 +57,10 @@ class MyOrganizationsView(generics.ListAPIView):
         # The moment someone signs in we find out which invitations were
         # waiting for them, so an invited coach lands straight in the academy.
         claim_pending_memberships(self.request.user)
+        # Only academies this person can actually open — listing one they'd be
+        # refused from is worse than showing none.
         return Membership.objects.filter(
-            user_id=self.request.user.id
+            user_id=self.request.user.id, role__in=Role.CAN_SIGN_IN
         ).select_related("organization")
 
 

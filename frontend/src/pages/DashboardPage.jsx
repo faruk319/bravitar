@@ -50,7 +50,7 @@ export default function DashboardPage() {
   // not what it teaches. Staff can see the team; only an owner sees settings.
   // The backend enforces this regardless of what the sidebar shows.
   const adminItems = [
-    ...(org.role === 'owner' || org.role === 'staff' ? [{ key: 'team', label: 'Team' }] : []),
+    ...(['owner', 'manager', 'staff'].includes(org.role) ? [{ key: 'team', label: 'Team' }] : []),
     ...(org.role === 'owner' ? [{ key: 'settings', label: 'Settings' }] : []),
   ]
   const activeAdmin = adminItems.find((item) => item.key === active)

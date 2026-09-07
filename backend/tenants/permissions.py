@@ -8,7 +8,13 @@ from .context import get_current_organization
 
 class IsOrganizationMember(BasePermission):
     """Request must be scoped to an Organization (via subdomain, custom
-    domain, or API key) and the authenticated user must belong to it."""
+    domain, or API key) and the authenticated user must belong to it.
+
+    Belonging is not enough on its own: only roles in `Role.CAN_SIGN_IN` may
+    use the API. Member sign-in is not switched on yet, so a member-role row
+    is preserved but gets no access — enabling it later is a one-line change
+    in `Role`, and nobody's link to their academy is lost in the meantime.
+    """
 
     message = "You are not a member of this organization."
 
@@ -35,20 +41,38 @@ class IsOrganizationMember(BasePermission):
         if membership is None:
             return False
 
+        if membership.role not in Role.CAN_SIGN_IN:
+            self.message = (
+                "Member sign-in isn't available yet. Ask your academy for a "
+                "staff account if you need access."
+            )
+            return False
+
         request.membership = membership
         return True
 
 
 class IsOrganizationStaff(IsOrganizationMember):
-    """Owners and staff/trainers — the people who run the academy, as opposed
-    to the members who attend it."""
+    """Anyone who runs sessions: owners, managers and trainers."""
 
-    message = "Only owners and staff can do this."
+    message = "Only owners, managers and staff can do this."
 
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
-        return request.membership.role in (Role.OWNER, Role.STAFF)
+        return request.membership.role in Role.RUNS_SESSIONS
+
+
+class IsOrganizationManager(IsOrganizationMember):
+    """Owners and managers. Used where the academy's money is involved —
+    a trainer runs sessions, a manager bills for them."""
+
+    message = "Only owners and managers can do this."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        return request.membership.role in Role.MANAGES
 
 
 class IsOrganizationOwner(IsOrganizationMember):
@@ -68,12 +92,17 @@ class RequiresVertical(IsOrganizationMember):
 
     vertical = None
 
-    @property
-    def message(self):
-        return f"This organization does not have the '{self.vertical}' module enabled."
-
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
+
         organization = get_current_organization(request)
-        return self.vertical in (organization.verticals or [])
+        if self.vertical in (organization.verticals or []):
+            return True
+
+        # A plain attribute, not a property: the base class sets `self.message`
+        # when it denies, and a read-only property here would break that.
+        self.message = (
+            f"This organization does not have the '{self.vertical}' module enabled."
+        )
+        return False

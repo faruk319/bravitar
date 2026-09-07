@@ -77,8 +77,10 @@ class TeamMemberSerializer(serializers.ModelSerializer):
         return value.strip()
 
     def validate_role(self, value):
-        if value not in dict(Role.CHOICES):
-            raise serializers.ValidationError(f"Unknown role: {value}")
+        if value not in Role.ASSIGNABLE:
+            raise serializers.ValidationError(
+                f"Role must be one of: {', '.join(Role.ASSIGNABLE)}."
+            )
         return value
 
     def validate(self, attrs):

@@ -70,7 +70,7 @@ projects.
   verticals on or off (owner only). `GET` also returns the caller's `role`.
 - `GET/POST /api/organizations/current/team/`,
   `GET/PATCH/DELETE /api/organizations/current/team/<id>/` — invite by
-  email, change roles, remove people (staff can read, owner writes)
+  email, change roles, remove people (staff and up read, owner writes)
 - `GET/POST /api/organizations/current/branches/`,
   `GET/PATCH/DELETE /api/organizations/current/branches/<id>/`
 - `GET/POST /api/organizations/current/api-keys/` — API keys for headless
@@ -79,6 +79,30 @@ projects.
 Requests are scoped to an Organization by, in order: `X-API-Key` header,
 `Host` header matching a verified `custom_domain`, or `Host` header
 subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
+
+### Roles
+
+`owner > manager > staff`, each including everything below it.
+
+| Role | Can |
+|---|---|
+| **Owner** | Everything, including settings and who has access |
+| **Manager** | Runs the academy, and handles fees and invoices |
+| **Staff / Trainer** | Runs sessions: members, batches, registers, training content |
+
+The split that gives *manager* meaning: anyone running the academy can read
+the books, but raising an invoice or recording a payment is a manager's job —
+a trainer runs sessions, a manager bills for them. That is one line in
+`Role.MANAGES` if you'd rather trainers took payments too.
+
+**Member sign-in is deliberately switched off.** Members are tracked as
+`Student` records, not logins — a Student is an enrolment, a Membership is a
+login, and most students (children especially) never need one. A member-role
+Membership is preserved but grants nothing, and `member` can't be handed out
+from the team screen. Switching it on later is adding `MEMBER` to
+`Role.CAN_SIGN_IN` and `Role.ASSIGNABLE`; nobody's existing link to their
+academy is lost in the meantime. Someone in that state gets told so rather
+than seeing a bare error, and isn't shown an academy they'd be refused from.
 
 ### Invitations
 

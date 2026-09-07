@@ -141,10 +141,10 @@ class WriteIsolationTests(TenantAPITestCase):
 
 class PersonalDataIsolationTests(TenantAPITestCase):
     """Body measurements and food logs belong to one person, not to the
-    academy — a trainer in the same organization must not see them."""
+    academy. Even the owner must not see another person's."""
 
     def test_measurements_are_private_to_their_owner(self):
-        self.client_for(self.member).post(
+        self.client_for(self.staff).post(
             "/api/gym/body/entries/",
             {"metric": "weight", "value": "80", "measured_on": "2026-01-01"},
             format="json",
@@ -152,7 +152,7 @@ class PersonalDataIsolationTests(TenantAPITestCase):
         owner_view = self.client_for(self.owner).get("/api/gym/body/entries/?metric=weight")
         self.assertEqual(owner_view.data["count"], 0)
 
-        own_view = self.client_for(self.member).get("/api/gym/body/entries/?metric=weight")
+        own_view = self.client_for(self.staff).get("/api/gym/body/entries/?metric=weight")
         self.assertEqual(own_view.data["count"], 1)
 
     def test_food_log_is_private_to_its_owner(self):
@@ -161,7 +161,7 @@ class PersonalDataIsolationTests(TenantAPITestCase):
         food = Food.objects.create(
             name="Rice", slug="rice", energy_kcal=130, protein_g=2.7, carbs_g=28, fat_g=0.3
         )
-        self.client_for(self.member).post(
+        self.client_for(self.staff).post(
             "/api/gym/nutrition/log/",
             {"food_id": food.id, "amount_g": "100", "meal": "lunch",
              "consumed_on": "2026-01-01"},

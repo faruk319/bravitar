@@ -7,28 +7,38 @@ from rest_framework.response import Response
 
 from tenants.context import get_current_organization
 from tenants.mixins import OrganizationScopedMixin
-from tenants.permissions import IsOrganizationStaff
+from tenants.permissions import IsOrganizationManager
 
 from .constants import InvoiceStatus
 from .models import FeePlan, Invoice, Payment
 from .serializers import FeePlanSerializer, InvoiceSerializer, PaymentSerializer
 
 
-class FeePlanListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+class BillingScopedMixin(OrganizationScopedMixin):
+    """Anyone running the academy can read the books; changing them —
+    raising an invoice, recording a payment — is a manager's job."""
+
+    def get_permissions(self):
+        if self.request.method not in ("GET", "HEAD", "OPTIONS"):
+            return [IsOrganizationManager()]
+        return super().get_permissions()
+
+
+class FeePlanListCreateView(BillingScopedMixin, generics.ListCreateAPIView):
     serializer_class = FeePlanSerializer
 
     def get_queryset(self):
         return self.scoped(FeePlan)
 
 
-class FeePlanDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class FeePlanDetailView(BillingScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = FeePlanSerializer
 
     def get_queryset(self):
         return self.scoped(FeePlan)
 
 
-class InvoiceListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+class InvoiceListCreateView(BillingScopedMixin, generics.ListCreateAPIView):
     serializer_class = InvoiceSerializer
 
     def get_queryset(self):
@@ -41,14 +51,14 @@ class InvoiceListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView)
         return queryset
 
 
-class InvoiceDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyAPIView):
+class InvoiceDetailView(BillingScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = InvoiceSerializer
 
     def get_queryset(self):
         return self.scoped(Invoice).select_related("student").prefetch_related("payments")
 
 
-class PaymentListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
+class PaymentListCreateView(BillingScopedMixin, generics.ListCreateAPIView):
     serializer_class = PaymentSerializer
 
     def get_queryset(self):
@@ -64,7 +74,7 @@ class PaymentListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView)
 
 
 @api_view(["GET"])
-@permission_classes([IsOrganizationStaff])
+@permission_classes([IsOrganizationManager])
 def billing_summary(request):
     """What's been billed, collected and is still outstanding."""
     organization = get_current_organization(request)
