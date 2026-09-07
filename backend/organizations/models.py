@@ -39,19 +39,46 @@ class Membership(models.Model):
 
     Users live in Supabase Auth, not Django's auth_user table, so we key on
     the Supabase user id (a UUID string) rather than a Django FK.
+
+    A membership can exist before its person does: an owner invites by email,
+    and `user_id` stays empty until that person first signs in and claims it.
+    That's why the two uniqueness rules are conditional — several pending
+    invites in one organization all share an empty `user_id`.
     """
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
-    user_id = models.CharField(max_length=64)
-    email = models.EmailField(blank=True)
+    user_id = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Supabase user id. Empty until an invited person first signs in.",
+    )
+    email = models.EmailField()
     role = models.CharField(max_length=20, choices=Role.CHOICES)
     created_at = models.DateTimeField(auto_now_add=True)
+    joined_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the invitation was claimed."
+    )
 
     class Meta:
-        unique_together = ("organization", "user_id")
+        ordering = ["email"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "user_id"],
+                condition=~models.Q(user_id=""),
+                name="one_membership_per_user_per_org",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "email"],
+                condition=~models.Q(email=""),
+                name="one_membership_per_email_per_org",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.email or self.user_id} ({self.role}) @ {self.organization.name}"
+
+    @property
+    def is_pending(self):
+        return not self.user_id
 
 
 def _generate_key():

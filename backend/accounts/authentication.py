@@ -28,6 +28,13 @@ class SupabaseUser:
         self.claims = claims
         self.id = claims.get("sub")
         self.email = claims.get("email")
+        # Whether Supabase has confirmed this address. Claiming an invitation
+        # depends on it: without the check, anyone could sign up using an
+        # invited address and take that role.
+        metadata = claims.get("user_metadata") or {}
+        self.email_verified = bool(
+            claims.get("email_verified") or metadata.get("email_verified")
+        )
 
     def __str__(self):
         return self.email or self.id or "supabase-user"

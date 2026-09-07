@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import Settings from '../admin/Settings'
+import Team from '../admin/Team'
 import { useAuth } from '../auth/AuthContext'
 import { apiFetch } from '../lib/api'
 import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
@@ -44,6 +46,15 @@ export default function DashboardPage() {
   const activeModule = modules.find((m) => m.key === active)
   const ModuleComponent = activeModule ? MODULE_COMPONENTS[activeModule.key] : null
 
+  // Admin lives outside the vertical modules: it's about the academy itself,
+  // not what it teaches. Staff can see the team; only an owner sees settings.
+  // The backend enforces this regardless of what the sidebar shows.
+  const adminItems = [
+    ...(org.role === 'owner' || org.role === 'staff' ? [{ key: 'team', label: 'Team' }] : []),
+    ...(org.role === 'owner' ? [{ key: 'settings', label: 'Settings' }] : []),
+  ]
+  const activeAdmin = adminItems.find((item) => item.key === active)
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -65,6 +76,22 @@ export default function DashboardPage() {
           ))}
         </nav>
 
+        {adminItems.length > 0 && (
+          <nav>
+            <span className="nav-heading">Academy</span>
+            {adminItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={item.key === active ? 'nav-item active' : 'nav-item'}
+                onClick={() => setActive(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        )}
+
         <div className="sidebar-footer">
           <span className="muted small">{user?.email}</span>
           <button type="button" className="link" onClick={signOut}>Sign out</button>
@@ -73,7 +100,13 @@ export default function DashboardPage() {
       </aside>
 
       <main className="content">
-        {activeModule ? (
+        {activeAdmin ? (
+          activeAdmin.key === 'team' ? (
+            <Team role={org.role} />
+          ) : (
+            <Settings org={org} role={org.role} onOrgChange={setOrg} />
+          )
+        ) : activeModule ? (
           ModuleComponent ? (
             <ModuleComponent />
           ) : (

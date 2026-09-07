@@ -65,14 +65,41 @@ projects.
 - `GET /api/organizations/mine/` — organizations the current user belongs to
 - `GET /api/organizations/current/` — the Organization resolved for this
   request by `TenantResolutionMiddleware`
-- `GET/POST /api/organizations/current/branches/` — branches (create is
-  owner-only)
+- `PATCH /api/organizations/current/` — rename the academy and turn
+  verticals on or off (owner only). `GET` also returns the caller's `role`.
+- `GET/POST /api/organizations/current/team/`,
+  `GET/PATCH/DELETE /api/organizations/current/team/<id>/` — invite by
+  email, change roles, remove people (staff can read, owner writes)
+- `GET/POST /api/organizations/current/branches/`,
+  `GET/PATCH/DELETE /api/organizations/current/branches/<id>/`
 - `GET/POST /api/organizations/current/api-keys/` — API keys for headless
   access (owner-only; the raw key is only ever returned once, on creation)
 
 Requests are scoped to an Organization by, in order: `X-API-Key` header,
 `Host` header matching a verified `custom_domain`, or `Host` header
 subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
+
+### Invitations
+
+An owner invites by email *before* that person has an account: the Membership
+row is created with an empty `user_id`, and the invitation is claimed the first
+time they sign in with that address. That's why the two uniqueness rules on
+Membership are conditional — several pending invites in one organization all
+share an empty `user_id`.
+
+**Claiming requires Supabase to have confirmed the address.** Without that
+check, signing up with someone else's invited email would hand over their role.
+Local Supabase auto-confirms; a production project must keep email confirmation
+switched on for this to mean anything.
+
+An organization always keeps at least one owner: demoting or removing the last
+one is refused, otherwise nobody could manage the academy — including undoing
+the change. Deleting a branch that still holds members or batches is refused
+too, since students and batches point at it with `SET_NULL` and would be
+quietly unfiled.
+
+Turning a vertical off hides its modules and closes its API, but deletes
+nothing — switching it back on restores the data.
 
 ### Gym/fitness plugin (`exercises/`, `workouts/`)
 

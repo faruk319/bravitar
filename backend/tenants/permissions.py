@@ -20,6 +20,18 @@ class IsOrganizationMember(BasePermission):
         membership = Membership.objects.filter(
             organization=organization, user_id=request.user.id
         ).first()
+
+        if membership is None:
+            # Might be someone arriving on an invitation for the first time.
+            # Only on the miss path, so the common case stays one query — and
+            # only claims addresses Supabase has confirmed.
+            from organizations.invitations import claim_pending_memberships
+
+            if claim_pending_memberships(request.user):
+                membership = Membership.objects.filter(
+                    organization=organization, user_id=request.user.id
+                ).first()
+
         if membership is None:
             return False
 

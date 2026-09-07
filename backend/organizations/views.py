@@ -1,20 +1,26 @@
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from tenants.context import get_current_organization
 from tenants.exceptions import OrganizationNotFound
-from tenants.permissions import IsOrganizationMember, IsOrganizationOwner
+from tenants.permissions import IsOrganizationMember, IsOrganizationOwner, IsOrganizationStaff
 
 from .constants import Role
+from .invitations import claim_pending_memberships
 from .models import APIKey, Branch, Membership
 from .serializers import (
     APIKeySerializer,
     BranchSerializer,
     MembershipSerializer,
     OrganizationSerializer,
+    OrganizationSettingsSerializer,
     OrganizationSignupSerializer,
+    TeamMemberSerializer,
+    other_owners,
 )
 
 
@@ -35,6 +41,7 @@ class OrganizationSignupView(APIView):
             user_id=request.user.id,
             email=request.user.email,
             role=Role.OWNER,
+            joined_at=timezone.now(),
         )
 
         return Response(OrganizationSerializer(organization).data, status=status.HTTP_201_CREATED)
@@ -47,19 +54,88 @@ class MyOrganizationsView(generics.ListAPIView):
     serializer_class = MembershipSerializer
 
     def get_queryset(self):
-        return Membership.objects.filter(user_id=self.request.user.id).select_related("organization")
+        # The moment someone signs in we find out which invitations were
+        # waiting for them, so an invited coach lands straight in the academy.
+        claim_pending_memberships(self.request.user)
+        return Membership.objects.filter(
+            user_id=self.request.user.id
+        ).select_related("organization")
 
 
 class CurrentOrganizationView(APIView):
-    """The Organization resolved for this request by TenantResolutionMiddleware."""
+    """The Organization resolved for this request by TenantResolutionMiddleware.
 
-    permission_classes = [IsOrganizationMember]
+    The response carries the caller's own role, so the frontend can hide what
+    they can't do — the backend still enforces it either way.
+    """
+
+    def get_permissions(self):
+        if self.request.method in ("PATCH", "PUT"):
+            return [IsOrganizationOwner()]
+        return [IsOrganizationMember()]
 
     def get(self, request):
         organization = get_current_organization(request)
         if organization is None:
             raise OrganizationNotFound()
-        return Response(OrganizationSerializer(organization).data)
+        data = OrganizationSerializer(organization).data
+        data["role"] = request.membership.role
+        return Response(data)
+
+    def patch(self, request):
+        organization = get_current_organization(request)
+        if organization is None:
+            raise OrganizationNotFound()
+
+        serializer = OrganizationSettingsSerializer(organization, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        data = OrganizationSerializer(organization).data
+        data["role"] = request.membership.role
+        return Response(data)
+
+
+class TeamListCreateView(generics.ListCreateAPIView):
+    """The academy's team. Staff can see who is on it; only an owner changes it."""
+
+    serializer_class = TeamMemberSerializer
+
+    def get_permissions(self):
+        return [IsOrganizationOwner()] if self.request.method == "POST" else [IsOrganizationStaff()]
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "organization": get_current_organization(self.request)}
+
+    def get_queryset(self):
+        return Membership.objects.filter(organization=get_current_organization(self.request))
+
+    def perform_create(self, serializer):
+        """Invites by email. The row exists before the person does — user_id
+        is filled in when they first sign in."""
+        serializer.save(organization=get_current_organization(self.request), user_id="")
+
+
+class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = TeamMemberSerializer
+
+    def get_permissions(self):
+        return [IsOrganizationStaff()] if self.request.method == "GET" else [IsOrganizationOwner()]
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "organization": get_current_organization(self.request)}
+
+    def get_queryset(self):
+        return Membership.objects.filter(organization=get_current_organization(self.request))
+
+    def perform_destroy(self, instance):
+        if instance.role == Role.OWNER and other_owners(instance).count() == 0:
+            raise ValidationError(
+                {"detail": "This is the only owner — promote someone else before removing them."}
+            )
+        instance.delete()
 
 
 class BranchListCreateView(generics.ListCreateAPIView):
@@ -75,6 +151,29 @@ class BranchListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(organization=get_current_organization(self.request))
+
+
+class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = BranchSerializer
+
+    def get_permissions(self):
+        return [IsOrganizationMember()] if self.request.method == "GET" else [IsOrganizationOwner()]
+
+    def get_queryset(self):
+        return Branch.objects.filter(organization=get_current_organization(self.request))
+
+    def perform_destroy(self, instance):
+        """Students and batches point at a branch with SET_NULL, so deleting
+        one would quietly strand them. Refuse and say how many, rather than
+        silently unfiling people."""
+        students = instance.students.count()
+        batches = instance.batches.count()
+        if students or batches:
+            raise ValidationError({"detail": (
+                f"{instance.name} still has {students} member(s) and {batches} batch(es). "
+                "Move them to another branch first."
+            )})
+        instance.delete()
 
 
 class APIKeyListCreateView(generics.ListCreateAPIView):
