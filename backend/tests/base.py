@@ -32,8 +32,11 @@ class TenantAPITestCase(APITestCase):
 
     def setUp(self):
         super().setUp()
+        # A gym almost always wants both: the business side and the
+        # training side. They are separate verticals so either can stand
+        # alone, which test_verticals covers.
         self.org = Organization.objects.create(
-            name="Iron Temple", slug="irontemple", verticals=["gym"]
+            name="Iron Temple", slug="irontemple", verticals=["gym", "fitness"]
         )
         self.other_org = Organization.objects.create(
             name="Blue Wave", slug="bluewave", verticals=["swimming"]

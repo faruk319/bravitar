@@ -380,3 +380,18 @@ optgroup { font-weight: 600; }
 }
 .link.danger { color: #a32424; }
 .revoked-row td { opacity: 0.55; }
+
+.checkbox.stacked { flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+.checkbox.stacked > span:first-child { display: flex; align-items: center; gap: 0.5rem; }
+
+/* Membership plans */
+.tier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.75rem; }
+.card.tier { width: auto; gap: 0.4rem; }
+.card.tier.retired { opacity: 0.6; }
+.tier-price { font-size: 1.6rem; font-weight: 600; line-height: 1.1; }
+.perks { list-style: none; padding: 0; margin: 0.2rem 0 0; display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+.perks li::before { content: '·'; margin-right: 0.4rem; color: var(--muted); }
+
+.pill.upcoming { background: #e6e9fb; color: #3a3f8f; }
+.pill.expiring { background: #fdf0d5; color: #8a5a00; }
+.pill.expired, .pill.cancelled { background: #fbe0e0; color: #a32424; }

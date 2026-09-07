@@ -8,7 +8,7 @@ from tenants.permissions import IsOrganizationStaff
 
 from .constants import Category, Equipment, Muscle
 from .models import Exercise
-from .permissions import HasGymVertical
+from .permissions import HasFitnessVertical
 from .serializers import ExerciseSerializer
 
 
@@ -27,8 +27,8 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == "POST":
-            return [HasGymVertical(), IsOrganizationStaff()]
-        return [HasGymVertical()]
+            return [HasFitnessVertical(), IsOrganizationStaff()]
+        return [HasFitnessVertical()]
 
     def get_queryset(self):
         organization = get_current_organization(self.request)
@@ -58,8 +58,8 @@ class ExerciseDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_permissions(self):
         if self.request.method in ("PUT", "PATCH", "DELETE"):
-            return [HasGymVertical(), IsOrganizationStaff()]
-        return [HasGymVertical()]
+            return [HasFitnessVertical(), IsOrganizationStaff()]
+        return [HasFitnessVertical()]
 
     def get_queryset(self):
         organization = get_current_organization(self.request)
@@ -70,7 +70,7 @@ class ExerciseDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasFitnessVertical])
 def exercise_meta(request):
     """Vocabulary for building filter and form controls on the frontend."""
     return Response(

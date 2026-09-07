@@ -17,7 +17,19 @@ export const VERTICALS = [
   {
     value: 'gym',
     implemented: true,
-    label: 'Gym / Fitness',
+    label: 'Gym Management',
+    description: 'Memberships, check-ins, classes and trainers.',
+    modules: [
+      { key: 'tiers', label: 'Membership Plans' },
+      { key: 'memberships', label: 'Memberships' },
+      { key: 'renewals', label: 'Renewals' },
+    ],
+  },
+  {
+    value: 'fitness',
+    implemented: true,
+    label: 'Fitness Tracking',
+    description: 'Workouts, nutrition and body progress for members.',
     modules: [
       { key: 'exercises', label: 'Exercise Library' },
       { key: 'workouts', label: 'Workout Routines' },

@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from exercises.permissions import HasGymVertical
+from exercises.permissions import HasFitnessVertical
 from tenants.context import get_current_organization
 from tenants.permissions import IsPerson
 
@@ -17,7 +17,7 @@ class BodyLogScopedMixin:
     """Body data is private to the member it belongs to — a trainer does not
     see it implicitly. Every queryset is filtered to the caller."""
 
-    permission_classes = [HasGymVertical, IsPerson]
+    permission_classes = [HasFitnessVertical, IsPerson]
 
     @property
     def organization(self):
@@ -98,7 +98,7 @@ class ProgressPhotoImageView(BodyLogScopedMixin, generics.GenericAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasFitnessVertical])
 def bodylog_meta(request):
     return Response(
         {

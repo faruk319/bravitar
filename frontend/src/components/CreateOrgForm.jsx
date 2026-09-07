@@ -82,13 +82,18 @@ export default function CreateOrgForm() {
         </p>
         <div className="vertical-grid">
           {SELECTABLE_VERTICALS.map((vertical) => (
-            <label key={vertical.value} className="checkbox">
-              <input
-                type="checkbox"
-                checked={verticals.includes(vertical.value)}
-                onChange={() => toggleVertical(vertical.value)}
-              />
-              {vertical.label}
+            <label key={vertical.value} className="checkbox stacked">
+              <span>
+                <input
+                  type="checkbox"
+                  checked={verticals.includes(vertical.value)}
+                  onChange={() => toggleVertical(vertical.value)}
+                />
+                {vertical.label}
+              </span>
+              {vertical.description && (
+                <span className="muted small">{vertical.description}</span>
+              )}
             </label>
           ))}
         </div>

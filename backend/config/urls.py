@@ -35,4 +35,6 @@ urlpatterns = [
     # Vertical plugins
     path('api/swimming/', include('swimming.urls')),
     path('api/karate/', include('karate.urls')),
+    # Gym operations
+    path('api/gym-ops/', include('subscriptions.urls')),
 ]

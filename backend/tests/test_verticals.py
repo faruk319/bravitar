@@ -6,31 +6,32 @@ though the endpoints exist and it is a perfectly valid organization.
 
 from .base import TenantAPITestCase
 
-GYM_ENDPOINTS = ["/api/gym/exercises/", "/api/gym/routines/", "/api/gym/stats/muscles/"]
+FITNESS_ENDPOINTS = ["/api/gym/exercises/", "/api/gym/routines/", "/api/gym/stats/muscles/"]
+GYM_OPS_ENDPOINTS = ["/api/gym-ops/tiers/", "/api/gym-ops/overview/"]
 SWIM_ENDPOINTS = ["/api/swimming/pools/", "/api/swimming/levels/", "/api/swimming/progress/"]
 KARATE_ENDPOINTS = ["/api/karate/belts/", "/api/karate/bouts/", "/api/karate/standings/"]
 
 
 class VerticalGatingTests(TenantAPITestCase):
-    def test_gym_academy_reaches_the_gym_plugin(self):
-        for path in GYM_ENDPOINTS:
+    def test_a_gym_reaches_both_of_its_verticals(self):
+        for path in FITNESS_ENDPOINTS + GYM_OPS_ENDPOINTS:
             with self.subTest(path=path):
                 self.assertEqual(self.client_for(self.owner).get(path).status_code, 200)
 
-    def test_gym_academy_is_refused_by_other_verticals(self):
+    def test_a_gym_is_refused_by_other_verticals(self):
         for path in SWIM_ENDPOINTS + KARATE_ENDPOINTS:
             with self.subTest(path=path):
                 response = self.client_for(self.owner).get(path)
                 self.assertEqual(response.status_code, 403)
                 self.assertIn("module enabled", str(response.data["detail"]))
 
-    def test_swim_academy_reaches_swimming_but_not_gym(self):
+    def test_swim_academy_reaches_swimming_but_not_fitness(self):
         for path in SWIM_ENDPOINTS:
             with self.subTest(path=path):
                 client = self.client_for(self.other_owner, self.other_org)
                 self.assertEqual(client.get(path).status_code, 200)
 
-        for path in GYM_ENDPOINTS:
+        for path in FITNESS_ENDPOINTS:
             with self.subTest(path=path):
                 client = self.client_for(self.other_owner, self.other_org)
                 self.assertEqual(client.get(path).status_code, 403)

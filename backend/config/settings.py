@@ -80,6 +80,8 @@ INSTALLED_APPS = [
     # Vertical plugins (Phase 5)
     "swimming",
     "karate",
+    # Gym operations
+    "subscriptions",
 ]
 
 MIDDLEWARE = [

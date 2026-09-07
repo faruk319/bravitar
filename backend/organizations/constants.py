@@ -1,12 +1,24 @@
 class Vertical:
+    """What an academy does. These compose: a gym almost always wants
+    FITNESS alongside GYM, and a swimming academy might want it too for the
+    dry-land training its swimmers do.
+
+    GYM is the business — memberships, check-ins, classes, trainers.
+    FITNESS is the training itself — exercises, workouts, nutrition, body
+    measurements. Keeping them apart is what lets one be taken without the
+    other.
+    """
+
     GYM = "gym"
+    FITNESS = "fitness"
     SWIMMING = "swimming"
     DANCE = "dance"
     KARATE = "karate"
     FOOTBALL = "football"
 
     CHOICES = [
-        (GYM, "Gym / Fitness"),
+        (GYM, "Gym Management"),
+        (FITNESS, "Fitness Tracking"),
         (SWIMMING, "Swimming Academy"),
         (DANCE, "Dance Academy"),
         (KARATE, "Karate / Martial Arts"),
@@ -18,7 +30,7 @@ class Vertical:
     # are named here because the platform knows about them, but offering an
     # academy a module with nothing behind it is worse than not listing it —
     # so they can't be selected until their plugin ships.
-    IMPLEMENTED = [GYM, SWIMMING, KARATE]
+    IMPLEMENTED = [GYM, FITNESS, SWIMMING, KARATE]
 
 
 class Plan:

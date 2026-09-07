@@ -12,9 +12,12 @@ supersets), a body log (measurements, weight chart, private progress
 photos), nutrition (food library, macro targets, daily log), and the
 muscle map + activity heatmap.
 
-Phase 5 in progress — additional verticals on the same plugin pattern as
-the gym. Done: swimming (lane planner, skill ladder) and karate (belts,
-gradings, sparring). Remaining: dance and football.
+Building out the gym vertical. Done: membership plans, subscriptions and
+renewals. Next: digital onboarding with ID proof, check-in tracking with
+QR, class booking, trainers and the diet/workout planner.
+
+Other verticals: swimming (lane planner, skill ladder) and karate (belts,
+gradings, sparring). Dance and football are not built yet.
 
 ## Local dev domains
 
@@ -292,6 +295,43 @@ subclass, so a gym-only academy gets 403 from `/api/swimming/` and
 `/api/karate/` while its own `/api/gym/` keeps working. Adding a vertical
 means adding an app and two lines in `frontend/src/lib/verticals.js` and
 `moduleRegistry.jsx` — the core platform is untouched.
+
+### Gym and Fitness are two verticals
+
+`gym` is the **business** — membership plans, who is on one, when it lapses,
+and (next) check-ins, classes and trainers. `fitness` is the **training** —
+exercises, workouts, nutrition, body log, muscle map, activity.
+
+They are separate so either can stand alone: a swimming academy can track its
+swimmers' dry-land training without running a gym, and a gym can run
+memberships without anyone logging a workout. Most gyms take both, and a
+migration gave `fitness` to every academy that already had `gym`, so nothing
+they were using disappeared.
+
+### Gym — memberships (`subscriptions/`)
+
+- `GET/POST /api/gym-ops/tiers/` — the plans a member can buy (Monthly,
+  Quarterly, Yearly, VIP), each with its length, price, class credits and
+  whether a personal trainer is included
+- `GET/POST /api/gym-ops/subscriptions/` — who is on which plan, and until when
+- `GET /api/gym-ops/expiring/?days=` — who is about to lapse, with the contact
+  details to chase them on
+- `GET /api/gym-ops/overview/` — current members, and what each tier carries
+
+The model is named `MembershipTier`, not `Membership`, because that name is
+already a *login* in the organizations app. This one is what a member buys.
+
+A subscription's status is derived from its dates on read, never stored — a
+stored status is how a membership ends up claiming it is active a month after
+it lapsed. Two overlapping live memberships for one member are refused, since
+"can they walk in" would then have two answers and the member would be counted
+twice against tier numbers. A tier anyone has ever been on can be switched off
+but not deleted, so past memberships still make sense.
+
+**Automatic reminders need a provider.** The Renewals screen produces the list
+and a pre-written message, with a WhatsApp link and copy-to-clipboard, but
+actually sending on a schedule needs a WhatsApp/SMS account that isn't
+connected. That is deliberately not faked.
 
 ### Swimming (`swimming/`)
 

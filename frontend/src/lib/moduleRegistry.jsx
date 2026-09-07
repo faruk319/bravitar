@@ -7,6 +7,9 @@ import BeltBoard from '../karate/BeltBoard'
 import Sparring from '../karate/Sparring'
 import LanePlanner from '../swimming/LanePlanner'
 import SwimLevels from '../swimming/SwimLevels'
+import MembershipTiers from '../gymops/MembershipTiers'
+import Memberships from '../gymops/Memberships'
+import Renewals from '../gymops/Renewals'
 import ActivityHeatmap from '../gym/ActivityHeatmap'
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
@@ -27,7 +30,12 @@ export const MODULE_COMPONENTS = {
   billing: Billing,
   enquiries: Enquiries,
 
-  // Gym plugin
+  // Gym operations
+  tiers: MembershipTiers,
+  memberships: Memberships,
+  renewals: Renewals,
+
+  // Fitness tracking
   exercises: ExerciseLibrary,
   workouts: RoutineBuilder,
   bodylog: BodyLog,

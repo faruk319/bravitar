@@ -7,7 +7,7 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from exercises.permissions import HasGymVertical
+from exercises.permissions import HasFitnessVertical
 from tenants.context import get_current_organization
 from tenants.permissions import IsOrganizationStaff, IsPerson
 
@@ -23,7 +23,7 @@ def _requested_date(request):
 
 
 class NutritionScopedMixin:
-    permission_classes = [HasGymVertical, IsPerson]
+    permission_classes = [HasFitnessVertical, IsPerson]
 
     @property
     def organization(self):
@@ -38,8 +38,8 @@ class FoodListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == "POST":
-            return [HasGymVertical(), IsOrganizationStaff()]
-        return [HasGymVertical()]
+            return [HasFitnessVertical(), IsOrganizationStaff()]
+        return [HasFitnessVertical()]
 
     def get_queryset(self):
         queryset = Food.objects.visible_to(self.organization).filter(is_active=True)
@@ -108,7 +108,7 @@ class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical, IsPerson])
+@permission_classes([HasFitnessVertical, IsPerson])
 def daily_summary(request):
     """Totals for a day against the caller's targets, plus a per-meal split."""
     organization = get_current_organization(request)
@@ -145,7 +145,7 @@ def daily_summary(request):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasFitnessVertical])
 def nutrition_meta(request):
     return Response(
         {"meals": [{"value": v, "label": label} for v, label in Meal.CHOICES]}
