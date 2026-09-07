@@ -1,3 +1,8 @@
+import Attendance from '../academy/Attendance'
+import Batches from '../academy/Batches'
+import Billing from '../academy/Billing'
+import Enquiries from '../academy/Enquiries'
+import Members from '../academy/Members'
 import ActivityHeatmap from '../gym/ActivityHeatmap'
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
@@ -11,6 +16,14 @@ import RoutineBuilder from '../gym/RoutineBuilder'
  * "not built yet" placeholder — that's how later phases get slotted in.
  */
 export const MODULE_COMPONENTS = {
+  // Cross-vertical core — every vertical gets these
+  members: Members,
+  batches: Batches,
+  attendance: Attendance,
+  billing: Billing,
+  enquiries: Enquiries,
+
+  // Gym plugin
   exercises: ExerciseLibrary,
   workouts: RoutineBuilder,
   bodylog: BodyLog,

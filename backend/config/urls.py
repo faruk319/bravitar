@@ -26,4 +26,10 @@ urlpatterns = [
     path('api/gym/', include('workouts.urls')),
     path('api/gym/body/', include('bodylog.urls')),
     path('api/gym/nutrition/', include('nutrition.urls')),
+    # Cross-vertical core — available to every vertical
+    path('api/students/', include('students.urls')),
+    path('api/batches/', include('batches.urls')),
+    path('api/attendance/', include('attendance.urls')),
+    path('api/billing/', include('billing.urls')),
+    path('api/enquiries/', include('enquiries.urls')),
 ]

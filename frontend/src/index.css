@@ -295,3 +295,33 @@ button.link {
 .heatmap { height: auto; display: block; }
 .heat-cell { cursor: pointer; }
 .heat-cell:hover { stroke: var(--text); stroke-width: 1; }
+
+/* Academy core */
+.pill {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+  font-size: 0.75rem; background: var(--border); color: var(--muted);
+}
+.pill.active, .pill.paid, .pill.converted { background: #dcf3dc; color: #1d6b1d; }
+.pill.trial, .pill.partial, .pill.trial_scheduled, .pill.contacted { background: #fdf0d5; color: #8a5a00; }
+.pill.overdue, .pill.left, .pill.lost { background: #fbe0e0; color: #a32424; }
+
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+.stat-tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0.8rem 0.9rem;
+  display: flex; flex-direction: column; gap: 0.15rem;
+}
+.stat-value { font-size: 1.5rem; font-weight: 600; line-height: 1.2; }
+.stat-value.overdue { color: #a32424; }
+
+.radio-inline { flex-direction: row; align-items: center; gap: 0.25rem; font-weight: 400; font-size: 0.85rem; }
+.radio-inline input { width: auto; }
+
+.funnel { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.funnel-stage {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 0.6rem 1rem; text-align: left;
+  display: flex; flex-direction: column; gap: 0.1rem; min-width: 8rem;
+}
+.funnel-stage.active { border-color: var(--accent); }
+.funnel-count { font-size: 1.3rem; font-weight: 600; }

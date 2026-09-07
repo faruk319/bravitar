@@ -12,8 +12,11 @@ supersets), a body log (measurements, weight chart, private progress
 photos), nutrition (food library, macro targets, daily log), and the
 muscle map + activity heatmap.
 
-Next is Phase 4 — the cross-vertical core: generic students, batches,
-attendance, billing, enquiries, and multi-branch support.
+Phase 4 complete — the cross-vertical core (members, batches, attendance,
+fees/billing, enquiries) now works for every vertical, across branches.
+
+Next is Phase 5: additional verticals (swimming, dance, karate, football)
+built on the same plugin pattern as the gym.
 
 ## Local dev domains
 
@@ -152,6 +155,32 @@ full weight would make a bench press look like a triceps session, while
 ignoring it hides real volume. Warm-ups are excluded, and bodyweight sets count
 as sets but carry no tonnage, which is why both numbers are reported.
 
+## Cross-vertical core (Phase 4)
+
+Available to every vertical, not gated behind one — a swim academy and a gym
+both get these. Reads are open to any member; writes are owner/staff.
+
+- `GET/POST /api/students/` — members, filterable by `?search=`, `?status=`,
+  `?branch=`
+- `GET/POST /api/batches/`, `/api/batches/enrolments/` — classes and who is in
+  them; enrolling into a full batch is refused
+- `POST /api/attendance/mark/` — marks a whole register in one request, since
+  that's how a coach actually works; re-marking corrects the day rather than
+  double-counting. `/api/attendance/summary/` gives per-student rates.
+- `GET/POST /api/billing/plans|invoices|payments/`, `/api/billing/summary/`
+- `GET/POST /api/enquiries/`, `POST /api/enquiries/<id>/convert/`,
+  `/api/enquiries/funnel/`
+
+An invoice's `status`, `amount_paid` and `balance` are derived from its
+payments on read, never stored — a stored status is the classic way for an
+invoice to claim it's paid while the payments say otherwise. Payments that
+would overpay an invoice are rejected. A Student is deliberately separate from
+a Membership: a Membership is a login, a Student is an enrolment record, and
+most students (children especially) never have a login.
+
+`python manage.py seed_demo_academy` builds a full demo academy — two
+branches, ~48 members, 5 batches, 8 weeks of attendance, 3 months of invoices
+and an enquiry pipeline — for clicking through the whole thing.
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.

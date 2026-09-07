@@ -46,6 +46,12 @@ INSTALLED_APPS = [
     "workouts",
     "bodylog",
     "nutrition",
+    # Cross-vertical core (Phase 4)
+    "students",
+    "batches",
+    "attendance",
+    "billing",
+    "enquiries",
 ]
 
 MIDDLEWARE = [
