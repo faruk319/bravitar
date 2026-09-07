@@ -30,6 +30,9 @@ class Branch(models.Model):
     is_primary = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ["name", "id"]
+
     def __str__(self):
         return f"{self.organization.name} — {self.name}"
 
@@ -97,6 +100,9 @@ class APIKey(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return f"{self.prefix}... ({self.organization.name})"

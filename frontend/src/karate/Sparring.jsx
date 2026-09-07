@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 export default function Sparring() {
   const [bouts, setBouts] = useState(null)
@@ -8,7 +8,7 @@ export default function Sparring() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    Promise.all([apiFetch('/karate/bouts/'), apiFetch('/karate/standings/')])
+    Promise.all([apiFetchAll('/karate/bouts/'), apiFetch('/karate/standings/')])
       .then(([b, s]) => {
         setBouts(b)
         setStandings(s.students.filter((x) => x.bouts > 0))

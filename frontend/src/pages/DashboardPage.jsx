@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import Settings from '../admin/Settings'
 import Team from '../admin/Team'
 import { useAuth } from '../auth/AuthContext'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
 import { rootUrl } from '../lib/tenant'
 import { modulesForVerticals, verticalLabel } from '../lib/verticals'
@@ -24,7 +24,7 @@ export default function DashboardPage() {
     apiFetch('/organizations/current/')
       .then((data) => {
         setOrg(data)
-        return apiFetch('/organizations/current/branches/').then(setBranches).catch(() => {})
+        return apiFetchAll('/organizations/current/branches/').then(setBranches).catch(() => {})
       })
       .catch((err) => setError(err.message))
   }, [])

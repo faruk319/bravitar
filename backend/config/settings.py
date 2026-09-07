@@ -9,16 +9,15 @@ import os
 from pathlib import Path
 
 import dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 dotenv.load_dotenv(BASE_DIR / ".env")
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-kshmy#na_q8+k=)1h)*+7-3vm#%j&tplcss4y2hwprk&16&8&d",
-)
+INSECURE_DEV_SECRET_KEY = "django-insecure-kshmy#na_q8+k=)1h)*+7-3vm#%j&tplcss4y2hwprk&16&8&d"
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", INSECURE_DEV_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
@@ -26,6 +25,32 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
 ALLOWED_HOSTS = [
     h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()
 ]
+
+# Refuse to boot insecurely rather than run and hope nobody notices. A
+# deployment that forgets DJANGO_SECRET_KEY would otherwise sign sessions with
+# a key that is public in this repository.
+if not DEBUG:
+    # Checking only for the literal repo default isn't enough — the likeliest
+    # mistake is copying the placeholder out of .env.example, which is a
+    # different string but just as public.
+    _weak_markers = ("insecure", "dev-only", "change-me", "changeme", "secret-key")
+    _key = SECRET_KEY.lower()
+    if len(SECRET_KEY) < 40 or any(marker in _key for marker in _weak_markers):
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY looks like a placeholder. Set a real random "
+            "secret of at least 40 characters when DEBUG is off."
+        )
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must be set when DEBUG is off.")
+
+    SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "True") == "True"
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", 60 * 60 * 24 * 30))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
 
 
 # Application definition
@@ -155,14 +180,36 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    "DEFAULT_PAGINATION_CLASS": "config.pagination.StandardPagination",
+    "PAGE_SIZE": 50,
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        # Anonymous traffic should only ever be hitting the health check and
+        # being rejected by auth, so it is held short.
+        "anon": os.environ.get("THROTTLE_ANON", "30/min"),
+        "user": os.environ.get("THROTTLE_USER", "1000/hour"),
+    },
 }
 
-# CORS (React frontend running locally during development)
+# CORS. The dev server proxies /api same-origin, so this only matters for
+# clients calling the API directly.
 CORS_ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
     if o.strip()
 ]
+
+# Every academy gets its own subdomain, so listing literal origins would mean
+# editing settings on every signup. Matches https://<slug>.<BASE_DOMAIN> only.
+_base_domain = os.environ.get("DJANGO_BASE_DOMAIN", "")
+CORS_ALLOWED_ORIGIN_REGEXES = (
+    [r"^https://[a-z0-9-]+\.%s$" % _base_domain.replace(".", r"\.")] if _base_domain else []
+)
+
+CORS_ALLOW_CREDENTIALS = False
 
 # Supabase Auth — used to verify JWTs issued by Supabase for signed-in users.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")

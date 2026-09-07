@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 const STATUSES = ['present', 'absent', 'late', 'excused']
 const today = () => new Date().toISOString().slice(0, 10)
@@ -16,7 +16,7 @@ export default function Attendance() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    apiFetch('/batches/?active=true')
+    apiFetchAll('/batches/?active=true')
       .then((data) => {
         setBatches(data)
         if (data.length) setBatchId(String(data[0].id))
@@ -29,8 +29,8 @@ export default function Attendance() {
     let cancelled = false
 
     Promise.all([
-      apiFetch(`/batches/enrolments/?batch=${batchId}`),
-      apiFetch(`/attendance/?batch=${batchId}&date=${date}`),
+      apiFetchAll(`/batches/enrolments/?batch=${batchId}`),
+      apiFetchAll(`/attendance/?batch=${batchId}&date=${date}`),
       apiFetch(`/attendance/summary/?batch=${batchId}`),
     ])
       .then(([enrolments, existing, summaryData]) => {

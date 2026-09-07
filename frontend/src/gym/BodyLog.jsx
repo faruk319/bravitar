@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 import MeasurementChart from './MeasurementChart'
 import ProgressPhotos from './ProgressPhotos'
 
@@ -20,7 +20,7 @@ export default function BodyLog() {
 
   useEffect(() => {
     let cancelled = false
-    apiFetch(`/gym/body/entries/?metric=${metric}`)
+    apiFetchAll(`/gym/body/entries/?metric=${metric}`)
       .then((data) => !cancelled && setEntries(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -43,7 +43,7 @@ export default function BodyLog() {
         body: JSON.stringify({ metric, value, unit: effectiveUnit, measured_on: measuredOn }),
       })
       setValue('')
-      setEntries(await apiFetch(`/gym/body/entries/?metric=${metric}`))
+      setEntries(await apiFetchAll(`/gym/body/entries/?metric=${metric}`))
     } catch (err) {
       setError(err.message)
     }

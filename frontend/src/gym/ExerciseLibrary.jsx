@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiPage } from '../lib/api'
 
 export default function ExerciseLibrary() {
   const [exercises, setExercises] = useState(null)
@@ -21,7 +21,7 @@ export default function ExerciseLibrary() {
     if (equipment) params.set('equipment', equipment)
 
     const timer = setTimeout(() => {
-      apiFetch(`/gym/exercises/?${params}`)
+      apiPage(`/gym/exercises/?${params}`)
         .then(setExercises)
         .catch((err) => setError(err.message))
     }, 200)
@@ -68,13 +68,15 @@ export default function ExerciseLibrary() {
 
       {exercises === null ? (
         <p className="muted">Loading…</p>
-      ) : exercises.length === 0 ? (
+      ) : exercises.items.length === 0 ? (
         <p className="muted">No exercises match those filters.</p>
       ) : (
         <>
-          <p className="muted small">{exercises.length} exercises</p>
+          <p className="muted small">
+            Showing {exercises.items.length} of {exercises.count} exercises
+          </p>
           <ul className="exercise-list">
-            {exercises.map((exercise) => (
+            {exercises.items.map((exercise) => (
               <li key={exercise.id}>
                 <div>
                   <strong>{exercise.name}</strong>

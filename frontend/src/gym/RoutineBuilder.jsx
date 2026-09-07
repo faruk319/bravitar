@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
 import GuidedSession from './GuidedSession'
 
 const emptyItem = (exercise) => ({
@@ -26,8 +26,8 @@ function RoutineForm({ onSaved, onCancel }) {
   useEffect(() => {
     if (!search) return
     const timer = setTimeout(() => {
-      apiFetch(`/gym/exercises/?search=${encodeURIComponent(search)}`)
-        .then((data) => setResults(data.slice(0, 8)))
+      apiPage(`/gym/exercises/?search=${encodeURIComponent(search)}`)
+        .then((page) => setResults(page.items.slice(0, 8)))
         .catch((err) => setError(err.message))
     }, 200)
     return () => clearTimeout(timer)
@@ -244,7 +244,7 @@ export default function RoutineBuilder() {
   const [error, setError] = useState(null)
 
   function load() {
-    apiFetch('/gym/routines/').then(setRoutines).catch((err) => setError(err.message))
+    apiFetchAll('/gym/routines/').then(setRoutines).catch((err) => setError(err.message))
   }
 
   useEffect(load, [])

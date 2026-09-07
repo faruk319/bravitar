@@ -36,6 +36,12 @@ class SupabaseUser:
             claims.get("email_verified") or metadata.get("email_verified")
         )
 
+    @property
+    def pk(self):
+        """DRF's UserRateThrottle keys its bucket on `user.pk`. There's no
+        Django row behind this user, so the Supabase id is the identity."""
+        return self.id
+
     def __str__(self):
         return self.email or self.id or "supabase-user"
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetchAll } from '../lib/api'
 import { useBranches } from './useBranches'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -16,7 +16,7 @@ export default function Batches() {
   useEffect(() => {
     let cancelled = false
     const params = branch ? `?branch=${branch}` : ''
-    apiFetch(`/batches/${params}`)
+    apiFetchAll(`/batches/${params}`)
       .then((data) => !cancelled && setBatches(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -31,7 +31,7 @@ export default function Batches() {
     }
     setExpanded(batch.id)
     setEnrolments([])
-    apiFetch(`/batches/enrolments/?batch=${batch.id}`)
+    apiFetchAll(`/batches/enrolments/?batch=${batch.id}`)
       .then(setEnrolments)
       .catch((err) => setError(err.message))
   }

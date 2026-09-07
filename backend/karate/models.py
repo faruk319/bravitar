@@ -40,7 +40,7 @@ class Grading(models.Model):
     notes = models.CharField(max_length=500, blank=True)
 
     class Meta:
-        ordering = ["-held_on"]
+        ordering = ["-held_on", "-id"]
 
     def __str__(self):
         return f"{self.belt.name} grading on {self.held_on}"
@@ -54,6 +54,7 @@ class GradingResult(models.Model):
     notes = models.CharField(max_length=255, blank=True)
 
     class Meta:
+        ordering = ["id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["grading", "student"], name="one_result_per_student_per_grading"

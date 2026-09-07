@@ -50,7 +50,7 @@ class Enrolment(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ["-enrolled_on"]
+        ordering = ["-enrolled_on", "-id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["batch", "student"],

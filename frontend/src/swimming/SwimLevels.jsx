@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 export default function SwimLevels() {
   const [data, setData] = useState(null)
@@ -8,7 +8,7 @@ export default function SwimLevels() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    Promise.all([apiFetch('/swimming/progress/'), apiFetch('/swimming/levels/')])
+    Promise.all([apiFetch('/swimming/progress/'), apiFetchAll('/swimming/levels/')])
       .then(([progress, levelData]) => {
         setData(progress)
         setLevels(levelData)

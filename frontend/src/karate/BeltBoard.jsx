@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 export default function BeltBoard() {
   const [standings, setStandings] = useState(null)
@@ -8,7 +8,7 @@ export default function BeltBoard() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    Promise.all([apiFetch('/karate/standings/'), apiFetch('/karate/gradings/')])
+    Promise.all([apiFetch('/karate/standings/'), apiFetchAll('/karate/gradings/')])
       .then(([s, g]) => {
         setStandings(s.students)
         setGradings(g)

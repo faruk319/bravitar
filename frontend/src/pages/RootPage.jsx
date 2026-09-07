@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import CreateOrgForm from '../components/CreateOrgForm'
 import { useAuth } from '../auth/AuthContext'
-import { apiFetch } from '../lib/api'
+import { apiFetchAll } from '../lib/api'
 import { orgUrl } from '../lib/tenant'
 import { verticalLabel } from '../lib/verticals'
 
@@ -17,7 +17,7 @@ export default function RootPage() {
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    apiFetch('/organizations/mine/')
+    apiFetchAll('/organizations/mine/')
       .then(setMemberships)
       .catch((err) => setError(err.message))
   }, [])

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 const PIPELINE = ['new', 'contacted', 'trial_scheduled', 'trial_done']
 const LABEL = {
@@ -24,7 +24,7 @@ export default function Enquiries() {
     let cancelled = false
     Promise.all([
       apiFetch('/enquiries/funnel/'),
-      apiFetch(`/enquiries/${status ? `?status=${status}` : ''}`),
+      apiFetchAll(`/enquiries/${status ? `?status=${status}` : ''}`),
     ])
       .then(([f, e]) => {
         if (cancelled) return

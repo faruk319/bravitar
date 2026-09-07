@@ -104,7 +104,7 @@ class SkillAssessment(models.Model):
     note = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        ordering = ["-achieved_on"]
+        ordering = ["-achieved_on", "-id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["student", "skill"], name="one_assessment_per_skill_per_student"

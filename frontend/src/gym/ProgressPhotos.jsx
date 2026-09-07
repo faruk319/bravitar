@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch, apiObjectUrl, apiUpload } from '../lib/api'
+import { apiFetchAll, apiObjectUrl, apiUpload } from '../lib/api'
 
 function PhotoThumb({ photo }) {
   const [url, setUrl] = useState(null)
@@ -44,7 +44,7 @@ export default function ProgressPhotos({ poses }) {
   const [busy, setBusy] = useState(false)
 
   function load() {
-    apiFetch('/gym/body/photos/').then(setPhotos).catch((err) => setError(err.message))
+    apiFetchAll('/gym/body/photos/').then(setPhotos).catch((err) => setError(err.message))
   }
 
   useEffect(load, [])

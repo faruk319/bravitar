@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 
 const ROLES = [
   { value: 'owner', label: 'Owner', hint: 'Full control, including settings and billing.' },
@@ -20,7 +20,7 @@ export default function Team({ role }) {
 
   useEffect(() => {
     let cancelled = false
-    apiFetch('/organizations/current/team/')
+    apiFetchAll('/organizations/current/team/')
       .then((data) => !cancelled && setTeam(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {

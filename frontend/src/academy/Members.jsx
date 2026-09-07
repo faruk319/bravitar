@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiPage } from '../lib/api'
 import { useBranches } from './useBranches'
 
 const STATUSES = ['active', 'trial', 'paused', 'left']
@@ -24,8 +24,8 @@ export default function Members() {
     if (branch) params.set('branch', branch)
 
     const timer = setTimeout(() => {
-      apiFetch(`/students/?${params}`)
-        .then((data) => !cancelled && setStudents(data))
+      apiPage(`/students/?${params}`)
+        .then((page) => !cancelled && setStudents(page))
         .catch((err) => !cancelled && setError(err.message))
     }, 200)
     return () => {
@@ -97,17 +97,19 @@ export default function Members() {
       <div className="card wide">
         {students === null ? (
           <p className="muted">Loading…</p>
-        ) : students.length === 0 ? (
+        ) : students.items.length === 0 ? (
           <p className="muted">No members match those filters.</p>
         ) : (
           <>
-            <p className="muted small">{students.length} members</p>
+            <p className="muted small">
+              Showing {students.items.length} of {students.count} members
+            </p>
             <table className="data-table">
               <thead>
                 <tr><th>Name</th><th>Phone</th><th>Branch</th><th>Status</th><th>Joined</th></tr>
               </thead>
               <tbody>
-                {students.map((s) => (
+                {students.items.map((s) => (
                   <tr key={s.id}>
                     <td>{s.full_name}</td>
                     <td>{s.phone || '—'}</td>

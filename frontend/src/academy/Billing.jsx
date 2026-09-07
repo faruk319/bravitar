@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiPage } from '../lib/api'
 
 const money = (value) =>
   Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })
@@ -60,7 +60,7 @@ export default function Billing() {
     let cancelled = false
     Promise.all([
       apiFetch('/billing/summary/'),
-      apiFetch(`/billing/invoices/${onlyOverdue ? '?status=overdue' : ''}`),
+      apiPage(`/billing/invoices/${onlyOverdue ? '?status=overdue' : ''}`),
     ])
       .then(([s, i]) => {
         if (cancelled) return
@@ -114,7 +114,9 @@ export default function Billing() {
           <p className="muted">Loading…</p>
         ) : (
           <>
-            <p className="muted small">{invoices.length} invoices</p>
+            <p className="muted small">
+              Showing {invoices.items.length} of {invoices.count} invoices
+            </p>
             <table className="data-table">
               <thead>
                 <tr>
@@ -123,7 +125,7 @@ export default function Billing() {
                 </tr>
               </thead>
               <tbody>
-                {invoices.slice(0, 40).map((inv) => (
+                {invoices.items.map((inv) => (
                   <tr key={inv.id}>
                     <td>{inv.student_name}</td>
                     <td>{inv.description}</td>
@@ -144,8 +146,10 @@ export default function Billing() {
                 ))}
               </tbody>
             </table>
-            {invoices.length > 40 && (
-              <p className="muted small">Showing the first 40 of {invoices.length}.</p>
+            {invoices.next && (
+              <p className="muted small">
+                More invoices exist — narrow the filter to find a specific one.
+              </p>
             )}
           </>
         )}

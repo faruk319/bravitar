@@ -26,6 +26,46 @@ export async function apiFetch(path, options = {}) {
   return body
 }
 
+/**
+ * One page of a list endpoint, normalised to {items, count, next, previous}.
+ * Tolerates a bare array so unpaginated endpoints work through the same call.
+ */
+export async function apiPage(path) {
+  const body = await apiFetch(path)
+  if (Array.isArray(body)) {
+    return { items: body, count: body.length, next: null, previous: null }
+  }
+  return {
+    items: body?.results ?? [],
+    count: body?.count ?? 0,
+    next: body?.next ?? null,
+    previous: body?.previous ?? null,
+  }
+}
+
+/**
+ * Every row of a list endpoint, following `next` until it runs out.
+ *
+ * For the places that genuinely need the whole set — a dropdown, a chart
+ * series, a register a coach has to mark. A silently truncated register would
+ * mark half a class absent, so those callers must not just take page one.
+ */
+export async function apiFetchAll(path, { maxPages = 50 } = {}) {
+  const separator = path.includes('?') ? '&' : '?'
+  let page = await apiPage(`${path}${separator}page_size=200`)
+  const items = [...page.items]
+
+  for (let fetched = 1; page.next && fetched < maxPages; fetched += 1) {
+    // DRF returns `next` as an absolute URL built from the Host header. Take
+    // only the path and query so the follow-up still goes through the dev
+    // proxy on the tenant's own host rather than out to the public name.
+    const url = new URL(page.next)
+    page = await apiPage(`${url.pathname.replace(/^\/api/, '')}${url.search}`)
+    items.push(...page.items)
+  }
+  return items
+}
+
 /** Posts multipart form data (file uploads), letting the browser set the boundary. */
 export async function apiUpload(path, formData) {
   const { data } = await supabase.auth.getSession()

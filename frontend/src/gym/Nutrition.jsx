@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
 import MacroMeter from './MacroMeter'
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -66,8 +66,8 @@ function AddFoodForm({ date, meals, onLogged }) {
   useEffect(() => {
     if (!search) return
     const timer = setTimeout(() => {
-      apiFetch(`/gym/nutrition/foods/?search=${encodeURIComponent(search)}`)
-        .then((data) => setResults(data.slice(0, 8)))
+      apiPage(`/gym/nutrition/foods/?search=${encodeURIComponent(search)}`)
+        .then((page) => setResults(page.items.slice(0, 8)))
         .catch((err) => setError(err.message))
     }, 200)
     return () => clearTimeout(timer)
@@ -179,7 +179,7 @@ export default function Nutrition() {
     let cancelled = false
     Promise.all([
       apiFetch(`/gym/nutrition/summary/?date=${date}`),
-      apiFetch(`/gym/nutrition/log/?date=${date}`),
+      apiFetchAll(`/gym/nutrition/log/?date=${date}`),
     ])
       .then(([summaryData, entryData]) => {
         if (cancelled) return

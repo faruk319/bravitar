@@ -43,6 +43,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # fill in Supabase DB + JWT/URL settings
 python manage.py migrate
+python manage.py test             # 97 tests, ~2s
 python manage.py seed_exercises   # shared exercise library (safe to re-run)
 python manage.py seed_foods       # shared food library (safe to re-run)
 python manage.py runserver
@@ -239,6 +240,66 @@ A student's belt is derived on read as the highest-position belt they have
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.
+
+## Tests
+
+```bash
+cd backend && source .venv/bin/activate
+python manage.py test          # everything
+python manage.py test tests.test_isolation
+```
+
+`backend/tests/` covers the invariants that are expensive to be wrong about
+and easy to break silently:
+
+| File | What it protects |
+|---|---|
+| `test_tenancy.py` | subdomain / verified-custom-domain / API-key resolution |
+| `test_isolation.py` | one academy never reads or writes another's records |
+| `test_roles.py` | member reads, staff runs the academy, owner controls it |
+| `test_verticals.py` | plugin gating, including toggling a vertical off and on |
+| `test_invitations.py` | invite claiming, the email-verification gate, last owner |
+| `test_pagination.py` | response shape, the page-size cap, no row lost or repeated |
+| `test_business_rules.py` | invoice status and overpayment, registers, capacity |
+| `test_security.py` | private progress photos, JWT rejection, throttle identity |
+| `test_plugins.py` | lane double-booking, swim levels, belt derivation, PRs |
+
+Authentication is forced rather than driven through a real Supabase token —
+the JWT path has its own tests, and everything else is about what a *known*
+identity may do. Tenancy still runs through the real middleware, so every test
+resolves its organization from the Host header the way production does.
+
+The suite was checked by breaking things on purpose: removing the tenant
+filter fails 6 tests, removing the email-verification gate fails 1, and
+dropping the overpayment guard fails 2.
+
+## Pagination
+
+Every list endpoint returns `{count, next, previous, results}`, 50 rows by
+default, `?page_size=` up to 200. Applied globally rather than per-view: a list
+that is small today is not necessarily small next year, and a silently
+truncated list is worse than a paged one.
+
+The frontend has two helpers in `src/lib/api.js`. `apiPage` takes one page —
+for big tables like members and invoices. `apiFetchAll` follows `next` until it
+runs out, for the places that genuinely need every row: a dropdown, a chart
+series, or a register a coach is about to mark, where showing half a class
+would mark the rest absent.
+
+Pagination needs a deterministic total order, so every paged model orders by a
+unique tiebreaker — without one a row can appear on two pages or on none.
+
+## Production configuration
+
+The backend refuses to start with `DEBUG=False` and a placeholder
+`DJANGO_SECRET_KEY` (checked for length and for giveaway markers, since the
+likeliest mistake is copying the one out of `.env.example`) or with an empty
+`DJANGO_ALLOWED_HOSTS`. With `DEBUG` off it also turns on HSTS, SSL redirect,
+secure cookies and `X-Frame-Options: DENY`.
+
+Throttling is on by default — `THROTTLE_ANON` (30/min) and `THROTTLE_USER`
+(1000/hour). CORS matches `https://<slug>.<DJANGO_BASE_DOMAIN>` by regex,
+because listing literal origins would mean editing settings on every signup.
 
 ## Frontend (React + Vite)
 

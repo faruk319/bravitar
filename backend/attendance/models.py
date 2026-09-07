@@ -40,7 +40,7 @@ class AttendanceRecord(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-date"]
+        ordering = ["-date", "-id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["batch", "student", "date"], name="one_attendance_mark_per_day"

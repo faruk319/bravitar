@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetchAll } from '../lib/api'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -11,7 +11,7 @@ export default function LanePlanner() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    apiFetch('/swimming/pools/')
+    apiFetchAll('/swimming/pools/')
       .then((data) => {
         setPools(data)
         if (data.length) setPoolId(String(data[0].id))
@@ -22,7 +22,7 @@ export default function LanePlanner() {
   useEffect(() => {
     if (!poolId) return
     let cancelled = false
-    apiFetch(`/swimming/lanes/?pool=${poolId}`)
+    apiFetchAll(`/swimming/lanes/?pool=${poolId}`)
       .then((data) => !cancelled && setBookings(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {

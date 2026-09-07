@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchAll } from '../lib/api'
 import { VERTICALS } from '../lib/verticals'
 
 export default function Settings({ org, role, onOrgChange }) {
@@ -16,7 +16,7 @@ export default function Settings({ org, role, onOrgChange }) {
 
   useEffect(() => {
     let cancelled = false
-    apiFetch('/organizations/current/branches/')
+    apiFetchAll('/organizations/current/branches/')
       .then((data) => !cancelled && setBranches(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {
