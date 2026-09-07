@@ -352,3 +352,11 @@ button.link {
 }
 .role-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .data-table select { font: inherit; padding: 0.2rem 0.3rem; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+
+/* Forms added for create/edit flows */
+.day-picker { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.day-picker .checkbox { padding: 0.3rem 0.5rem; }
+
+.picker { position: relative; display: block; }
+.picker input { width: 100%; }
+.picked { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0; }

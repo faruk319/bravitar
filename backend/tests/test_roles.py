@@ -70,9 +70,11 @@ class StaffBoundaryTests(TenantAPITestCase):
         self.assertNotEqual(response.status_code, 403)
 
     def test_staff_can_read_the_books_but_not_change_them(self):
-        self.assertEqual(
-            self.client_for(self.staff).get("/api/billing/invoices/").status_code, 200
-        )
+        # Every read the billing screen makes, not just the list — one 403
+        # among them blanks the whole page.
+        for path in ["/api/billing/invoices/", "/api/billing/summary/", "/api/billing/plans/"]:
+            with self.subTest(path=path):
+                self.assertEqual(self.client_for(self.staff).get(path).status_code, 200)
         student = Student.objects.create(
             organization=self.org, full_name="Payer", joined_on=date(2026, 1, 1)
         )

@@ -7,7 +7,7 @@ from rest_framework.response import Response
 
 from tenants.context import get_current_organization
 from tenants.mixins import OrganizationScopedMixin
-from tenants.permissions import IsOrganizationManager
+from tenants.permissions import IsOrganizationManager, IsOrganizationStaff
 
 from .constants import InvoiceStatus
 from .models import FeePlan, Invoice, Payment
@@ -74,9 +74,13 @@ class PaymentListCreateView(BillingScopedMixin, generics.ListCreateAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([IsOrganizationManager])
+@permission_classes([IsOrganizationStaff])
 def billing_summary(request):
-    """What's been billed, collected and is still outstanding."""
+    """What's been billed, collected and is still outstanding.
+
+    Readable by anyone running the academy — it is an aggregate of invoices
+    they can already list. Changing the books stays with managers.
+    """
     organization = get_current_organization(request)
     invoices = (
         Invoice.objects.filter(organization=organization, is_cancelled=False)

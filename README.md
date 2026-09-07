@@ -207,6 +207,12 @@ as sets but carry no tonnage, which is why both numbers are reported.
 
 ## Cross-vertical core (Phase 4)
 
+Reads are open to any signed-in role; writes are staff and up, except the
+books, which are managers only. The screens cover the operational loop end to
+end: create a batch, enrol members into it, mark the register, raise an
+invoice against a fee plan, record the payment, and log a walk-in enquiry
+through to enrolment.
+
 Available to every vertical, not gated behind one — a swim academy and a gym
 both get these. Reads are open to any member; writes are owner/staff.
 

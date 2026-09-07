@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../lib/api'
+import { useBranches } from './useBranches'
 
 const PIPELINE = ['new', 'contacted', 'trial_scheduled', 'trial_done']
 const LABEL = {
@@ -12,13 +13,116 @@ const LABEL = {
   lost: 'Lost',
 }
 
-export default function Enquiries() {
+const SOURCES = [
+  ['walk_in', 'Walk-in'], ['phone', 'Phone'], ['website', 'Website'],
+  ['referral', 'Referral'], ['social', 'Social media'], ['other', 'Other'],
+]
+
+function NewEnquiry({ branches, verticals, onCreated, onCancel }) {
+  const [form, setForm] = useState(() => ({
+    name: '', phone: '', email: '', source: 'walk_in',
+    interested_in: verticals[0] ?? '', branch: '',
+    follow_up_on: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),
+    notes: '',
+  }))
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  async function create(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await apiFetch('/enquiries/', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form,
+          branch: form.branch === '' ? null : Number(form.branch),
+          follow_up_on: form.follow_up_on || null,
+        }),
+      })
+      onCreated()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="card wide" onSubmit={create}>
+      <h2>New enquiry</h2>
+      <p className="muted small">
+        Write the walk-in down before they leave — that's the leak this closes.
+      </p>
+
+      <div className="two-up">
+        <label>Name
+          <input required value={form.name}
+                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </label>
+        <label>Phone
+          <input value={form.phone}
+                 onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        </label>
+      </div>
+
+      <div className="set-entry">
+        <label>Email
+          <input type="email" value={form.email}
+                 onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </label>
+        <label>Heard via
+          <select value={form.source}
+                  onChange={(e) => setForm({ ...form, source: e.target.value })}>
+            {SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label>Interested in
+          <select value={form.interested_in}
+                  onChange={(e) => setForm({ ...form, interested_in: e.target.value })}>
+            <option value="">Not sure</option>
+            {verticals.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label>Branch
+          <select value={form.branch}
+                  onChange={(e) => setForm({ ...form, branch: e.target.value })}>
+            <option value="">No branch</option>
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </label>
+        <label>Follow up on
+          <input type="date" value={form.follow_up_on}
+                 onChange={(e) => setForm({ ...form, follow_up_on: e.target.value })} />
+        </label>
+      </div>
+
+      <label>Notes
+        <input value={form.notes} placeholder="What did they ask about?"
+               onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+      </label>
+
+      {error && <p className="error">{error}</p>}
+
+      <div className="row-actions">
+        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save enquiry'}</button>
+        <button type="button" className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+export default function Enquiries({ role, org }) {
   const [funnel, setFunnel] = useState(null)
   const [enquiries, setEnquiries] = useState(null)
   const [status, setStatus] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [busyId, setBusyId] = useState(null)
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
+  const branches = useBranches()
+
+  const canManage = ['owner', 'manager', 'staff'].includes(role)
 
   useEffect(() => {
     let cancelled = false
@@ -90,6 +194,24 @@ export default function Enquiries() {
           </div>
         </div>
       </div>
+
+      {canManage && (
+        <div className="filters">
+          <button type="button" onClick={() => setCreating(true)}>+ New enquiry</button>
+        </div>
+      )}
+
+      {creating && (
+        <NewEnquiry
+          branches={branches}
+          verticals={org?.verticals ?? []}
+          onCancel={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false)
+            setRefresh((n) => n + 1)
+          }}
+        />
+      )}
 
       <div className="funnel">
         {PIPELINE.map((stage) => (

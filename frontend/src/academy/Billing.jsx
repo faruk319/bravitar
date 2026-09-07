@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch, apiPage } from '../lib/api'
+import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
+import StudentPicker from './StudentPicker'
 
 const money = (value) =>
   Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })
@@ -48,24 +49,196 @@ function RecordPayment({ invoice, onDone }) {
   )
 }
 
-export default function Billing() {
+const CYCLES = [
+  ['monthly', 'Monthly'], ['quarterly', 'Quarterly'],
+  ['half_yearly', 'Half yearly'], ['annual', 'Annual'], ['one_time', 'One time'],
+]
+
+const inDays = (days) =>
+  new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
+
+function FeePlans({ plans, onChanged }) {
+  const [form, setForm] = useState({ name: '', amount: '', cycle: 'monthly' })
+  const [error, setError] = useState(null)
+  const [open, setOpen] = useState(false)
+
+  async function create(event) {
+    event.preventDefault()
+    setError(null)
+    try {
+      await apiFetch('/billing/plans/', { method: 'POST', body: JSON.stringify(form) })
+      setForm({ name: '', amount: '', cycle: 'monthly' })
+      onChanged()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="card wide">
+      <div className="row">
+        <h2>Fee plans</h2>
+        <button type="button" className="link" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Close' : '+ New plan'}
+        </button>
+      </div>
+      <p className="muted small">Named fees you can raise invoices from.</p>
+
+      {open && (
+        <form className="set-entry" onSubmit={create}>
+          <label>Name
+            <input required value={form.name}
+                   onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </label>
+          <label>Amount
+            <input type="number" step="0.01" min="0.01" required value={form.amount}
+                   onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          </label>
+          <label>Cycle
+            <select value={form.cycle}
+                    onChange={(e) => setForm({ ...form, cycle: e.target.value })}>
+              {CYCLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <button type="submit">Save plan</button>
+        </form>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      {plans.length === 0 ? (
+        <p className="muted">No fee plans yet.</p>
+      ) : (
+        <table className="data-table">
+          <thead><tr><th>Plan</th><th>Amount</th><th>Cycle</th></tr></thead>
+          <tbody>
+            {plans.map((plan) => (
+              <tr key={plan.id}>
+                <td>{plan.name}</td>
+                <td>₹{money(plan.amount)}</td>
+                <td>{plan.cycle.replace('_', ' ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function NewInvoice({ plans, onCreated, onCancel }) {
+  const [student, setStudent] = useState(null)
+  const [planId, setPlanId] = useState('')
+  const [form, setForm] = useState(() => ({
+    amount: '', description: '',
+    issued_on: new Date().toISOString().slice(0, 10),
+    due_on: inDays(10),
+  }))
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  function choosePlan(id) {
+    setPlanId(id)
+    const plan = plans.find((p) => String(p.id) === id)
+    if (plan) {
+      setForm((f) => ({ ...f, amount: plan.amount, description: f.description || plan.name }))
+    }
+  }
+
+  async function create(event) {
+    event.preventDefault()
+    if (!student) {
+      setError('Pick a member to invoice.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await apiFetch('/billing/invoices/', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...form, student: student.id,
+          fee_plan: planId === '' ? null : Number(planId),
+        }),
+      })
+      onCreated()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="card wide" onSubmit={create}>
+      <h2>Raise an invoice</h2>
+
+      <label>
+        Member
+        <StudentPicker value={student} onChange={setStudent} />
+      </label>
+
+      <div className="set-entry">
+        <label>From plan
+          <select value={planId} onChange={(e) => choosePlan(e.target.value)}>
+            <option value="">One-off</option>
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label>Amount
+          <input type="number" step="0.01" min="0.01" required value={form.amount}
+                 onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+        </label>
+        <label>Issued
+          <input type="date" required value={form.issued_on}
+                 onChange={(e) => setForm({ ...form, issued_on: e.target.value })} />
+        </label>
+        <label>Due
+          <input type="date" required value={form.due_on}
+                 onChange={(e) => setForm({ ...form, due_on: e.target.value })} />
+        </label>
+      </div>
+
+      <label>Description
+        <input value={form.description}
+               onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      </label>
+
+      {error && <p className="error">{error}</p>}
+
+      <div className="row-actions">
+        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Create invoice'}</button>
+        <button type="button" className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+export default function Billing({ role }) {
   const [summary, setSummary] = useState(null)
   const [invoices, setInvoices] = useState(null)
   const [onlyOverdue, setOnlyOverdue] = useState(false)
   const [paying, setPaying] = useState(null)
+  const [plans, setPlans] = useState([])
+  const [creating, setCreating] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState(null)
+
+  // Reading the books is open to anyone running the academy; changing them
+  // is a manager's job, and the backend enforces the same split.
+  const canBill = ['owner', 'manager'].includes(role)
 
   useEffect(() => {
     let cancelled = false
     Promise.all([
       apiFetch('/billing/summary/'),
       apiPage(`/billing/invoices/${onlyOverdue ? '?status=overdue' : ''}`),
+      apiFetchAll('/billing/plans/'),
     ])
-      .then(([s, i]) => {
+      .then(([s, i, p]) => {
         if (cancelled) return
         setSummary(s)
         setInvoices(i)
+        setPlans(p)
       })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -107,7 +280,21 @@ export default function Billing() {
                  onChange={(e) => setOnlyOverdue(e.target.checked)} />
           Only overdue
         </label>
+        {canBill && (
+          <button type="button" onClick={() => setCreating(true)}>+ Raise invoice</button>
+        )}
       </div>
+
+      {canBill && creating && (
+        <NewInvoice
+          plans={plans}
+          onCancel={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false)
+            setRefresh((n) => n + 1)
+          }}
+        />
+      )}
 
       <div className="card wide">
         {invoices === null ? (
@@ -135,7 +322,7 @@ export default function Billing() {
                     <td>{inv.due_on}</td>
                     <td><span className={`pill ${inv.status}`}>{inv.status}</span></td>
                     <td>
-                      {Number(inv.balance) > 0 && (
+                      {canBill && Number(inv.balance) > 0 && (
                         <button type="button" className="link"
                                 onClick={() => setPaying(paying?.id === inv.id ? null : inv)}>
                           {paying?.id === inv.id ? 'Close' : 'Pay'}
@@ -154,6 +341,8 @@ export default function Billing() {
           </>
         )}
       </div>
+
+      {canBill && <FeePlans plans={plans} onChanged={() => setRefresh((n) => n + 1)} />}
 
       {paying && (
         <div className="card wide">

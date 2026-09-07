@@ -10,6 +10,13 @@ const ROLES = [
   { value: 'staff', label: 'Staff / Trainer', hint: 'Runs sessions: members, batches, registers.' },
 ]
 
+// Rows can still carry a role that is no longer handed out — a member linked
+// before sign-in was switched off. Label it rather than showing a raw value.
+const RETIRED_LABELS = { member: 'Member (no sign-in yet)' }
+const labelFor = (role) =>
+  ROLES.find((r) => r.value === role)?.label ?? RETIRED_LABELS[role] ?? role
+const isAssignable = (role) => ROLES.some((r) => r.value === role)
+
 export default function Team({ role }) {
   const [team, setTeam] = useState(null)
   const [email, setEmail] = useState('')
@@ -120,15 +127,18 @@ export default function Team({ role }) {
                   <td>
                     {isOwner ? (
                       <select
-                        value={member.role}
+                        value={isAssignable(member.role) ? member.role : ''}
                         onChange={(e) => changeRole(member, e.target.value)}
                       >
+                        {!isAssignable(member.role) && (
+                          <option value="" disabled>{labelFor(member.role)}</option>
+                        )}
                         {ROLES.map((r) => (
                           <option key={r.value} value={r.value}>{r.label}</option>
                         ))}
                       </select>
                     ) : (
-                      ROLES.find((r) => r.value === member.role)?.label ?? member.role
+                      labelFor(member.role)
                     )}
                   </td>
                   <td>

@@ -108,7 +108,7 @@ export default function DashboardPage() {
           )
         ) : activeModule ? (
           ModuleComponent ? (
-            <ModuleComponent />
+            <ModuleComponent role={org.role} org={org} />
           ) : (
             <>
               <h1>{activeModule.label}</h1>
