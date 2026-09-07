@@ -58,6 +58,8 @@ class MemberSubscriptionSerializer(serializers.ModelSerializer):
     tier_name = serializers.CharField(source="tier.name", read_only=True)
     status = serializers.CharField(read_only=True)
     days_remaining = serializers.IntegerField(read_only=True)
+    invoice_status = serializers.SerializerMethodField()
+    amount_due = serializers.SerializerMethodField()
 
     class Meta:
         model = MemberSubscription
@@ -65,15 +67,23 @@ class MemberSubscriptionSerializer(serializers.ModelSerializer):
             "id", "student", "student_name", "tier", "tier_name",
             "started_on", "expires_on", "price_paid", "invoice",
             "cancelled_on", "notes", "status", "days_remaining",
+            "invoice_status", "amount_due",
         ]
         read_only_fields = [
-            "id", "student_name", "tier_name", "status", "days_remaining", "invoice",
+            "id", "student_name", "tier_name", "status", "days_remaining",
+            "invoice", "invoice_status", "amount_due",
         ]
         # Worked out from the tier's length unless explicitly overridden.
         extra_kwargs = {
             "expires_on": {"required": False},
             "price_paid": {"required": False},
         }
+
+    def get_invoice_status(self, obj):
+        return obj.invoice.status if obj.invoice else None
+
+    def get_amount_due(self, obj):
+        return obj.invoice.balance if obj.invoice else None
 
     def validate_student(self, value):
         if value.organization_id != self.context["organization"].id:

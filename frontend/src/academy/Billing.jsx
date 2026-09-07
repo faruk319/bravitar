@@ -57,7 +57,7 @@ const CYCLES = [
 const inDays = (days) =>
   new Date(Date.now() + days * 86400000).toISOString().slice(0, 10)
 
-function FeePlans({ plans, onChanged }) {
+function FeePlans({ plans, onChanged, isGym }) {
   const [form, setForm] = useState({ name: '', amount: '', cycle: 'monthly' })
   const [error, setError] = useState(null)
   const [open, setOpen] = useState(false)
@@ -77,12 +77,16 @@ function FeePlans({ plans, onChanged }) {
   return (
     <div className="card wide">
       <div className="row">
-        <h2>Fee plans</h2>
+        <h2>{isGym ? 'One-off charges' : 'Fee plans'}</h2>
         <button type="button" className="link" onClick={() => setOpen((v) => !v)}>
-          {open ? 'Close' : '+ New plan'}
+          {open ? 'Close' : '+ New charge'}
         </button>
       </div>
-      <p className="muted small">Named fees you can raise invoices from.</p>
+      <p className="muted small">
+        {isGym
+          ? 'Joining fees, PT packages, anything that isn\'t a membership. Membership prices live under Membership Plans.'
+          : 'Named fees you can raise invoices from.'}
+      </p>
 
       {open && (
         <form className="set-entry" onSubmit={create}>
@@ -213,7 +217,7 @@ function NewInvoice({ plans, onCreated, onCancel }) {
   )
 }
 
-export default function Billing({ role }) {
+export default function Billing({ role, org }) {
   const [summary, setSummary] = useState(null)
   const [invoices, setInvoices] = useState(null)
   const [onlyOverdue, setOnlyOverdue] = useState(false)
@@ -226,6 +230,11 @@ export default function Billing({ role }) {
   // Reading the books is open to anyone running the academy; changing them
   // is a manager's job, and the backend enforces the same split.
   const canBill = ['owner', 'manager'].includes(role)
+
+  // A gym's recurring prices are its membership plans, so calling these
+  // "fee plans" alongside them was the confusing part. Here they are what's
+  // left: joining fees, PT packages, one-off charges.
+  const isGym = (org?.verticals ?? []).includes('gym')
 
   useEffect(() => {
     let cancelled = false
@@ -252,7 +261,10 @@ export default function Billing({ role }) {
   return (
     <>
       <h1>Fees &amp; Billing</h1>
-      <p className="muted">What has been billed, collected, and is still owed.</p>
+      <p className="muted">
+        Every rupee owed and paid, wherever it came from
+        {isGym && ' — memberships raise their invoice here automatically'}.
+      </p>
 
       <div className="stat-row">
         <div className="stat-tile">
@@ -315,7 +327,12 @@ export default function Billing({ role }) {
                 {invoices.items.map((inv) => (
                   <tr key={inv.id}>
                     <td>{inv.student_name}</td>
-                    <td>{inv.description}</td>
+                    <td>
+                      {inv.description}
+                      {inv.description?.includes('membership') && (
+                        <span className="tag">membership</span>
+                      )}
+                    </td>
                     <td>₹{money(inv.amount)}</td>
                     <td>₹{money(inv.amount_paid)}</td>
                     <td>₹{money(inv.balance)}</td>
@@ -342,7 +359,7 @@ export default function Billing({ role }) {
         )}
       </div>
 
-      {canBill && <FeePlans plans={plans} onChanged={() => setRefresh((n) => n + 1)} />}
+      {canBill && <FeePlans plans={plans} isGym={isGym} onChanged={() => setRefresh((n) => n + 1)} />}
 
       {paying && (
         <div className="card wide">

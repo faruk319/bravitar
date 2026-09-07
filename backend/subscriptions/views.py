@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics
@@ -65,6 +66,14 @@ class TierDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
 class SubscriptionListCreateView(GymScopedMixin, generics.ListCreateAPIView):
     serializer_class = MemberSubscriptionSerializer
 
+    @transaction.atomic
+    def perform_create(self, serializer):
+        """Selling a membership bills for it, so Memberships and Fees &
+        Billing are two views of the same money rather than two tallies that
+        never meet."""
+        subscription = serializer.save(organization=self.organization)
+        subscription.raise_invoice()
+
     def get_queryset(self):
         queryset = self.scoped(MemberSubscription).select_related("student", "tier")
         params = self.request.query_params
@@ -92,6 +101,15 @@ class SubscriptionDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIVi
 
     def get_queryset(self):
         return self.scoped(MemberSubscription).select_related("student", "tier")
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        """Cancelling goes through the model so an unpaid bill is dropped
+        with it rather than left chasing someone who has left."""
+        was_cancelled = serializer.instance.cancelled_on
+        subscription = serializer.save()
+        if subscription.cancelled_on and not was_cancelled:
+            subscription.cancel(on=subscription.cancelled_on)
 
 
 @api_view(["GET"])

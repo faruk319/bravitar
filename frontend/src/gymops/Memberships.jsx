@@ -129,7 +129,10 @@ export default function Memberships({ role }) {
   return (
     <>
       <h1>Memberships</h1>
-      <p className="muted">Who is on a plan, and until when.</p>
+      <p className="muted">
+        Who is on a plan and until when. Starting one raises its invoice under
+        Fees &amp; Billing, where the payment is recorded.
+      </p>
 
       <div className="stat-row">
         <div className="stat-tile">
@@ -207,7 +210,7 @@ export default function Memberships({ role }) {
               <thead>
                 <tr>
                   <th>Member</th><th>Plan</th><th>Started</th><th>Expires</th>
-                  <th>Left</th><th>Status</th>{canManage && <th />}
+                  <th>Left</th><th>Status</th><th>Fee</th>{canManage && <th />}
                 </tr>
               </thead>
               <tbody>
@@ -225,6 +228,17 @@ export default function Memberships({ role }) {
                           : `${Math.abs(s.days_remaining)}d ago`}
                     </td>
                     <td><span className={`pill ${s.status}`}>{s.status}</span></td>
+                    <td>
+                      {s.invoice_status ? (
+                        <span className={`pill ${s.invoice_status}`}>
+                          {s.invoice_status === 'paid'
+                            ? 'paid'
+                            : `₹${money(s.amount_due)} due`}
+                        </span>
+                      ) : (
+                        <span className="muted small">—</span>
+                      )}
+                    </td>
                     {canManage && (
                       <td>
                         {!s.cancelled_on && (

@@ -313,3 +313,124 @@ class GymGatingTests(GymTestCase):
         self.assertEqual(
             self.client_for(self.manager).get("/api/gym/exercises/").status_code, 200
         )
+
+
+class MembershipBillingTests(GymTestCase):
+    """Selling a membership has to raise a bill.
+
+    Without this the Memberships screen and Fees & Billing show two unrelated
+    sets of numbers, which is exactly how it read before — and is what made
+    the two screens impossible to reconcile.
+    """
+
+    def test_starting_a_membership_raises_its_invoice(self):
+        from billing.models import Invoice
+
+        response = self.subscribe()
+        self.assertEqual(response.status_code, 201)
+
+        invoice = Invoice.objects.get(organization=self.org, student=self.student)
+        self.assertEqual(invoice.amount, Decimal("1500.00"))
+        self.assertEqual(invoice.subscription.id, response.data["id"])
+
+    def test_the_invoice_says_what_it_is_for(self):
+        response = self.subscribe(started_on=date(2026, 4, 1))
+        from billing.models import Invoice
+
+        invoice = Invoice.objects.get(subscription__id=response.data["id"])
+        self.assertIn("Monthly membership", invoice.description)
+        self.assertIn("2026-04-01", invoice.description)
+        self.assertEqual(invoice.period_start, date(2026, 4, 1))
+        self.assertEqual(invoice.period_end, date(2026, 4, 30))
+
+    def test_the_fee_is_due_when_the_membership_starts(self):
+        from billing.models import Invoice
+
+        response = self.subscribe(started_on=self.today)
+        invoice = Invoice.objects.get(subscription__id=response.data["id"])
+        self.assertEqual(invoice.due_on, self.today)
+
+    def test_the_membership_reports_what_is_still_owed(self):
+        response = self.subscribe()
+        self.assertEqual(response.data["invoice_status"], "unpaid")
+
+        detail = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{response.data['id']}/"
+        )
+        self.assertEqual(Decimal(detail.data["amount_due"]), Decimal("1500.00"))
+
+    def test_paying_the_invoice_shows_on_the_membership(self):
+        """The two screens are two views of one payment, not two tallies."""
+        created = self.subscribe()
+        invoice_id = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        ).data["invoice"]
+
+        self.client_for(self.manager).post(
+            "/api/billing/payments/",
+            {"invoice": invoice_id, "amount": "1500.00", "paid_on": str(self.today)},
+            format="json",
+        )
+
+        detail = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        )
+        self.assertEqual(detail.data["invoice_status"], "paid")
+        self.assertEqual(Decimal(detail.data["amount_due"]), Decimal("0.00"))
+
+    def test_membership_money_appears_in_the_billing_totals(self):
+        self.subscribe()
+        summary = self.client_for(self.manager).get("/api/billing/summary/")
+        self.assertEqual(Decimal(summary.data["billed"]), Decimal("1500.00"))
+
+    def test_cancelling_an_unpaid_membership_drops_its_bill(self):
+        """No point chasing someone who left before paying anything."""
+        from billing.models import Invoice
+
+        created = self.subscribe()
+        self.client_for(self.manager).patch(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/",
+            {"cancelled_on": str(self.today)}, format="json",
+        )
+
+        invoice = Invoice.objects.get(subscription__id=created.data["id"])
+        self.assertTrue(invoice.is_cancelled)
+
+        summary = self.client_for(self.manager).get("/api/billing/summary/")
+        self.assertEqual(Decimal(summary.data["billed"]), Decimal("0.00"))
+
+    def test_cancelling_a_part_paid_membership_keeps_its_bill(self):
+        """Real money changed hands. Whether that becomes a refund or a
+        credit is a person's decision, not something to quietly automate."""
+        from billing.models import Invoice
+
+        created = self.subscribe()
+        invoice_id = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        ).data["invoice"]
+        self.client_for(self.manager).post(
+            "/api/billing/payments/",
+            {"invoice": invoice_id, "amount": "500.00", "paid_on": str(self.today)},
+            format="json",
+        )
+
+        self.client_for(self.manager).patch(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/",
+            {"cancelled_on": str(self.today)}, format="json",
+        )
+
+        invoice = Invoice.objects.get(pk=invoice_id)
+        self.assertFalse(invoice.is_cancelled)
+        self.assertEqual(invoice.amount_paid, Decimal("500.00"))
+
+    def test_a_membership_is_billed_once(self):
+        from billing.models import Invoice
+
+        created = self.subscribe()
+        subscription = MemberSubscription.objects.get(pk=created.data["id"])
+        subscription.raise_invoice()
+        subscription.raise_invoice()
+
+        self.assertEqual(
+            Invoice.objects.filter(organization=self.org, student=self.student).count(), 1
+        )

@@ -84,8 +84,9 @@ class MemberSubscription(models.Model):
     expires_on = models.DateField()
     price_paid = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Money lives in the billing app; this just points at the invoice raised
-    # for the subscription rather than growing its own payment tracking.
+    # Selling a membership raises an invoice, and this points at it. Without
+    # that link the Memberships screen and Fees & Billing show two unrelated
+    # sets of numbers, which is exactly how it read before.
     invoice = models.OneToOneField(
         "billing.Invoice", on_delete=models.SET_NULL,
         related_name="subscription", null=True, blank=True,
@@ -131,6 +132,48 @@ class MemberSubscription(models.Model):
         # Inclusive of the start day: a 30-day plan bought on the 1st runs to
         # the 30th, not the 31st.
         return started_on + timedelta(days=tier.duration_days - 1)
+
+    def raise_invoice(self):
+        """Bills this membership, so the money shows up where money lives.
+
+        Payment is due the day the membership starts — a gym takes the fee
+        up front, and a backdated membership is one that should already have
+        been paid for.
+        """
+        from billing.models import Invoice
+
+        if self.invoice_id:
+            return self.invoice
+
+        invoice = Invoice.objects.create(
+            organization=self.organization,
+            student=self.student,
+            amount=self.price_paid,
+            issued_on=self.started_on,
+            due_on=self.started_on,
+            period_start=self.started_on,
+            period_end=self.expires_on,
+            description=f"{self.tier.name} membership — {self.started_on} to {self.expires_on}",
+        )
+        self.invoice = invoice
+        self.save(update_fields=["invoice"])
+        return invoice
+
+    def cancel(self, on=None):
+        """Ends the membership, and drops its bill if nothing was paid.
+
+        A part-paid membership keeps its invoice: real money has changed
+        hands, and whether that becomes a refund or a credit is a decision
+        for a person, not something to quietly automate away.
+        """
+        self.cancelled_on = on or timezone.localdate()
+        self.save(update_fields=["cancelled_on"])
+
+        invoice = self.invoice
+        if invoice and not invoice.is_cancelled and invoice.amount_paid == 0:
+            invoice.is_cancelled = True
+            invoice.save(update_fields=["is_cancelled"])
+        return self
 
     @classmethod
     def current_for(cls, student):

@@ -308,6 +308,36 @@ memberships without anyone logging a workout. Most gyms take both, and a
 migration gave `fitness` to every academy that already had `gym`, so nothing
 they were using disappeared.
 
+### Where money lives, and what a membership is
+
+Three things that are easy to confuse, so they are worth naming precisely:
+
+| | Answers | Scope |
+|---|---|---|
+| **Membership Plans** | *what do we sell?* — VIP includes a trainer, 90 days, ₹4000 | gym only |
+| **Memberships** | *who can walk in, until when?* | gym only |
+| **Fees & Billing** | *who owes what, who paid?* | every vertical |
+
+**Selling a membership raises its invoice**, so those are two views of one
+payment rather than two tallies that never meet. They did not meet at first:
+`MemberSubscription.invoice` existed and nothing populated it, so the
+Memberships screen said ₹204,500 while Fees & Billing said ₹288,500 and
+neither number explained the other.
+
+Because a gym's recurring prices *are* its membership plans, `FeePlan` is
+shown to a gym as **One-off charges** — a joining fee, a PT package — while
+academies without the gym vertical keep using it for their regular fees.
+
+`backfill_membership_invoices` raises the missing invoice for memberships
+sold before the two were linked. It is a command rather than a data migration
+on purpose: it creates financial records, and that should be something
+someone runs after a `--dry-run`, not something that happens silently on
+deploy.
+
+Cancelling an unpaid membership cancels its invoice too — no point chasing
+someone who left before paying. A part-paid one keeps it: real money changed
+hands, and whether that becomes a refund or a credit is a person's decision.
+
 ### Gym — memberships (`subscriptions/`)
 
 - `GET/POST /api/gym-ops/tiers/` — the plans a member can buy (Monthly,
