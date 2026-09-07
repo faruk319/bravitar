@@ -2,6 +2,18 @@ import jwt
 from django.conf import settings
 from rest_framework import authentication, exceptions
 
+_jwks_client = None
+
+
+def _get_jwks_client():
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = jwt.PyJWKClient(
+            f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json",
+            cache_keys=True,
+        )
+    return _jwks_client
+
 
 class SupabaseUser:
     """Lightweight authenticated-user stand-in backed by a verified Supabase JWT.
@@ -37,16 +49,30 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
 
         token = header[1].decode()
 
-        if not settings.SUPABASE_JWT_SECRET:
-            raise exceptions.AuthenticationFailed("Supabase JWT secret is not configured.")
+        try:
+            unverified_header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError as exc:
+            raise exceptions.AuthenticationFailed(f"Malformed token: {exc}")
+
+        # Supabase projects sign with an asymmetric key (ES256/RS256, verified
+        # via JWKS) by default; older projects may still use the legacy
+        # shared HS256 secret. Support both.
+        if unverified_header.get("alg") == "HS256":
+            if not settings.SUPABASE_JWT_SECRET:
+                raise exceptions.AuthenticationFailed("Supabase JWT secret is not configured.")
+            key = settings.SUPABASE_JWT_SECRET
+            algorithms = ["HS256"]
+        else:
+            if not settings.SUPABASE_URL:
+                raise exceptions.AuthenticationFailed("SUPABASE_URL is not configured.")
+            try:
+                key = _get_jwks_client().get_signing_key_from_jwt(token).key
+            except jwt.PyJWKClientError as exc:
+                raise exceptions.AuthenticationFailed(f"Unable to fetch signing key: {exc}")
+            algorithms = ["ES256", "RS256"]
 
         try:
-            claims = jwt.decode(
-                token,
-                settings.SUPABASE_JWT_SECRET,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
+            claims = jwt.decode(token, key, algorithms=algorithms, audience="authenticated")
         except jwt.PyJWTError as exc:
             raise exceptions.AuthenticationFailed(f"Invalid token: {exc}")
 

@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "accounts",
+    "organizations",
+    "tenants",
 ]
 
 MIDDLEWARE = [
@@ -51,6 +53,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "tenants.middleware.TenantResolutionMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -146,3 +149,6 @@ CORS_ALLOWED_ORIGINS = [
 # Supabase Auth — used to verify JWTs issued by Supabase for signed-in users.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
+
+# Tenant resolution: <org-slug>.<BASE_DOMAIN> routes to that Organization.
+BASE_DOMAIN = os.environ.get("DJANGO_BASE_DOMAIN", "")
