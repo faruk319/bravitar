@@ -24,4 +24,5 @@ urlpatterns = [
     # Gym/fitness vertical plugin
     path('api/gym/exercises/', include('exercises.urls')),
     path('api/gym/', include('workouts.urls')),
+    path('api/gym/body/', include('bodylog.urls')),
 ]

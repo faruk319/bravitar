@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "tenants",
     "exercises",
     "workouts",
+    "bodylog",
 ]
 
 MIDDLEWARE = [
@@ -126,6 +127,11 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = "static/"
+
+# Progress photos live here. Deliberately NOT wired to a static/media URL:
+# they are private, and are only ever served through a view that checks
+# the requester owns them. Production should move this to object storage.
+MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

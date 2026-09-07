@@ -26,6 +26,40 @@ export async function apiFetch(path, options = {}) {
   return body
 }
 
+/** Posts multipart form data (file uploads), letting the browser set the boundary. */
+export async function apiUpload(path, formData) {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+
+  const response = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  })
+
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new ApiError(body?.detail || `Upload failed (${response.status})`, response.status, body)
+  }
+  return body
+}
+
+/**
+ * Fetches a protected file as an object URL. Progress photos are served only
+ * to their owner behind a bearer token, so a plain <img src> can't load them.
+ * Callers must revoke the returned URL when done.
+ */
+export async function apiObjectUrl(path) {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+
+  const response = await fetch(`/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!response.ok) throw new ApiError(`Could not load image (${response.status})`, response.status)
+  return URL.createObjectURL(await response.blob())
+}
+
 export class ApiError extends Error {
   constructor(message, status, body) {
     super(message)

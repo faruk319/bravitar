@@ -7,8 +7,9 @@ for the full vision, architecture, and build phases.
 ## Status
 
 Phase 3 — Gym/Fitness plugin, in chunks. Done: guided sessions (pre-fill,
-rest timer, PR detection, estimated 1RM, progression rules, supersets).
-Remaining: body log + progress photos, nutrition, muscle map and heatmap.
+rest timer, PR detection, estimated 1RM, progression rules, supersets) and
+the body log (measurements, weight chart, private progress photos).
+Remaining: nutrition, muscle map and activity heatmap.
 
 ## Local dev domains
 
@@ -100,6 +101,23 @@ Exercises with `organization = null` are the shared library seeded by
 `seed_exercises`; anything else belongs to one academy. Routines and set logs
 validate that a referenced exercise is actually visible to the caller's org,
 so one academy can't reference another's custom exercise.
+
+### Body log (`bodylog/`)
+
+- `GET /api/gym/body/meta/` — metrics with their legal units, and photo poses
+- `GET/POST /api/gym/body/entries/` — measurements, filterable by `?metric=`.
+  Each metric declares its units, so a waist reading in kg is rejected. Logging
+  the same metric twice on one day updates that day's reading (200) rather
+  than failing on the uniqueness constraint.
+- `GET/POST /api/gym/body/photos/`, `GET /api/gym/body/photos/<id>/image/`
+
+**Body data is private to the member it belongs to** — trainers and owners get
+no implicit access, since these are measurements and pictures of someone's
+body. Photo files are stored under an unguessable path in `MEDIA_ROOT`, which
+is deliberately *not* wired to a static/media URL: the only way to read one is
+the ownership-checked view, so the frontend fetches it with its bearer token
+and renders an object URL. Production should move these to object storage.
+
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.
