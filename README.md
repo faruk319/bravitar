@@ -6,11 +6,14 @@ for the full vision, architecture, and build phases.
 
 ## Status
 
-Phase 3 — Gym/Fitness plugin, in chunks. Done: guided sessions (pre-fill,
-rest timer, PR detection, estimated 1RM, progression rules, supersets) and
-the body log (measurements, weight chart, private progress photos) and
-nutrition (food library, macro targets, daily log).
-Remaining: muscle map and activity heatmap.
+Phase 3 complete — the Gym/Fitness plugin now has guided sessions
+(pre-fill, rest timer, PR detection, estimated 1RM, progression rules,
+supersets), a body log (measurements, weight chart, private progress
+photos), nutrition (food library, macro targets, daily log), and the
+muscle map + activity heatmap.
+
+Next is Phase 4 — the cross-vertical core: generic students, batches,
+attendance, billing, enquiries, and multi-branch support.
 
 ## Local dev domains
 
@@ -134,6 +137,20 @@ something at 165 kcal/100 g is 330 kcal. The seeded values in
 brands vary and cooking changes weight, so anyone tracking closely should add a
 custom food from their own packaging. Like the body log, a person's food log and
 targets are visible only to them.
+
+### Training stats (`workouts/stats.py`)
+
+- `GET /api/gym/stats/muscles/?days=` — per-muscle volume, sets, best e1RM and
+  days since last trained; feeds the balance / fatigue / strength views
+- `GET /api/gym/stats/activity/?days=` — sessions and sets per day, every day
+  in the window present, for the heatmap
+
+Both are derived from `SetLog` on read — there is no stats table, so the
+numbers can't drift from the log they describe. A set credits its primary
+muscle in full and its secondary muscles at half: counting assistance work at
+full weight would make a bench press look like a triceps session, while
+ignoring it hides real volume. Warm-ups are excluded, and bodyweight sets count
+as sets but carry no tonnage, which is why both numbers are reported.
 
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it

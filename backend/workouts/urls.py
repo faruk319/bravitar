@@ -13,6 +13,8 @@ urlpatterns = [
         views.WorkoutSessionCompleteView.as_view(),
         name="session-complete",
     ),
+    path("stats/muscles/", views.muscle_map, name="muscle-map"),
+    path("stats/activity/", views.activity, name="activity"),
     path(
         "sessions/<int:session_id>/sets/",
         views.SetLogCreateView.as_view(),

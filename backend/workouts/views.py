@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from django.db.models import Max
 from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from exercises.permissions import HasGymVertical
@@ -8,6 +11,7 @@ from tenants.context import get_current_organization
 
 from .models import Routine, SetLog, WorkoutSession
 from .progression import suggest
+from .stats import activity_calendar, muscle_breakdown, training_totals
 from .serializers import RoutineSerializer, SetLogSerializer, WorkoutSessionSerializer
 
 
@@ -46,6 +50,52 @@ class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
         return Routine.objects.filter(
             organization=self.organization, user_id=self.request.user.id
         ).prefetch_related("items__exercise")
+
+
+@api_view(["GET"])
+@permission_classes([HasGymVertical])
+def muscle_map(request):
+    """Per-muscle training volume over a window, for the balance / fatigue /
+    strength views. Warm-ups are excluded — they aren't training volume."""
+    organization = get_current_organization(request)
+    days = min(int(request.query_params.get("days", 30) or 30), 365)
+    since = timezone.now() - timedelta(days=days)
+
+    working_sets = (
+        SetLog.objects.filter(
+            session__organization=organization,
+            session__user_id=request.user.id,
+            session__started_at__gte=since,
+            is_warmup=False,
+        )
+        .select_related("exercise", "session")
+    )
+
+    return Response({"days": days, "muscles": muscle_breakdown(list(working_sets))})
+
+
+@api_view(["GET"])
+@permission_classes([HasGymVertical])
+def activity(request):
+    """Sessions per day for a GitHub-style heatmap."""
+    organization = get_current_organization(request)
+    days = min(int(request.query_params.get("days", 365) or 365), 731)
+
+    end = timezone.localdate()
+    start = end - timedelta(days=days - 1)
+
+    sessions = WorkoutSession.objects.filter(
+        organization=organization, user_id=request.user.id
+    )
+
+    return Response(
+        {
+            "start": start,
+            "end": end,
+            "days": activity_calendar(sessions, start, end),
+            "totals": training_totals(sessions.filter(started_at__date__gte=start)),
+        }
+    )
 
 
 class RoutineGuideView(GymScopedMixin, generics.GenericAPIView):

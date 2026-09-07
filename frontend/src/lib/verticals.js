@@ -22,6 +22,8 @@ export const VERTICALS = [
       { key: 'workouts', label: 'Workout Routines' },
       { key: 'nutrition', label: 'Nutrition' },
       { key: 'bodylog', label: 'Body & Progress' },
+      { key: 'musclemap', label: 'Muscle Map' },
+      { key: 'activity', label: 'Training Activity' },
     ],
   },
   {

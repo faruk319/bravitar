@@ -279,3 +279,19 @@ button.link {
 .meter-fill.critical { background: #d03b3b; }
 
 .meal-heading { font-size: 0.95rem; margin: 0.9rem 0 0.2rem; }
+
+/* Muscle map & heatmap */
+.muscle-map { width: 100%; max-width: 34rem; height: auto; display: block; margin: 0.5rem auto; }
+.muscle-shape { stroke: var(--surface); stroke-width: 1.5; cursor: pointer; }
+.muscle-shape:hover { stroke: var(--text); stroke-width: 1.5; }
+.muscle-frame { fill: #e3e6ea; }
+
+.scale-legend { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.5rem; }
+.scale-step { width: 16px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.hover-readout { margin: 0.5rem 0 0; font-size: 0.9rem; min-height: 1.3rem; }
+
+.heatmap-scroll { overflow-x: auto; padding-bottom: 0.25rem; }
+.heatmap { height: auto; display: block; }
+.heat-cell { cursor: pointer; }
+.heat-cell:hover { stroke: var(--text); stroke-width: 1; }

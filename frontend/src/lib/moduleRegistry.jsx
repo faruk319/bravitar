@@ -1,5 +1,7 @@
+import ActivityHeatmap from '../gym/ActivityHeatmap'
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
+import MuscleMap from '../gym/MuscleMap'
 import Nutrition from '../gym/Nutrition'
 import RoutineBuilder from '../gym/RoutineBuilder'
 
@@ -13,4 +15,6 @@ export const MODULE_COMPONENTS = {
   workouts: RoutineBuilder,
   bodylog: BodyLog,
   nutrition: Nutrition,
+  musclemap: MuscleMap,
+  activity: ActivityHeatmap,
 }
