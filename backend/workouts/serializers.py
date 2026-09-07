@@ -17,7 +17,8 @@ class RoutineExerciseSerializer(serializers.ModelSerializer):
         model = RoutineExercise
         fields = [
             "id", "exercise", "exercise_id", "position",
-            "target_sets", "target_reps", "target_weight", "rest_seconds", "notes",
+            "target_sets", "target_reps", "target_reps_max", "target_weight",
+            "rest_seconds", "superset_group", "notes",
         ]
         read_only_fields = ["id"]
 
@@ -27,7 +28,10 @@ class RoutineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Routine
-        fields = ["id", "name", "description", "is_archived", "items", "created_at"]
+        fields = [
+            "id", "name", "description", "is_archived", "items",
+            "progression", "progression_increment", "created_at",
+        ]
         read_only_fields = ["id", "created_at"]
 
     def validate_items(self, value):
@@ -80,8 +84,11 @@ class SetLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SetLog
-        fields = ["id", "exercise", "exercise_id", "set_number", "reps", "weight", "logged_at"]
-        read_only_fields = ["id", "logged_at"]
+        fields = [
+            "id", "exercise", "exercise_id", "set_number", "reps", "weight",
+            "is_warmup", "rir", "estimated_1rm", "is_personal_record", "logged_at",
+        ]
+        read_only_fields = ["id", "estimated_1rm", "is_personal_record", "logged_at"]
 
     def validate_exercise_id(self, value):
         organization = self.context["organization"]

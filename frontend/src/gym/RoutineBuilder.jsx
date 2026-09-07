@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch } from '../lib/api'
+import GuidedSession from './GuidedSession'
 
 const emptyItem = (exercise) => ({
   exercise,
   target_sets: 3,
   target_reps: 10,
+  target_reps_max: '',
   target_weight: '',
   rest_seconds: '',
 })
@@ -14,6 +16,8 @@ function RoutineForm({ onSaved, onCancel }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [items, setItems] = useState([])
+  const [progression, setProgression] = useState('none')
+  const [increment, setIncrement] = useState('2.5')
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
   const [error, setError] = useState(null)
@@ -67,10 +71,13 @@ function RoutineForm({ onSaved, onCancel }) {
         body: JSON.stringify({
           name,
           description,
+          progression,
+          progression_increment: increment,
           items: items.map((item) => ({
             exercise_id: item.exercise.id,
             target_sets: Number(item.target_sets),
             target_reps: Number(item.target_reps),
+            target_reps_max: item.target_reps_max === '' ? null : Number(item.target_reps_max),
             target_weight: item.target_weight === '' ? null : item.target_weight,
             rest_seconds: item.rest_seconds === '' ? null : Number(item.rest_seconds),
           })),
@@ -96,6 +103,28 @@ function RoutineForm({ onSaved, onCancel }) {
         Description
         <input value={description} onChange={(e) => setDescription(e.target.value)} />
       </label>
+
+      <div className="two-up">
+        <label>
+          Progression rule
+          <select value={progression} onChange={(e) => setProgression(e.target.value)}>
+            <option value="none">None — repeat targets</option>
+            <option value="linear">Linear — add weight when all sets hit</option>
+            <option value="double_progression">Double progression — reps then weight</option>
+            <option value="greyskull">Greyskull LP — AMRAP last set</option>
+          </select>
+        </label>
+        <label>
+          Weight increment
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            value={increment}
+            onChange={(e) => setIncrement(e.target.value)}
+          />
+        </label>
+      </div>
 
       <label>
         Add exercises
@@ -129,6 +158,7 @@ function RoutineForm({ onSaved, onCancel }) {
               <th>Exercise</th>
               <th>Sets</th>
               <th>Reps</th>
+              <th>Max reps</th>
               <th>Weight</th>
               <th>Rest (s)</th>
               <th />
@@ -152,6 +182,15 @@ function RoutineForm({ onSaved, onCancel }) {
                     min="1"
                     value={item.target_reps}
                     onChange={(e) => updateItem(index, 'target_reps', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="—"
+                    value={item.target_reps_max}
+                    onChange={(e) => updateItem(index, 'target_reps_max', e.target.value)}
                   />
                 </td>
                 <td>
@@ -201,6 +240,7 @@ function RoutineForm({ onSaved, onCancel }) {
 export default function RoutineBuilder() {
   const [routines, setRoutines] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [activeRoutineId, setActiveRoutineId] = useState(null)
   const [error, setError] = useState(null)
 
   function load() {
@@ -210,6 +250,18 @@ export default function RoutineBuilder() {
   useEffect(load, [])
 
   if (error) return <p className="error">{error}</p>
+
+  if (activeRoutineId) {
+    return (
+      <GuidedSession
+        routineId={activeRoutineId}
+        onFinish={() => {
+          setActiveRoutineId(null)
+          load()
+        }}
+      />
+    )
+  }
 
   if (creating) {
     return (
@@ -238,13 +290,23 @@ export default function RoutineBuilder() {
         <ul className="routine-list">
           {routines.map((routine) => (
             <li key={routine.id}>
-              <strong>{routine.name}</strong>
-              {routine.description && <span className="muted small">{routine.description}</span>}
+              <div className="row">
+                <strong>{routine.name}</strong>
+                <button type="button" onClick={() => setActiveRoutineId(routine.id)}>
+                  Start workout
+                </button>
+              </div>
+              <span className="muted small">
+                {routine.description && `${routine.description} · `}
+                progression: {routine.progression.replace('_', ' ')}
+              </span>
               <ol className="muted small">
                 {routine.items.map((item) => (
                   <li key={item.id}>
                     {item.exercise.name} — {item.target_sets}×{item.target_reps}
+                    {item.target_reps_max && `–${item.target_reps_max}`}
                     {item.target_weight && ` @ ${item.target_weight}`}
+                    {item.superset_group != null && ` (superset ${item.superset_group})`}
                   </li>
                 ))}
               </ol>

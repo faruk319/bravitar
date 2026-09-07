@@ -6,8 +6,9 @@ for the full vision, architecture, and build phases.
 
 ## Status
 
-Phase 2 — Gym/Fitness plugin MVP: exercise library, routine builder, and
-workout logging. Next up is Phase 3 (guided sessions, body log, nutrition).
+Phase 3 — Gym/Fitness plugin, in chunks. Done: guided sessions (pre-fill,
+rest timer, PR detection, estimated 1RM, progression rules, supersets).
+Remaining: body log + progress photos, nutrition, muscle map and heatmap.
 
 ## Local dev domains
 
@@ -78,8 +79,22 @@ system real on the backend rather than just a UI filter.
 - `GET /api/gym/exercises/meta/` — muscle/equipment/category vocabulary
 - `GET/POST /api/gym/routines/`, `GET/PUT/DELETE /api/gym/routines/<id>/` —
   routines with nested exercise targets; scoped to the caller
+- `GET /api/gym/routines/<id>/guide/` — everything needed to run the routine
+  as a guided session: last session's sets, the suggested weight/reps from the
+  routine's progression rule, and the lifter's best estimated 1RM
 - `POST /api/gym/sessions/`, `POST /api/gym/sessions/<id>/sets/`,
   `POST /api/gym/sessions/<id>/complete/` — workout logging
+
+Set logs carry `is_warmup` and `rir` (reps in reserve). Estimated 1RM uses the
+Epley formula and is computed on save; a working set is flagged
+`is_personal_record` when its e1RM beats every previous working set for that
+exercise. Warm-ups are excluded from both PRs and progression, so a heavy
+warm-up single can't fake a record.
+
+Progression rules (`workouts/progression.py`) turn last session into next
+session's targets — `linear`, `double_progression` (needs `target_reps_max`),
+`greyskull` (AMRAP last set, deloads 10% on a miss), or `none`. The suggestion
+is advice: the lifter can log whatever they actually did.
 
 Exercises with `organization = null` are the shared library seeded by
 `seed_exercises`; anything else belongs to one academy. Routines and set logs

@@ -27,3 +27,6 @@ venv/
 # Editors
 .idea/
 .vscode/
+
+# Local tooling config (per-machine, not project state)
+.claude/
