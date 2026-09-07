@@ -12,11 +12,9 @@ supersets), a body log (measurements, weight chart, private progress
 photos), nutrition (food library, macro targets, daily log), and the
 muscle map + activity heatmap.
 
-Phase 4 complete — the cross-vertical core (members, batches, attendance,
-fees/billing, enquiries) now works for every vertical, across branches.
-
-Next is Phase 5: additional verticals (swimming, dance, karate, football)
-built on the same plugin pattern as the gym.
+Phase 5 in progress — additional verticals on the same plugin pattern as
+the gym. Done: swimming (lane planner, skill ladder) and karate (belts,
+gradings, sparring). Remaining: dance and football.
 
 ## Local dev domains
 
@@ -181,6 +179,36 @@ most students (children especially) never have a login.
 `python manage.py seed_demo_academy` builds a full demo academy — two
 branches, ~48 members, 5 batches, 8 weeks of attendance, 3 months of invoices
 and an enquiry pipeline — for clicking through the whole thing.
+
+## Vertical plugins (Phase 5)
+
+Each vertical is its own Django app gated by its own `RequiresVertical`
+subclass, so a gym-only academy gets 403 from `/api/swimming/` and
+`/api/karate/` while its own `/api/gym/` keeps working. Adding a vertical
+means adding an app and two lines in `frontend/src/lib/verticals.js` and
+`moduleRegistry.jsx` — the core platform is untouched.
+
+### Swimming (`swimming/`)
+
+- `GET/POST /api/swimming/pools/`, `/api/swimming/lanes/` — lane bookings
+- `GET /api/swimming/levels/`, `POST /api/swimming/assessments/`
+- `GET /api/swimming/progress/` — every swimmer's position on the ladder
+
+A lane can hold one booking at a time: overlapping slots on the same
+pool+lane+day are refused, while a slot starting exactly when another ends is
+allowed. A level counts as reached only when *every* skill in it is signed
+off, so partial progress never reads as a completed level.
+`seed_swim_levels <slug>` loads a standard 5-level ladder.
+
+### Karate (`karate/`)
+
+- `GET/POST /api/karate/belts/`, `/api/karate/gradings/`, `/api/karate/results/`
+- `GET/POST /api/karate/bouts/` — sparring records
+- `GET /api/karate/standings/` — current belt and win/loss record per student
+
+A student's belt is derived on read as the highest-position belt they have
+*passed*, never stored — correcting a grading result corrects the belt.
+`seed_belts <slug>` loads the standard kyu ladder.
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.

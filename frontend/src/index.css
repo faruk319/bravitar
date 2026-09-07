@@ -325,3 +325,22 @@ button.link {
 }
 .funnel-stage.active { border-color: var(--accent); }
 .funnel-count { font-size: 1.3rem; font-weight: 600; }
+
+/* Swimming */
+.lane-grid { display: grid; gap: 2px; font-size: 0.85rem; overflow-x: auto; }
+.lane-head { font-weight: 500; color: var(--muted); padding: 0.3rem; text-align: center; font-size: 0.8rem; }
+.lane-label { font-weight: 500; padding: 0.4rem 0.3rem; color: var(--muted); }
+.lane-cell { background: var(--bg); border-radius: 6px; min-height: 2.6rem; padding: 0.2rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.lane-slot { background: #dbe7fb; border-radius: 4px; padding: 0.2rem 0.35rem; display: flex; flex-direction: column; line-height: 1.2; }
+
+.ladder { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+.level-cell { display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px; font-variant-numeric: tabular-nums; background: var(--bg); color: var(--muted); }
+.level-cell.part { background: #fdf0d5; color: #8a5a00; }
+.level-cell.done { background: #dcf3dc; color: #1d6b1d; }
+
+/* Karate */
+.belt-chip { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 0.4rem; border: 1px solid var(--border); vertical-align: -1px; }
+.pill.win { background: #dcf3dc; color: #1d6b1d; }
+.pill.loss { background: #fbe0e0; color: #a32424; }
+.pill.draw { background: var(--border); color: var(--muted); }

@@ -52,6 +52,9 @@ INSTALLED_APPS = [
     "attendance",
     "billing",
     "enquiries",
+    # Vertical plugins (Phase 5)
+    "swimming",
+    "karate",
 ]
 
 MIDDLEWARE = [

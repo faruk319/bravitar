@@ -32,4 +32,7 @@ urlpatterns = [
     path('api/attendance/', include('attendance.urls')),
     path('api/billing/', include('billing.urls')),
     path('api/enquiries/', include('enquiries.urls')),
+    # Vertical plugins
+    path('api/swimming/', include('swimming.urls')),
+    path('api/karate/', include('karate.urls')),
 ]

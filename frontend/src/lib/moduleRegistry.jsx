@@ -3,6 +3,10 @@ import Batches from '../academy/Batches'
 import Billing from '../academy/Billing'
 import Enquiries from '../academy/Enquiries'
 import Members from '../academy/Members'
+import BeltBoard from '../karate/BeltBoard'
+import Sparring from '../karate/Sparring'
+import LanePlanner from '../swimming/LanePlanner'
+import SwimLevels from '../swimming/SwimLevels'
 import ActivityHeatmap from '../gym/ActivityHeatmap'
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
@@ -30,4 +34,12 @@ export const MODULE_COMPONENTS = {
   nutrition: Nutrition,
   musclemap: MuscleMap,
   activity: ActivityHeatmap,
+
+  // Swimming plugin
+  lanes: LanePlanner,
+  levels: SwimLevels,
+
+  // Karate plugin
+  belts: BeltBoard,
+  sparring: Sparring,
 }
