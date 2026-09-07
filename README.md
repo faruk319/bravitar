@@ -73,8 +73,9 @@ projects.
   email, change roles, remove people (staff and up read, owner writes)
 - `GET/POST /api/organizations/current/branches/`,
   `GET/PATCH/DELETE /api/organizations/current/branches/<id>/`
-- `GET/POST /api/organizations/current/api-keys/` — API keys for headless
-  access (owner-only; the raw key is only ever returned once, on creation)
+- `GET/POST /api/organizations/current/api-keys/`,
+  `POST /api/organizations/current/api-keys/<id>/revoke/` — API keys for
+  headless access (owner only)
 
 Requests are scoped to an Organization by, in order: `X-API-Key` header,
 `Host` header matching a verified `custom_domain`, or `Host` header
@@ -106,6 +107,38 @@ a trainer runs sessions, a manager bills for them. That is one line in
 Members are tracked as `Student` records rather than logins regardless — a
 Student is an enrolment, a Membership is a login, and most students (children
 especially) never need one.
+
+### API keys
+
+A customer's own app talks to the API with an `X-API-Key` header and no
+Supabase session at all:
+
+```bash
+curl https://<slug>.bravitar.com/api/students/ -H "X-API-Key: bvt_..."
+```
+
+Only a SHA-256 hash of the key is stored, so the secret is shown exactly once
+at creation and cannot be recovered — the screen that reveals it says so and
+stays put until dismissed.
+
+**A key acts for the academy, not for a person.** That draws two lines:
+
+- It can *run* the academy — members, batches, attendance, billing, the shared
+  exercise library — but it cannot *administer* it. Settings, the team roster
+  and the keys themselves are closed to it, because a leaked key that could
+  hand out access or mint more keys would make revoking the one you know about
+  pointless. The roster is closed to reads too: it is everyone's email address.
+- It cannot touch anything belonging to an individual — a body log, a workout,
+  a food diary. There is no person behind a key, so letting it through would
+  mean rows attributed to nobody.
+
+Revoking is permanent by design: a key is revoked because it leaked, and being
+able to switch it back on would undo the point. The row stays so the key
+remains accounted for — when it was made, when it was last used.
+
+Tenant resolution puts the key ahead of the `Host` header, so aiming a key at
+another academy's subdomain doesn't reach their data; it keeps answering for
+the key's own academy.
 
 ### Invitations
 

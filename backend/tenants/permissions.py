@@ -23,6 +23,14 @@ class IsOrganizationMember(BasePermission):
         if organization is None or not getattr(request.user, "is_authenticated", False):
             return False
 
+        if getattr(request.user, "is_api_key", False):
+            # A key belongs to one academy and can only ever act for that one,
+            # whatever host the request arrived on.
+            if request.user.organization_id != organization.id:
+                return False
+            request.membership = None
+            return True
+
         membership = Membership.objects.filter(
             organization=organization, user_id=request.user.id
         ).first()
@@ -61,6 +69,10 @@ class IsOrganizationStaff(IsOrganizationMember):
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
+        # An API key acts for the academy, so it can run it — but never
+        # administer it; see IsOrganizationOwner.
+        if request.membership is None:
+            return True
         return request.membership.role in Role.RUNS_SESSIONS
 
 
@@ -73,16 +85,39 @@ class IsOrganizationManager(IsOrganizationMember):
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
+        if request.membership is None:  # API key, acting for the academy
+            return True
         return request.membership.role in Role.MANAGES
 
 
 class IsOrganizationOwner(IsOrganizationMember):
+    """Administering the academy: settings, who has access, and the keys
+    themselves. Deliberately closed to API keys — a leaked key must not be
+    able to hand out access or mint more keys, which would make revoking the
+    one you know about pointless."""
+
     message = "Only the organization owner can do this."
 
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
+        if request.membership is None:
+            self.message = "An API key can't administer the academy."
+            return False
         return request.membership.role == Role.OWNER
+
+
+class IsPerson(IsOrganizationMember):
+    """For records that belong to one person rather than to the academy — a
+    body log, a workout, a food diary. An API key has no person behind it, so
+    letting it through would mean writing rows attributed to nobody."""
+
+    message = "This is personal data, so it needs a signed-in person rather than an API key."
+
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        return request.membership is not None
 
 
 class RequiresVertical(IsOrganizationMember):

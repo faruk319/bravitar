@@ -364,3 +364,19 @@ button.link {
 .link.tiny { font-size: 0.7rem; padding: 0; }
 .lane-slot .link.tiny { align-self: flex-start; }
 optgroup { font-weight: 600; }
+
+/* API keys */
+.reveal { border-color: var(--accent); }
+.secret {
+  display: block; padding: 0.7rem 0.8rem; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem; word-break: break-all; user-select: all;
+}
+.snippet {
+  margin: 0; padding: 0.7rem 0.8rem; border-radius: 6px; overflow-x: auto;
+  background: var(--bg); border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
+}
+.link.danger { color: #a32424; }
+.revoked-row td { opacity: 0.55; }

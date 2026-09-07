@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ApiKeys from '../admin/ApiKeys'
 import Settings from '../admin/Settings'
 import Team from '../admin/Team'
 import { useAuth } from '../auth/AuthContext'
@@ -51,7 +52,9 @@ export default function DashboardPage() {
   // The backend enforces this regardless of what the sidebar shows.
   const adminItems = [
     ...(['owner', 'manager', 'staff'].includes(org.role) ? [{ key: 'team', label: 'Team' }] : []),
-    ...(org.role === 'owner' ? [{ key: 'settings', label: 'Settings' }] : []),
+    ...(org.role === 'owner'
+      ? [{ key: 'settings', label: 'Settings' }, { key: 'apikeys', label: 'API Keys' }]
+      : []),
   ]
   const activeAdmin = adminItems.find((item) => item.key === active)
 
@@ -103,6 +106,8 @@ export default function DashboardPage() {
         {activeAdmin ? (
           activeAdmin.key === 'team' ? (
             <Team role={org.role} />
+          ) : activeAdmin.key === 'apikeys' ? (
+            <ApiKeys org={org} />
           ) : (
             <Settings org={org} role={org.role} onOrgChange={setOrg} />
           )

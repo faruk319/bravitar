@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from exercises.permissions import HasGymVertical
 from tenants.context import get_current_organization
+from tenants.permissions import IsPerson
 
 from .constants import Metric, Pose, Unit
 from .models import MeasurementEntry, ProgressPhoto
@@ -16,7 +17,7 @@ class BodyLogScopedMixin:
     """Body data is private to the member it belongs to — a trainer does not
     see it implicitly. Every queryset is filtered to the caller."""
 
-    permission_classes = [HasGymVertical]
+    permission_classes = [HasGymVertical, IsPerson]
 
     @property
     def organization(self):

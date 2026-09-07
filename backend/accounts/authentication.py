@@ -90,3 +90,55 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
             raise exceptions.AuthenticationFailed(f"Invalid token: {exc}")
 
         return (SupabaseUser(claims), token)
+
+
+class APIKeyPrincipal:
+    """A machine acting for an organization, not a person.
+
+    Distinct from SupabaseUser on purpose: an API key belongs to the academy,
+    so it has no `id` to attribute personal records to. Anything keyed to a
+    person — a body log, a workout, a food diary — is therefore closed to it
+    rather than silently attributed to nobody.
+    """
+
+    is_authenticated = True
+    is_api_key = True
+    id = None
+    email = ""
+    email_verified = False
+
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.organization = api_key.organization
+        self.organization_id = api_key.organization_id
+
+    @property
+    def pk(self):
+        """Throttling keys its bucket on this, so each key gets its own."""
+        return f"apikey-{self.api_key.pk}"
+
+    def __str__(self):
+        return f"API key {self.api_key.prefix}… ({self.organization.name})"
+
+
+class APIKeyAuthentication(authentication.BaseAuthentication):
+    """Authenticates a request carrying `X-API-Key`.
+
+    The middleware separately resolves the same key to a tenant; this is what
+    makes the request *authenticated* rather than merely scoped. Without it a
+    key selected an organization and then failed the permission check, which
+    is what "headless access" was quietly doing before.
+    """
+
+    def authenticate(self, request):
+        raw_key = request.headers.get("X-API-Key")
+        if not raw_key:
+            return None
+
+        from organizations.models import APIKey
+
+        api_key = APIKey.resolve(raw_key)
+        if api_key is None:
+            raise exceptions.AuthenticationFailed("Invalid or revoked API key.")
+
+        return (APIKeyPrincipal(api_key), api_key)

@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from exercises.permissions import HasGymVertical
 from tenants.context import get_current_organization
+from tenants.permissions import IsPerson
 
 from .models import Routine, SetLog, WorkoutSession
 from .progression import suggest
@@ -19,7 +20,7 @@ class GymScopedMixin:
     """Everything here is scoped to the current org, the current user, and
     organizations that actually have the gym vertical."""
 
-    permission_classes = [HasGymVertical]
+    permission_classes = [HasGymVertical, IsPerson]
 
     @property
     def organization(self):
@@ -53,7 +54,7 @@ class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasGymVertical, IsPerson])
 def muscle_map(request):
     """Per-muscle training volume over a window, for the balance / fatigue /
     strength views. Warm-ups are excluded — they aren't training volume."""
@@ -75,7 +76,7 @@ def muscle_map(request):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasGymVertical, IsPerson])
 def activity(request):
     """Sessions per day for a GitHub-style heatmap."""
     organization = get_current_organization(request)

@@ -7,7 +7,12 @@ from rest_framework.views import APIView
 
 from tenants.context import get_current_organization
 from tenants.exceptions import OrganizationNotFound
-from tenants.permissions import IsOrganizationMember, IsOrganizationOwner, IsOrganizationStaff
+from tenants.permissions import (
+    IsOrganizationMember,
+    IsOrganizationOwner,
+    IsOrganizationStaff,
+    IsPerson,
+)
 
 from .constants import Role
 from .invitations import claim_pending_memberships
@@ -99,12 +104,20 @@ class CurrentOrganizationView(APIView):
 
 
 class TeamListCreateView(generics.ListCreateAPIView):
-    """The academy's team. Staff can see who is on it; only an owner changes it."""
+    """The academy's team. Staff and up can see who is on it; only an owner
+    changes it.
+
+    Reading it needs a person, not just an API key: the list is everyone's
+    email address, and a leaked key should not hand over the roster of who
+    can get in.
+    """
 
     serializer_class = TeamMemberSerializer
 
     def get_permissions(self):
-        return [IsOrganizationOwner()] if self.request.method == "POST" else [IsOrganizationStaff()]
+        if self.request.method == "POST":
+            return [IsOrganizationOwner()]
+        return [IsOrganizationStaff(), IsPerson()]
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
@@ -123,7 +136,9 @@ class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TeamMemberSerializer
 
     def get_permissions(self):
-        return [IsOrganizationStaff()] if self.request.method == "GET" else [IsOrganizationOwner()]
+        if self.request.method == "GET":
+            return [IsOrganizationStaff(), IsPerson()]
+        return [IsOrganizationOwner()]
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
@@ -191,3 +206,32 @@ class APIKeyListCreateView(generics.ListCreateAPIView):
         data = APIKeySerializer(api_key).data
         data["key"] = raw_key  # only ever returned once
         return Response(data, status=status.HTTP_201_CREATED)
+
+
+class APIKeyRevokeView(APIView):
+    """Stops a key working, permanently.
+
+    One-way on purpose: a key is revoked because it leaked, and being able to
+    switch it back on would undo exactly the thing revoking was for. The row
+    stays so the key remains accounted for — when it was made, when it was
+    last used — rather than vanishing from the record.
+    """
+
+    permission_classes = [IsOrganizationOwner]
+
+    def post(self, request, pk):
+        organization = get_current_organization(request)
+        try:
+            api_key = APIKey.objects.get(pk=pk, organization=organization)
+        except APIKey.DoesNotExist:
+            return Response({"detail": "API key not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not api_key.is_active:
+            return Response(
+                {"detail": "That key was already revoked."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        api_key.is_active = False
+        api_key.save(update_fields=["is_active"])
+        return Response(APIKeySerializer(api_key).data)

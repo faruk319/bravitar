@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 from exercises.permissions import HasGymVertical
 from tenants.context import get_current_organization
-from tenants.permissions import IsOrganizationStaff
+from tenants.permissions import IsOrganizationStaff, IsPerson
 
 from .constants import Meal
 from .models import Food, FoodLogEntry, NutritionPlan
@@ -23,7 +23,7 @@ def _requested_date(request):
 
 
 class NutritionScopedMixin:
-    permission_classes = [HasGymVertical]
+    permission_classes = [HasGymVertical, IsPerson]
 
     @property
     def organization(self):
@@ -108,7 +108,7 @@ class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
 
 
 @api_view(["GET"])
-@permission_classes([HasGymVertical])
+@permission_classes([HasGymVertical, IsPerson])
 def daily_summary(request):
     """Totals for a day against the caller's targets, plus a per-meal split."""
     organization = get_current_organization(request)
