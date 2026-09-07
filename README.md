@@ -6,7 +6,20 @@ for the full vision, architecture, and build phases.
 
 ## Status
 
-Phase 1 — Core Platform (in progress).
+Phase 1 — Core Platform. Backend and dashboard shell done; next up is
+Phase 2 (Gym/Fitness plugin).
+
+## Local dev domains
+
+Org dashboards are served from `<slug>.lvh.me:5173`, matching the
+`<slug>.bravitar.com` scheme production will use. `lvh.me` is a public domain
+whose wildcard DNS points at `127.0.0.1`, so subdomains work with no
+`/etc/hosts` entries.
+
+`*.localhost` resolves too, but browsers treat `localhost` as a public suffix
+and won't share cookies across its subdomains — which breaks the single
+sign-in across org subdomains. Use `lvh.me`. (Offline, add explicit
+`/etc/hosts` entries for a `.test` domain and point both `.env` files at it.)
 
 ## Local Supabase
 
@@ -54,3 +67,27 @@ subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
 
 Without `SUPABASE_DB_HOST` set, the backend falls back to local SQLite so it
 runs out of the box.
+
+## Frontend (React + Vite)
+
+```bash
+cd frontend
+npm install
+cp .env.example .env   # fill in VITE_SUPABASE_PUBLISHABLE_KEY
+npm run dev            # http://lvh.me:5173
+```
+
+- Sign in / sign up runs against Supabase Auth in the browser.
+- On the root domain you get your academy list, or onboarding (name, web
+  address, vertical selection) if you have none.
+- Creating an academy sends you to `<slug>.lvh.me:5173`, where the dashboard
+  shell renders the modules that org's verticals turn on
+  (`src/lib/verticals.js` is the UI half of the plugin registry).
+
+Two things make the tenancy work in dev:
+
+- The Vite dev server proxies `/api` to Django with `changeOrigin: false`, so
+  the original `Host` header reaches the tenant middleware.
+- The Supabase session is stored in a cookie scoped to `.lvh.me`
+  (`src/lib/supabase.js`) rather than `localStorage`, which is per-origin —
+  otherwise every org subdomain would demand a fresh login.
