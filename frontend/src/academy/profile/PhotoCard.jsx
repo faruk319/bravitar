@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../../components/ConfirmAction'
 import { apiFetch, apiObjectUrl, apiUpload } from '../../lib/api'
 
 /** A member's photo, on their own profile: view, replace, remove. */
@@ -52,17 +53,10 @@ export default function PhotoCard({ student, canEdit, onChanged }) {
   }
 
   async function remove() {
-    setBusy(true)
-    setError(null)
-    try {
-      await apiFetch(`/students/${student.id}/photo/`, { method: 'DELETE' })
-      setUrl(null)
-      setMissing(true)
-      onChanged()
-    } catch (err) {
-      setError(err.message)
-    }
-    setBusy(false)
+    await apiFetch(`/students/${student.id}/photo/`, { method: 'DELETE' })
+    setUrl(null)
+    setMissing(true)
+    onChanged()
   }
 
   return (
@@ -85,9 +79,14 @@ export default function PhotoCard({ student, canEdit, onChanged }) {
                      disabled={busy} onChange={replace} />
             </label>
             {!missing && (
-              <button type="button" className="link" disabled={busy} onClick={remove}>
-                Remove
-              </button>
+              <ConfirmAction
+                label="Remove"
+                disabled={busy}
+                heading="Remove this photo?"
+                detail="The desk loses the face that goes with this name. You can add another later."
+                confirmLabel="Yes, remove it"
+                onConfirm={remove}
+              />
             )}
           </div>
         )}

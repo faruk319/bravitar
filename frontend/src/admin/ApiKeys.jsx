@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import { orgUrl } from '../lib/tenant'
 
@@ -67,7 +68,6 @@ export default function ApiKeys({ org }) {
   const [keys, setKeys] = useState(null)
   const [created, setCreated] = useState(null)
   const [name, setName] = useState('')
-  const [confirming, setConfirming] = useState(null)
   const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -101,14 +101,8 @@ export default function ApiKeys({ org }) {
   }
 
   async function revoke(key) {
-    setError(null)
-    try {
-      await apiFetch(`/organizations/current/api-keys/${key.id}/revoke/`, { method: 'POST' })
-      setConfirming(null)
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/organizations/current/api-keys/${key.id}/revoke/`, { method: 'POST' })
+    setRefresh((n) => n + 1)
   }
 
   const active = (keys ?? []).filter((k) => k.is_active)
@@ -174,35 +168,19 @@ export default function ApiKeys({ org }) {
                   </td>
                   <td>
                     {key.is_active && (
-                      confirming === key.id ? (
-                        <span className="row-actions">
-                          <button type="button" className="link danger"
-                                  onClick={() => revoke(key)}>
-                            Yes, revoke
-                          </button>
-                          <button type="button" className="link"
-                                  onClick={() => setConfirming(null)}>
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button type="button" className="link"
-                                onClick={() => setConfirming(key.id)}>
-                          Revoke
-                        </button>
-                      )
+                      <ConfirmAction
+                        label="Revoke"
+                        heading={`Revoke ${key.name}?`}
+                        detail="Anything using this key stops working immediately, and it can't be switched back on."
+                        confirmLabel="Yes, revoke"
+                        onConfirm={() => revoke(key)}
+                      />
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-        {confirming && (
-          <p className="muted small">
-            Revoking is permanent — anything using that key stops working
-            immediately, and it can't be switched back on.
-          </p>
         )}
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../../lib/api'
 
 /**
@@ -76,13 +77,8 @@ export default function BatchesCard({ student, canManage }) {
   }
 
   async function remove(enrolment) {
-    setError(null)
-    try {
-      await apiFetch(`/batches/enrolments/${enrolment.id}/`, { method: 'DELETE' })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/batches/enrolments/${enrolment.id}/`, { method: 'DELETE' })
+    setRefresh((n) => n + 1)
   }
 
   // A batch they are already actively in should not be offerable again.
@@ -146,9 +142,14 @@ export default function BatchesCard({ student, canManage }) {
                           Take out
                         </button>
                       )}
-                      <button type="button" className="link" onClick={() => remove(e)}>
-                        Delete
-                      </button>
+                      <ConfirmAction
+                        label="Delete"
+                        heading={`Delete this ${e.batch_name} enrolment?`}
+                        detail={"The record goes, and past attendance marked against it stops making sense. "
+                          + "If they simply stopped coming, use Take out instead."}
+                        confirmLabel="Yes, delete it"
+                        onConfirm={() => remove(e)}
+                      />
                     </div>
                   </td>
                 )}

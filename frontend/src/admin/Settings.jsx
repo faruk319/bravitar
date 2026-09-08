@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import PluginSettings from './PluginSettings'
 import { SELECTABLE_VERTICALS, VERTICALS } from '../lib/verticals'
@@ -71,13 +72,8 @@ export default function Settings({ org, role, onOrgChange }) {
   }
 
   async function removeBranch(branch) {
-    setError(null)
-    try {
-      await apiFetch(`/organizations/current/branches/${branch.id}/`, { method: 'DELETE' })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/organizations/current/branches/${branch.id}/`, { method: 'DELETE' })
+    setRefresh((n) => n + 1)
   }
 
   return (
@@ -154,9 +150,15 @@ export default function Settings({ org, role, onOrgChange }) {
                   <td>{branch.is_primary ? 'Yes' : '—'}</td>
                   {isOwner && (
                     <td>
-                      <button type="button" className="link" onClick={() => removeBranch(branch)}>
-                        Delete
-                      </button>
+                      <ConfirmAction
+                        label="Delete"
+                        heading={`Delete ${branch.name}?`}
+                        detail={branch.student_count > 0
+                          ? `${branch.student_count} members and ${branch.batch_count} batches are on this branch. They stay, but stop belonging anywhere.`
+                          : "This can't be undone."}
+                        confirmLabel="Yes, delete it"
+                        onConfirm={() => removeBranch(branch)}
+                      />
                     </td>
                   )}
                 </tr>

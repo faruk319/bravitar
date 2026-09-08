@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../../components/ConfirmAction'
 import { apiFetch, apiObjectUrl, apiPage } from '../../lib/api'
 
 const time = (value) =>
@@ -12,10 +13,8 @@ export default function PassCard({ student, canManage }) {
   const [qr, setQr] = useState(null)
   const [visits, setVisits] = useState(null)
   const [showing, setShowing] = useState(false)
-  const [confirmReissue, setConfirmReissue] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -50,16 +49,8 @@ export default function PassCard({ student, canManage }) {
   }, [showing, student.id, refresh])
 
   async function reissue() {
-    setBusy(true)
-    setError(null)
-    try {
-      await apiFetch(`/attendance/checkins/pass/${student.id}/`, { method: 'POST' })
-      setConfirmReissue(false)
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
-    setBusy(false)
+    await apiFetch(`/attendance/checkins/pass/${student.id}/`, { method: 'POST' })
+    setRefresh((n) => n + 1)
   }
 
   const recent = (visits?.items ?? []).slice(0, 8)
@@ -88,30 +79,16 @@ export default function PassCard({ student, canManage }) {
               admits them. Print it, or let them keep it on their phone.
             </p>
             {canManage && (
-              confirmReissue ? (
-                <>
-                  <p className="muted small">
-                    A new pass is issued and the old one stops working
-                    immediately. Anything already printed becomes useless.
-                  </p>
-                  <div className="row-actions">
-                    <button type="button" className="danger" disabled={busy} onClick={reissue}>
-                      {busy ? 'Reissuing…' : 'Yes, reissue'}
-                    </button>
-                    <button type="button" className="link"
-                            onClick={() => setConfirmReissue(false)}>
-                      Keep it
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="row-actions">
-                  <button type="button" className="link"
-                          onClick={() => setConfirmReissue(true)}>
-                    Reissue pass
-                  </button>
-                </div>
-              )
+              <div className="row-actions">
+                <ConfirmAction
+                  label="Reissue pass"
+                  heading={`Reissue ${student.full_name}'s pass?`}
+                  detail="The old QR stops working immediately, so anything already printed becomes useless."
+                  confirmLabel="Yes, reissue"
+                  busyLabel="Reissuing…"
+                  onConfirm={reissue}
+                />
+              </div>
             )}
           </div>
         </div>

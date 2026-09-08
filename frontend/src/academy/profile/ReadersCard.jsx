@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../../lib/api'
 
 /** Which fingerprint/face reader id is this member. Templates stay on the device. */
@@ -40,15 +41,8 @@ export default function ReadersCard({ student, canManage }) {
   }
 
   async function remove(enrolment) {
-    setError(null)
-    try {
-      await apiFetch(`/attendance/checkins/enrolments/${enrolment.id}/`, {
-        method: 'DELETE',
-      })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/attendance/checkins/enrolments/${enrolment.id}/`, { method: 'DELETE' })
+    setRefresh((n) => n + 1)
   }
 
   // Nothing to say until a reader is actually in use.
@@ -84,9 +78,13 @@ export default function ReadersCard({ student, canManage }) {
                 <td>{row.created_at?.slice(0, 10)}</td>
                 {canManage && (
                   <td>
-                    <button type="button" className="link" onClick={() => remove(row)}>
-                      Unlink
-                    </button>
+                    <ConfirmAction
+                      label="Unlink"
+                      heading={`Unlink ${row.device} #${row.external_id}?`}
+                      detail={`${student.full_name} stops getting in on that reader. Their finger or face stays enrolled on the device itself.`}
+                      confirmLabel="Yes, unlink"
+                      onConfirm={() => remove(row)}
+                    />
                   </td>
                 )}
               </tr>

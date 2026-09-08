@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../../components/ConfirmAction'
 import { apiFetch, apiFetchAll, apiObjectUrl, apiUpload } from '../../lib/api'
 
 /**
@@ -58,13 +59,8 @@ export default function DocumentsCard({ student, canManage }) {
   }
 
   async function act(path, method) {
-    setError(null)
-    try {
-      await apiFetch(path, { method })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(path, { method })
+    setRefresh((n) => n + 1)
   }
 
   async function view(document) {
@@ -118,14 +114,18 @@ export default function DocumentsCard({ student, canManage }) {
                       </button>
                       {!doc.is_verified && (
                         <button type="button" className="link"
-                                onClick={() => act(`/students/documents/${doc.id}/verify/`, 'POST')}>
+                                onClick={() => act(`/students/documents/${doc.id}/verify/`, 'POST')
+                            .catch((err) => setError(err.message))}>
                           Mark checked
                         </button>
                       )}
-                      <button type="button" className="link"
-                              onClick={() => act(`/students/documents/${doc.id}/`, 'DELETE')}>
-                        Delete
-                      </button>
+                      <ConfirmAction
+                        label="Delete"
+                        heading={`Delete this ${doc.kind_label}?`}
+                        detail="The scan is removed for good. You would have to ask the member for it again."
+                        confirmLabel="Yes, delete it"
+                        onConfirm={() => act(`/students/documents/${doc.id}/`, 'DELETE')}
+                      />
                     </div>
                   </td>
                 )}

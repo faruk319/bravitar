@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../../lib/api'
+import ConfirmAction from '../../components/ConfirmAction'
 import CollectPayment from '../CollectPayment'
 
 /**
@@ -15,6 +16,17 @@ import CollectPayment from '../CollectPayment'
 
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 const today = () => new Date().toISOString().slice(0, 10)
+
+function cancelWarning(subscription, money) {
+  const paid = Number(subscription.amount_paid ?? 0)
+  const due = Number(subscription.amount_due ?? 0)
+  if (due <= 0) return "The membership ends today and they stop being admitted. This can't be undone."
+  if (paid > 0) {
+    return `They have paid ₹${money(paid)} of it, so the invoice stays and ₹${money(due)} is still owed — `
+      + 'refund or credit is your call. This can\'t be undone.'
+  }
+  return `Nothing has been paid, so the ₹${money(due)} invoice is cancelled with it. This can't be undone.`
+}
 
 export default function MembershipCard({ student, canManage, requiresPayment }) {
   const [subscriptions, setSubscriptions] = useState(null)
@@ -66,16 +78,11 @@ export default function MembershipCard({ student, canManage, requiresPayment }) 
   }
 
   async function cancel(subscription) {
-    setError(null)
-    try {
-      await apiFetch(`/gym-ops/subscriptions/${subscription.id}/`, {
-        method: 'PATCH',
-        body: JSON.stringify({ cancelled_on: today() }),
-      })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/gym-ops/subscriptions/${subscription.id}/`, {
+      method: 'PATCH',
+      body: JSON.stringify({ cancelled_on: today() }),
+    })
+    setRefresh((n) => n + 1)
   }
 
   const endsOn = tier
@@ -199,9 +206,13 @@ export default function MembershipCard({ student, canManage, requiresPayment }) 
                         </button>
                       )}
                       {!s.cancelled_on && (
-                        <button type="button" className="link" onClick={() => cancel(s)}>
-                          Cancel
-                        </button>
+                        <ConfirmAction
+                          label="Cancel"
+                          heading={`Cancel this ${s.tier_name} membership?`}
+                          detail={cancelWarning(s, money)}
+                          confirmLabel="Yes, cancel it"
+                          onConfirm={() => cancel(s)}
+                        />
                       )}
                     </div>
                   </td>

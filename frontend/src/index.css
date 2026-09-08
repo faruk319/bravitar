@@ -480,3 +480,13 @@ button.danger:hover { background: #8c1e1e; }
   padding: 0.5rem 0.9rem; color: var(--muted); cursor: pointer; border-radius: 0;
 }
 .tab.on { color: inherit; border-bottom-color: #3a3f8f; font-weight: 600; }
+
+/* Confirmation. A real dialog, not window.confirm — styleable, and it doesn't
+   block the page. Only ever shown for things that can't be undone. */
+dialog.confirm {
+  max-width: 30rem; border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.25rem; background: var(--card, #fff); color: inherit;
+}
+dialog.confirm::backdrop { background: rgba(20, 20, 25, 0.45); }
+dialog.confirm h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+dialog.confirm p { margin: 0 0 0.9rem; }

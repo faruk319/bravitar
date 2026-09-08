@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiPage } from '../lib/api'
+import ConfirmAction from '../components/ConfirmAction'
 import CollectPayment from './CollectPayment'
 import BatchesCard from './profile/BatchesCard'
 import DocumentsCard from './profile/DocumentsCard'
@@ -46,7 +47,6 @@ export default function StudentDetail({
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const gymOn = (org?.verticals ?? []).includes('gym')
   const isManager = ['owner', 'manager'].includes(role)
@@ -94,17 +94,9 @@ export default function StudentDetail({
   }
 
   async function remove() {
-    setBusy(true)
-    setError(null)
-    try {
-      await apiFetch(`/students/${student.id}/`, { method: 'DELETE' })
-      onSaved()
-      onClose()
-    } catch (err) {
-      setError(err.message)
-      setBusy(false)
-      setConfirmDelete(false)
-    }
+    await apiFetch(`/students/${student.id}/`, { method: 'DELETE' })
+    onSaved()
+    onClose()
   }
 
   const field = (key, label, type = 'text') => (
@@ -266,31 +258,21 @@ export default function StudentDetail({
         {canEdit && (
           <div className="card wide">
             <h2>Remove this member</h2>
-            {confirmDelete ? (
-              <>
-                <p className="muted small">
-                  This deletes {current.full_name} along with their photo, ID
-                  scans, memberships and batch enrolments. It is refused if they
-                  have ever been invoiced — the money history has to name
-                  somebody. If they have simply stopped coming, set their status
-                  to <strong>Left</strong> instead.
-                </p>
-                <div className="row-actions">
-                  <button type="button" className="danger" disabled={busy} onClick={remove}>
-                    {busy ? 'Deleting…' : 'Yes, delete'}
-                  </button>
-                  <button type="button" className="link" onClick={() => setConfirmDelete(false)}>
-                    Keep them
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="row-actions">
-                <button type="button" className="link" onClick={() => setConfirmDelete(true)}>
-                  Delete member
-                </button>
-              </div>
-            )}
+            <p className="muted small">
+              If they have simply stopped coming, set their status to{' '}
+              <strong>Left</strong> instead — deleting is refused once they have
+              been invoiced, because the money history has to name somebody.
+            </p>
+            <div className="row-actions">
+              <ConfirmAction
+                label="Delete member"
+                heading={`Delete ${current.full_name}?`}
+                detail="Their photo, ID scans, memberships and batch enrolments go with them. This can't be undone."
+                confirmLabel="Yes, delete"
+                busyLabel="Deleting…"
+                onConfirm={remove}
+              />
+            </div>
           </div>
         )}
       </div>

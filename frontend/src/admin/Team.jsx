@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
 
 // Members aren't sign-in-able yet — they're tracked under Members as
@@ -68,13 +69,8 @@ export default function Team({ role }) {
   }
 
   async function remove(member) {
-    setError(null)
-    try {
-      await apiFetch(`/organizations/current/team/${member.id}/`, { method: 'DELETE' })
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+    await apiFetch(`/organizations/current/team/${member.id}/`, { method: 'DELETE' })
+    setRefresh((n) => n + 1)
   }
 
   return (
@@ -148,9 +144,15 @@ export default function Team({ role }) {
                   </td>
                   {isOwner && (
                     <td>
-                      <button type="button" className="link" onClick={() => remove(member)}>
-                        Remove
-                      </button>
+                      <ConfirmAction
+                        label="Remove"
+                        heading={`Remove ${member.email}?`}
+                        detail={member.is_pending
+                          ? "Their invitation is withdrawn. They can be invited again later."
+                          : "They lose access to this academy immediately. They can be invited again later."}
+                        confirmLabel="Yes, remove"
+                        onConfirm={() => remove(member)}
+                      />
                     </td>
                   )}
                 </tr>

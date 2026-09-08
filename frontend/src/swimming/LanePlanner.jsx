@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -172,15 +173,17 @@ export default function LanePlanner({ role }) {
                           <strong>{slot.start_time.slice(0, 5)}</strong>
                           <span className="muted small">{slot.batch_name ?? slot.note ?? 'Held'}</span>
                           {canManage && (
-                            <button
-                              type="button" className="link tiny"
-                              onClick={async () => {
+                            <ConfirmAction
+                              label="remove"
+                              className="link tiny"
+                              heading={`Free the ${slot.start_time.slice(0, 5)} slot?`}
+                              detail={`${slot.batch_name ?? slot.note ?? 'This booking'} loses the lane. This can't be undone.`}
+                              confirmLabel="Yes, free it"
+                              onConfirm={async () => {
                                 await apiFetch(`/swimming/lanes/${slot.id}/`, { method: 'DELETE' })
                                 setRefresh((n) => n + 1)
                               }}
-                            >
-                              remove
-                            </button>
+                            />
                           )}
                         </div>
                       ))}
