@@ -33,13 +33,17 @@ class OrganizationScopedMixin:
         return allowed_branch_ids(self.request, self.academy)
 
     def scoped(self, model):
-        """Tenant first, then branch. `?branch=` is the caller narrowing what
-        they already have; it can't widen it."""
-        queryset = restrict(
-            model.objects.filter(academy=self.academy),
-            model,
-            self.allowed_branches,
-        )
+        """Academy first, then branch. `?branch=` is the caller narrowing what
+        they already have; it can't widen it.
+
+        A model marked BRANCH_VISIBLE_ACROSS is readable from any branch and
+        writable only from its own — the desk at one branch has to be able to
+        find a member who walked into the wrong one.
+        """
+        queryset = model.objects.filter(academy=self.academy)
+        reading = self.request.method in ("GET", "HEAD", "OPTIONS")
+        if not (reading and getattr(model, "BRANCH_VISIBLE_ACROSS", False)):
+            queryset = restrict(queryset, model, self.allowed_branches)
         branch = self.request.query_params.get("branch")
         if branch and hasattr(model, "branch"):
             queryset = queryset.filter(branch_id=branch)

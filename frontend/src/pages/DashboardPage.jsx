@@ -110,7 +110,7 @@ export default function DashboardPage() {
           activeAdmin.key === 'team' ? (
             <Team role={org.role} />
           ) : activeAdmin.key === 'branches' ? (
-            <Branches role={org.role} />
+            <Branches role={org.role} org={org} />
           ) : activeAdmin.key === 'apikeys' ? (
             <ApiKeys org={org} />
           ) : (

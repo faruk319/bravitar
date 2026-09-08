@@ -164,6 +164,10 @@ class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
 class BranchListCreateView(generics.ListCreateAPIView):
     serializer_class = BranchSerializer
 
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "academy": get_current_academy(self.request)}
+
     def get_permissions(self):
         if self.request.method == "POST":
             return [IsOrganizationOwner()]
@@ -178,6 +182,10 @@ class BranchListCreateView(generics.ListCreateAPIView):
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = BranchSerializer
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "academy": get_current_academy(self.request)}
 
     def get_permissions(self):
         return [IsOrganizationMember()] if self.request.method == "GET" else [IsOrganizationOwner()]

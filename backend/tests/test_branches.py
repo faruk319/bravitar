@@ -155,3 +155,35 @@ class PrimaryBranchTests(BranchAdminTestCase):
 
         primaries = Branch.objects.filter(is_primary=True).count()
         self.assertEqual(primaries, 2)
+
+
+class BranchSportsTests(BranchAdminTestCase):
+    """A branch offers a subset of the academy's sports. Empty means all of
+    them, which is most branches — listing them again would only drift."""
+
+    def test_a_branch_offers_everything_by_default(self):
+        branch = self.create().data
+        self.assertEqual(branch["verticals"], [])
+        self.assertEqual(sorted(branch["offers"]), ["fitness", "gym"])
+
+    def test_a_branch_can_offer_only_some_of_them(self):
+        branch = self.create(verticals=["gym"]).data
+        self.assertEqual(branch["offers"], ["gym"])
+
+    def test_a_branch_cannot_offer_what_the_academy_does_not_run(self):
+        response = self.create(verticals=["swimming"])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("swimming", str(response.data).lower())
+
+    def test_dropping_a_sport_from_the_academy_drops_it_from_the_branch(self):
+        """The branch list is a filter over the academy's, not a second copy
+        that can drift out of step."""
+        from organizations.models import Branch
+
+        branch = Branch.objects.create(
+            academy=self.org, name="Andheri", verticals=["gym", "fitness"]
+        )
+        self.org.verticals = ["gym"]
+        self.org.save()
+
+        self.assertEqual(branch.offers, ["gym"])

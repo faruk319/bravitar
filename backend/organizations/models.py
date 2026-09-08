@@ -69,6 +69,9 @@ class Branch(models.Model):
     address = models.CharField(max_length=500, blank=True)
     phone = models.CharField(max_length=32, blank=True)
     email = models.EmailField(blank=True)
+    # Which of the academy's sports run here. Empty means all of them — most
+    # branches offer everything, and listing them again would just drift.
+    verticals = models.JSONField(default=list, blank=True)
     # The branch a new member lands in when nobody picks one. At most one per
     # academy; setting a new one clears the old.
     is_primary = models.BooleanField(default=False)
@@ -83,6 +86,12 @@ class Branch(models.Model):
                 name="one_primary_branch_per_org",
             )
         ]
+
+    @property
+    def offers(self):
+        """The sports actually available here."""
+        academy = self.academy.verticals or []
+        return [v for v in academy if v in self.verticals] if self.verticals else academy
 
     def save(self, *args, **kwargs):
         # Clear the old primary first: the unique constraint rejects the write

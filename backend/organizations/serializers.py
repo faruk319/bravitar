@@ -174,6 +174,7 @@ def other_owners(membership):
 
 
 class BranchSerializer(serializers.ModelSerializer):
+    offers = serializers.ListField(read_only=True)
     team_count = serializers.SerializerMethodField()
     student_count = serializers.SerializerMethodField()
     batch_count = serializers.SerializerMethodField()
@@ -182,10 +183,10 @@ class BranchSerializer(serializers.ModelSerializer):
         model = Branch
         fields = [
             "id", "name", "address", "phone", "email", "is_primary", "created_at",
-            "student_count", "batch_count", "team_count",
+            "student_count", "batch_count", "team_count", "verticals", "offers",
         ]
         read_only_fields = [
-            "id", "created_at", "student_count", "batch_count", "team_count",
+            "id", "created_at", "student_count", "batch_count", "team_count", "offers",
         ]
 
     def get_student_count(self, obj):
@@ -193,6 +194,17 @@ class BranchSerializer(serializers.ModelSerializer):
 
     def get_batch_count(self, obj):
         return obj.batches.count()
+
+    def validate_verticals(self, value):
+        """A branch offers a subset of what the academy does — it can't invent
+        a sport the academy doesn't run."""
+        academy = self.context["academy"]
+        stray = [v for v in value if v not in (academy.verticals or [])]
+        if stray:
+            raise serializers.ValidationError(
+                f"This academy doesn't run: {', '.join(stray)}."
+            )
+        return value
 
     def get_team_count(self, obj):
         """How many people may work here. Owners aren't counted — they are

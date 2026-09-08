@@ -51,10 +51,16 @@ class BranchTestCase(TenantAPITestCase):
         return {row["full_name"] for row in response.data["results"]}
 
 
-class UnassignedSeesNothingTests(BranchTestCase):
-    def test_a_manager_with_no_branch_sees_no_members(self):
-        """Access is granted, never assumed."""
-        self.assertEqual(self.names_seen_by(self.manager), {"No Branch"})
+class MembersAreVisibleEverywhereTests(BranchTestCase):
+    """Members are findable from any branch — somebody who walks into the
+    wrong one still has to be servable at the desk. Everything about them
+    that is a decision, not a lookup, stays with their own branch."""
+
+    def test_a_manager_with_no_branch_can_still_find_members(self):
+        self.assertEqual(
+            self.names_seen_by(self.manager),
+            {"Andheri Member", "Bandra Member", "No Branch"},
+        )
 
     def test_an_owner_always_sees_every_branch(self):
         self.assertEqual(
@@ -62,21 +68,26 @@ class UnassignedSeesNothingTests(BranchTestCase):
             {"Andheri Member", "Bandra Member", "No Branch"},
         )
 
+    def test_a_manager_with_no_branch_sees_no_batches(self):
+        """Access is granted, never assumed — for everything but finding a
+        member."""
+        from batches.models import Batch
+
+        Batch.objects.create(academy=self.org, name="Morning", branch=self.andheri)
+        response = self.client_for(self.manager).get("/api/batches/")
+        self.assertEqual(response.data["count"], 0)
+
     def test_assigning_a_branch_opens_exactly_that_branch(self):
-        self.assign(self.andheri)
-        self.assertEqual(self.names_seen_by(self.manager), {"Andheri Member", "No Branch"})
+        from batches.models import Batch
 
-    def test_a_manager_can_cover_two_branches(self):
-        self.assign(self.andheri, self.bandra)
+        Batch.objects.create(academy=self.org, name="Andheri AM", branch=self.andheri)
+        Batch.objects.create(academy=self.org, name="Bandra AM", branch=self.bandra)
+        self.assign(self.andheri)
+
+        response = self.client_for(self.manager).get("/api/batches/")
         self.assertEqual(
-            self.names_seen_by(self.manager),
-            {"Andheri Member", "Bandra Member", "No Branch"},
+            {row["name"] for row in response.data["results"]}, {"Andheri AM"}
         )
-
-    def test_unassigning_closes_it_again(self):
-        self.assign(self.andheri)
-        self.assign()
-        self.assertEqual(self.names_seen_by(self.manager), {"No Branch"})
 
 
 class SingleLocationAcademiesAreExemptTests(TenantAPITestCase):
@@ -90,25 +101,31 @@ class SingleLocationAcademiesAreExemptTests(TenantAPITestCase):
         self.assertEqual(response.data["count"], 1)
 
 
-class BranchIsABoundaryNotAFilterTests(BranchTestCase):
-    """`?branch=` narrows what you already have. It cannot widen it."""
+class LookingIsAllowedChangingIsNotTests(BranchTestCase):
+    """The line the owner drew: see anyone, edit only your own."""
 
     def setUp(self):
         super().setUp()
         self.assign(self.andheri)
 
-    def test_asking_for_another_branch_returns_nothing(self):
-        response = self.client_for(self.manager).get(
-            f"/api/students/?branch={self.bandra.id}"
-        )
-        self.assertEqual(response.data["count"], 0)
-
-    def test_dropping_the_filter_does_not_reveal_the_other_branch(self):
-        self.assertNotIn("Bandra Member", self.names_seen_by(self.manager))
-
-    def test_a_member_of_another_branch_is_not_reachable_by_id(self):
+    def test_a_member_of_another_branch_can_be_opened(self):
         response = self.client_for(self.manager).get(f"/api/students/{self.there.id}/")
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["full_name"], "Bandra Member")
+
+    def test_their_money_is_not_visible(self):
+        """Seeing who somebody is doesn't mean seeing what they owe."""
+        from decimal import Decimal
+
+        from billing.models import Invoice
+
+        Invoice.objects.create(
+            academy=self.org, student=self.there, description="theirs",
+            amount=Decimal("1000.00"),
+            issued_on=date(2026, 1, 1), due_on=date(2026, 1, 1),
+        )
+        response = self.client_for(self.manager).get("/api/billing/invoices/")
+        self.assertEqual(response.data["count"], 0)
 
     def test_a_member_of_another_branch_cannot_be_edited(self):
         response = self.client_for(self.manager).patch(
@@ -311,3 +328,146 @@ class AssigningBranchesTests(BranchTestCase):
             {"branches": [theirs.id]}, format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class TransferringAMemberTests(BranchTestCase):
+    """Seeing a member from another branch is allowed; taking them is asked
+    for. The branch losing them decides, or branches would pull members off
+    each other."""
+
+    def setUp(self):
+        super().setUp()
+        self.assign(self.andheri)
+        self.bandra_manager = self.add_member(
+            self.org, "manager-b", "bandra@example.com", Role.MANAGER
+        )
+        Membership.objects.get(
+            organization=self.org.organization, user_id="manager-b"
+        ).branches.set([self.bandra])
+
+    def ask_for(self, student, to_branch, actor=None):
+        return self.client_for(actor or self.manager).post(
+            "/api/students/transfers/",
+            {"student": student.id, "to_branch": to_branch.id, "reason": "moved house"},
+            format="json",
+        )
+
+    def test_a_manager_can_ask_for_a_member_from_another_branch(self):
+        response = self.ask_for(self.there, self.andheri)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "pending")
+        self.assertEqual(response.data["from_branch_name"], "Bandra")
+
+    def test_asking_does_not_move_them(self):
+        self.ask_for(self.there, self.andheri)
+        self.there.refresh_from_db()
+        self.assertEqual(self.there.branch, self.bandra)
+
+    def test_you_cannot_ask_for_them_to_go_to_a_branch_you_do_not_work_at(self):
+        response = self.ask_for(self.there, self.bandra)
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_asking_branch_cannot_approve_its_own_request(self):
+        """Otherwise asking would be a formality."""
+        created = self.ask_for(self.there, self.andheri)
+        response = self.client_for(self.manager).post(
+            f"/api/students/transfers/{created.data['id']}/approve/"
+        )
+        self.assertEqual(response.status_code, 403)
+        self.there.refresh_from_db()
+        self.assertEqual(self.there.branch, self.bandra)
+
+    def test_the_losing_branch_approves_and_the_member_moves(self):
+        created = self.ask_for(self.there, self.andheri)
+        response = self.client_for(self.bandra_manager).post(
+            f"/api/students/transfers/{created.data['id']}/approve/"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "approved")
+
+        self.there.refresh_from_db()
+        self.assertEqual(self.there.branch, self.andheri)
+
+    def test_an_owner_can_approve_either_way(self):
+        created = self.ask_for(self.there, self.andheri)
+        response = self.client_for(self.owner).post(
+            f"/api/students/transfers/{created.data['id']}/approve/"
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_approval_hands_over_editing_too(self):
+        created = self.ask_for(self.there, self.andheri)
+        self.client_for(self.bandra_manager).post(
+            f"/api/students/transfers/{created.data['id']}/approve/"
+        )
+        response = self.client_for(self.manager).patch(
+            f"/api/students/{self.there.id}/", {"phone": "9999999999"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_declining_leaves_them_where_they_are(self):
+        created = self.ask_for(self.there, self.andheri)
+        self.client_for(self.bandra_manager).post(
+            f"/api/students/transfers/{created.data['id']}/decline/"
+        )
+        self.there.refresh_from_db()
+        self.assertEqual(self.there.branch, self.bandra)
+
+    def test_the_asking_branch_can_withdraw(self):
+        created = self.ask_for(self.there, self.andheri)
+        response = self.client_for(self.manager).post(
+            f"/api/students/transfers/{created.data['id']}/withdraw/"
+        )
+        self.assertEqual(response.data["status"], "withdrawn")
+
+    def test_only_one_request_is_open_for_a_member_at_a_time(self):
+        self.ask_for(self.there, self.andheri)
+        again = self.ask_for(self.there, self.andheri)
+        self.assertEqual(again.status_code, 400)
+
+    def test_a_decided_request_cannot_be_decided_again(self):
+        created = self.ask_for(self.there, self.andheri)
+        self.client_for(self.bandra_manager).post(
+            f"/api/students/transfers/{created.data['id']}/approve/"
+        )
+        again = self.client_for(self.bandra_manager).post(
+            f"/api/students/transfers/{created.data['id']}/decline/"
+        )
+        self.assertEqual(again.status_code, 404)
+
+    def test_both_branches_see_the_request(self):
+        self.ask_for(self.there, self.andheri)
+        for actor in (self.manager, self.bandra_manager):
+            response = self.client_for(actor).get("/api/students/transfers/?open=true")
+            self.assertEqual(response.data["count"], 1, f"{actor.email} can't see it")
+
+    def test_an_unrelated_branch_does_not_see_it(self):
+        colaba = Branch.objects.create(academy=self.org, name="Colaba")
+        outsider = self.add_member(
+            self.org, "manager-c", "colaba@example.com", Role.MANAGER
+        )
+        Membership.objects.get(
+            organization=self.org.organization, user_id="manager-c"
+        ).branches.set([colaba])
+
+        self.ask_for(self.there, self.andheri)
+        response = self.client_for(outsider).get("/api/students/transfers/")
+        self.assertEqual(response.data["count"], 0)
+
+    def test_a_key_cannot_move_anybody(self):
+        from rest_framework.test import APIClient
+
+        from organizations.models import APIKey
+
+        from .base import BASE_DOMAIN
+
+        _, raw = APIKey.generate(self.org.organization, name="their app")
+        client = APIClient(HTTP_HOST=f"{self.org.organization.slug}.{BASE_DOMAIN}")
+        client.credentials(HTTP_X_API_KEY=raw)
+
+        response = client.post(
+            "/api/students/transfers/",
+            {"student": self.there.id, "to_branch": self.andheri.id},
+            format="json",
+        )
+        self.assertIn(response.status_code, (401, 403))

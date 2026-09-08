@@ -8,6 +8,7 @@ import DocumentsCard from './profile/DocumentsCard'
 import MembershipCard from './profile/MembershipCard'
 import PassCard from './profile/PassCard'
 import PhotoCard from './profile/PhotoCard'
+import TransferCard from './profile/TransferCard'
 import ReadersCard from './profile/ReadersCard'
 
 const STATUSES = [
@@ -49,6 +50,9 @@ export default function StudentDetail({
   const [busy, setBusy] = useState(false)
 
   const gymOn = (org?.verticals ?? []).includes('gym')
+  // A member of a branch you don't work at: look, ask for them, change nothing.
+  const readOnly = current.can_edit === false
+  const mayEdit = canEdit && !readOnly
   const isManager = ['owner', 'manager'].includes(role)
   const requiresPayment = org?.membership_requires_payment !== false
 
@@ -103,7 +107,7 @@ export default function StudentDetail({
     <label>
       {label}
       <input
-        type={type} value={form[key]} disabled={!canEdit}
+        type={type} value={form[key]} disabled={!mayEdit}
         onChange={(e) => { setForm({ ...form, [key]: e.target.value }); setSaved(false) }}
       />
     </label>
@@ -138,7 +142,17 @@ export default function StudentDetail({
       {error && <p className="error">{error}</p>}
 
       <div className="stack wide">
-        <PhotoCard student={current} canEdit={canEdit} onChanged={reloadStudent} />
+        {readOnly && (
+          <p className="muted">
+            {current.full_name} is at <strong>{current.branch_name}</strong>, which
+            you don&apos;t work at. You can see them, and ask for them to be
+            moved — nothing here can be changed until that is approved.
+          </p>
+        )}
+
+        <PhotoCard student={current} canEdit={mayEdit} onChanged={reloadStudent} />
+
+        <TransferCard student={current} canManage={canEdit} readOnly={readOnly} />
 
         <form className="card wide" onSubmit={save}>
           <h2>Details</h2>
@@ -160,7 +174,7 @@ export default function StudentDetail({
             <label>
               Status
               <select
-                value={form.status} disabled={!canEdit}
+                value={form.status} disabled={!mayEdit}
                 onChange={(e) => { setForm({ ...form, status: e.target.value }); setSaved(false) }}
               >
                 {STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -169,7 +183,7 @@ export default function StudentDetail({
             <label>
               Branch
               <select
-                value={form.branch} disabled={!canEdit}
+                value={form.branch} disabled={!mayEdit}
                 onChange={(e) => { setForm({ ...form, branch: e.target.value }); setSaved(false) }}
               >
                 <option value="">No branch</option>
@@ -182,12 +196,12 @@ export default function StudentDetail({
           <label>
             Notes
             <input
-              value={form.notes} disabled={!canEdit}
+              value={form.notes} disabled={!mayEdit}
               onChange={(e) => { setForm({ ...form, notes: e.target.value }); setSaved(false) }}
             />
           </label>
 
-          {canEdit && (
+          {mayEdit && (
             <div className="row-actions">
               <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
               {saved && <span className="muted small">Saved ✓</span>}
@@ -198,18 +212,18 @@ export default function StudentDetail({
         {gymOn && (
           <MembershipCard
             student={current}
-            canManage={canEdit}
+            canManage={mayEdit}
             requiresPayment={requiresPayment}
           />
         )}
 
-        <PassCard student={current} canManage={canEdit} />
+        <PassCard student={current} canManage={mayEdit} />
 
-        {isManager && <ReadersCard student={current} canManage={canEdit} />}
+        {isManager && <ReadersCard student={current} canManage={mayEdit} />}
 
-        <BatchesCard student={current} canManage={canEdit} />
+        <BatchesCard student={current} canManage={mayEdit} />
 
-        {isManager && <DocumentsCard student={current} canManage={canEdit} />}
+        {isManager && <DocumentsCard student={current} canManage={mayEdit} />}
 
         {invoices && (
           <div className="card wide">
@@ -226,7 +240,7 @@ export default function StudentDetail({
                 <thead>
                   <tr>
                     <th>Description</th><th>Amount</th><th>Paid</th><th>Due</th>
-                    <th>Status</th>{canEdit && <th />}
+                    <th>Status</th>{mayEdit && <th />}
                   </tr>
                 </thead>
                 <tbody>
@@ -237,7 +251,7 @@ export default function StudentDetail({
                       <td>₹{money(inv.amount_paid)}</td>
                       <td>{inv.due_on}</td>
                       <td><span className={`pill ${inv.status}`}>{inv.status}</span></td>
-                      {canEdit && (
+                      {mayEdit && (
                         <td>
                           {Number(inv.balance) > 0 && !inv.is_cancelled && (
                             <button type="button" className="link"
@@ -255,7 +269,7 @@ export default function StudentDetail({
           </div>
         )}
 
-        {canEdit && (
+        {mayEdit && (
           <div className="card wide">
             <h2>Remove this member</h2>
             <p className="muted small">

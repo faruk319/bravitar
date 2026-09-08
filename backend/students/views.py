@@ -1,4 +1,4 @@
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.deletion import ProtectedError
 from django.http import FileResponse, Http404
 from django.utils import timezone
@@ -8,14 +8,16 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
+from tenants.branches import allowed_branch_ids
 from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationManager, IsOrganizationStaff, IsPerson
 
 from .constants import DocumentKind, Upload
-from .models import MemberDocument, Student
+from .models import MemberDocument, MemberTransfer, Student, TransferStatus
 from .serializers import (
     MemberDocumentSerializer,
+    MemberTransferSerializer,
     MemberPhotoSerializer,
     StudentSerializer,
 )
@@ -183,3 +185,118 @@ def onboarding_meta(request):
             "document_types": Upload.DOCUMENT_TYPES,
         }
     )
+
+
+class TransferScopedMixin(OrganizationScopedMixin):
+    """Moving a member is a manager's call, and a person's — not a key's."""
+
+    serializer_class = MemberTransferSerializer
+    permission_classes = [IsOrganizationManager, IsPerson]
+
+
+class TransferListCreateView(TransferScopedMixin, generics.ListCreateAPIView):
+    def get_queryset(self):
+        """Both sides of a request need to see it: the branch asking, and the
+        branch being asked. Scoping to one would hide it from the other."""
+        queryset = MemberTransfer.objects.filter(academy=self.academy).select_related(
+            "student", "from_branch", "to_branch"
+        )
+        allowed = self.allowed_branches
+        if allowed is not None:
+            queryset = queryset.filter(
+                Q(to_branch_id__in=allowed)
+                | Q(from_branch_id__in=allowed)
+                | Q(from_branch__isnull=True)
+            )
+        if student := self.request.query_params.get("student"):
+            queryset = queryset.filter(student_id=student)
+        if self.request.query_params.get("open") == "true":
+            queryset = queryset.filter(status=TransferStatus.PENDING)
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(academy=self.academy, requested_by=self.request.user.id or "")
+
+
+class TransferDetailView(TransferScopedMixin, generics.RetrieveAPIView):
+    def get_queryset(self):
+        return MemberTransfer.objects.filter(academy=self.academy).select_related(
+            "student", "from_branch", "to_branch"
+        )
+
+
+def _decidable(request, academy, pk):
+    """The transfer, if this caller may decide it.
+
+    The branch losing the member decides, or an owner. The branch that asked
+    cannot approve its own request — that would make asking pointless.
+    """
+    transfer = MemberTransfer.objects.filter(
+        academy=academy, pk=pk
+    ).select_related("student", "from_branch", "to_branch").first()
+    if transfer is None or not transfer.is_open:
+        return None, Response(
+            {"detail": "No open request here."}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    allowed = allowed_branch_ids(request, academy)
+    if allowed is None:
+        return transfer, None  # An owner, or an academy with no branches.
+    if transfer.from_branch_id is None or transfer.from_branch_id in allowed:
+        return transfer, None
+    return None, Response(
+        {"detail": "Only the member's current branch can decide this."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationManager, IsPerson])
+def approve_transfer(request, pk):
+    academy = get_current_academy(request)
+    transfer, refusal = _decidable(request, academy, pk)
+    if refusal:
+        return refusal
+
+    transfer.approve(
+        by=request.user.id or "", note=request.data.get("note", "")
+    )
+    return Response(MemberTransferSerializer(transfer).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationManager, IsPerson])
+def decline_transfer(request, pk):
+    academy = get_current_academy(request)
+    transfer, refusal = _decidable(request, academy, pk)
+    if refusal:
+        return refusal
+
+    transfer.close(
+        TransferStatus.DECLINED,
+        by=request.user.id or "",
+        note=request.data.get("note", ""),
+    )
+    return Response(MemberTransferSerializer(transfer).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationManager, IsPerson])
+def withdraw_transfer(request, pk):
+    """The branch that asked can take its own request back."""
+    academy = get_current_academy(request)
+    transfer = MemberTransfer.objects.filter(academy=academy, pk=pk).first()
+    if transfer is None or not transfer.is_open:
+        return Response(
+            {"detail": "No open request here."}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    allowed = allowed_branch_ids(request, academy)
+    if allowed is not None and transfer.to_branch_id not in allowed:
+        return Response(
+            {"detail": "Only the branch that asked can withdraw it."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    transfer.close(TransferStatus.WITHDRAWN, by=request.user.id or "")
+    return Response(MemberTransferSerializer(transfer).data)

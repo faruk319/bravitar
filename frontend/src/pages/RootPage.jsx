@@ -37,7 +37,7 @@ export default function RootPage() {
 
         {memberships.length > 0 && (
           <div className="card">
-            <h2>Your academies</h2>
+            <h2>Your organizations</h2>
             <ul className="org-list">
               {memberships.map(({ organization, academies, role }) => (
                 <li key={organization.id}>
@@ -54,12 +54,13 @@ export default function RootPage() {
             {!creating && (
               <>
                 <button type="button" className="link" onClick={() => setCreating(true)}>
-                  + Create another academy
+                  + Create another organization
                 </button>
                 <p className="muted small">
-                  For a separate business or a franchise — its members, plans and
-                  money stay entirely apart. Another location of the same academy
-                  is a <strong>branch</strong>, added under Settings.
+                  A separate business or franchise — its own web address, and
+                  its members, plans and money entirely apart. Another sport
+                  under the same business is an <strong>academy</strong>;
+                  another location is a <strong>branch</strong>.
                 </p>
               </>
             )}

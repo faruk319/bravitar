@@ -495,3 +495,6 @@ dialog.confirm p { margin: 0 0 0.9rem; }
 .branch-picks .checkbox { font-size: 0.85rem; }
 
 .pill.spaced { margin-left: 0.4rem; }
+
+.pill.approved { background: #dcf3dc; color: #1d6b1d; }
+.pill.declined, .pill.withdrawn { background: var(--border); color: var(--muted); }

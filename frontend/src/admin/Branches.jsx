@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 
 import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
+import { verticalLabel } from '../lib/verticals'
 
 /** The academy's locations. Also the unit of access — Team says who works where. */
 
-const blank = () => ({ name: '', address: '', phone: '', email: '', is_primary: false })
+const blank = () => ({ name: '', address: '', phone: '', email: '', is_primary: false, verticals: [] })
 
-function BranchForm({ branch, onSaved, onCancel }) {
+function BranchForm({ branch, academyVerticals, onSaved, onCancel }) {
   const [form, setForm] = useState(() =>
     branch
       ? {
@@ -16,6 +17,7 @@ function BranchForm({ branch, onSaved, onCancel }) {
           phone: branch.phone ?? '',
           email: branch.email ?? '',
           is_primary: branch.is_primary,
+          verticals: branch.verticals ?? [],
         }
       : blank(),
   )
@@ -64,6 +66,41 @@ function BranchForm({ branch, onSaved, onCancel }) {
         <input type="email" value={form.email} onChange={set('email')} />
       </label>
 
+      {academyVerticals.length > 1 && (
+        <fieldset>
+          <legend>Sports run here</legend>
+          <p className="muted small">
+            Leave all of them ticked unless this branch runs only some — a
+            pool-less branch has no business offering swimming.
+          </p>
+          <div className="vertical-grid">
+            {academyVerticals.map((value) => {
+              const on = form.verticals.length === 0 || form.verticals.includes(value)
+              return (
+                <label key={value} className="checkbox">
+                  <input
+                    type="checkbox" checked={on}
+                    onChange={() => {
+                      const current = form.verticals.length === 0
+                        ? academyVerticals
+                        : form.verticals
+                      const next = on
+                        ? current.filter((v) => v !== value)
+                        : [...current, value]
+                      setForm({
+                        ...form,
+                        verticals: next.length === academyVerticals.length ? [] : next,
+                      })
+                    }}
+                  />
+                  {verticalLabel(value)}
+                </label>
+              )
+            })}
+          </div>
+        </fieldset>
+      )}
+
       <label className="checkbox">
         <input type="checkbox" checked={form.is_primary} onChange={set('is_primary')} />
         Main branch
@@ -83,7 +120,8 @@ function BranchForm({ branch, onSaved, onCancel }) {
   )
 }
 
-export default function Branches({ role }) {
+export default function Branches({ role, org }) {
+  const academyVerticals = org?.verticals ?? []
   const [branches, setBranches] = useState(null)
   const [editing, setEditing] = useState(null)
   const [refresh, setRefresh] = useState(0)
@@ -110,6 +148,7 @@ export default function Branches({ role }) {
     return (
       <BranchForm
         branch={editing === 'new' ? null : editing}
+        academyVerticals={academyVerticals}
         onCancel={() => setEditing(null)}
         onSaved={() => {
           setEditing(null)
@@ -161,6 +200,11 @@ export default function Branches({ role }) {
                     )}
                     {branch.address && (
                       <div className="muted small">{branch.address}</div>
+                    )}
+                    {branch.verticals?.length > 0 && (
+                      <div className="muted small">
+                        {branch.offers.map(verticalLabel).join(', ')} only
+                      </div>
                     )}
                   </td>
                   <td className="muted small">

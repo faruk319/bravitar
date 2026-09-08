@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .constants import DocumentKind
-from .models import MemberDocument, Student
+from .models import MemberDocument, MemberTransfer, Student, TransferStatus
 from .uploads import validate_document, validate_photo
 
 
@@ -9,6 +9,7 @@ class StudentSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
     has_photo = serializers.SerializerMethodField()
     document_count = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = Student
@@ -16,10 +17,12 @@ class StudentSerializer(serializers.ModelSerializer):
             "id", "full_name", "phone", "email", "date_of_birth",
             "guardian_name", "guardian_phone", "status", "joined_on",
             "notes", "branch", "branch_name", "user_id",
-            "has_photo", "document_count",
+            "has_photo", "document_count", "can_edit",
         ]
 
-        read_only_fields = ["id", "branch_name", "has_photo", "document_count"]
+        read_only_fields = [
+            "id", "branch_name", "has_photo", "document_count", "can_edit",
+        ]
 
     def get_has_photo(self, obj):
         return bool(obj.photo)
@@ -27,6 +30,14 @@ class StudentSerializer(serializers.ModelSerializer):
     def get_document_count(self, obj):
         
         return getattr(obj, "document_total", None) or obj.documents.count()
+
+    def get_can_edit(self, obj):
+        """False for a member of a branch the caller doesn't work at — they
+        can be looked at, and asked for, but not changed."""
+        allowed = self.context.get("allowed_branches")
+        if allowed is None or obj.branch_id is None:
+            return True
+        return obj.branch_id in allowed
 
     def validate(self, attrs):
         """A member with no branch named lands in the primary one, so a
@@ -120,4 +131,59 @@ class MemberDocumentSerializer(serializers.ModelSerializer):
                         "Delete that one first if this replaces it."
                     )}
                 )
+        return attrs
+
+
+class MemberTransferSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    from_branch_name = serializers.CharField(
+        source="from_branch.name", read_only=True, default=None
+    )
+    to_branch_name = serializers.CharField(source="to_branch.name", read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = MemberTransfer
+        fields = [
+            "id", "student", "student_name", "from_branch", "from_branch_name",
+            "to_branch", "to_branch_name", "status", "reason", "is_open",
+            "requested_by", "requested_at", "decided_by", "decided_at",
+            "decision_note",
+        ]
+        read_only_fields = [
+            "id", "student_name", "from_branch", "from_branch_name",
+            "to_branch_name", "status", "is_open", "requested_by",
+            "requested_at", "decided_by", "decided_at", "decision_note",
+        ]
+
+    def validate_student(self, value):
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
+        return value
+
+    def validate_to_branch(self, value):
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That branch belongs to another academy.")
+        allowed = self.context.get("allowed_branches")
+        if allowed is not None and value.id not in allowed:
+            raise serializers.ValidationError(
+                "You can only ask for a member to be moved to a branch you work at."
+            )
+        return value
+
+    def validate(self, attrs):
+        student = attrs["student"]
+        to_branch = attrs["to_branch"]
+
+        if student.branch_id == to_branch.id:
+            raise serializers.ValidationError(
+                {"to_branch": f"{student.full_name} is already at {to_branch.name}."}
+            )
+        if MemberTransfer.objects.filter(
+            student=student, status=TransferStatus.PENDING
+        ).exists():
+            raise serializers.ValidationError(
+                {"student": f"There is already a request open for {student.full_name}."}
+            )
+        attrs["from_branch"] = student.branch
         return attrs

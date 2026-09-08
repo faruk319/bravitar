@@ -28,6 +28,9 @@ class Student(models.Model):
     """
 
     BRANCH_FIELD = "branch"
+    # Findable from any branch, editable only from their own. A member who
+    # walks into the wrong branch still has to be servable at the desk.
+    BRANCH_VISIBLE_ACROSS = True
 
     academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="students")
     branch = models.ForeignKey(
@@ -107,3 +110,96 @@ class MemberDocument(models.Model):
     @property
     def is_verified(self):
         return self.verified_on is not None
+
+
+class TransferStatus:
+    PENDING = "pending"
+    APPROVED = "approved"
+    DECLINED = "declined"
+    WITHDRAWN = "withdrawn"
+
+    CHOICES = [
+        (PENDING, "Waiting"),
+        (APPROVED, "Approved"),
+        (DECLINED, "Declined"),
+        (WITHDRAWN, "Withdrawn"),
+    ]
+    OPEN = [PENDING]
+
+
+class MemberTransfer(models.Model):
+    """A request to move a member to another branch.
+
+    A manager can see a member from any branch but not edit one outside their
+    own, so moving somebody is asked for rather than done. The branch losing
+    the member decides — otherwise branches would pull members off each other.
+    """
+
+    BRANCH_FIELD = "to_branch"
+
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="member_transfers"
+    )
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="transfers"
+    )
+    from_branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, related_name="transfers_out",
+        null=True, blank=True,
+    )
+    to_branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="transfers_in"
+    )
+
+    status = models.CharField(
+        max_length=20, choices=TransferStatus.CHOICES, default=TransferStatus.PENDING
+    )
+    reason = models.CharField(max_length=255, blank=True)
+
+    requested_by = models.CharField(max_length=64, blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    decided_by = models.CharField(max_length=64, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-requested_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student"],
+                condition=models.Q(status="pending"),
+                name="one_open_transfer_per_member",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student.full_name} → {self.to_branch.name} ({self.status})"
+
+    @property
+    def is_open(self):
+        return self.status in TransferStatus.OPEN
+
+    def approve(self, by="", note=""):
+        """Moves the member. Everything of theirs follows, because invoices,
+        memberships and check-ins read their branch off them."""
+        from django.utils import timezone
+
+        self.student.branch = self.to_branch
+        self.student.save(update_fields=["branch"])
+
+        self.status = TransferStatus.APPROVED
+        self.decided_by = by
+        self.decided_at = timezone.now()
+        self.decision_note = note
+        self.save(update_fields=["status", "decided_by", "decided_at", "decision_note"])
+        return self
+
+    def close(self, status, by="", note=""):
+        from django.utils import timezone
+
+        self.status = status
+        self.decided_by = by
+        self.decided_at = timezone.now()
+        self.decision_note = note
+        self.save(update_fields=["status", "decided_by", "decided_at", "decision_note"])
+        return self
