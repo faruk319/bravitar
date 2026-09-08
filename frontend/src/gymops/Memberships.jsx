@@ -1,106 +1,11 @@
 import { useEffect, useState } from 'react'
 
+import CollectPayment from '../academy/CollectPayment'
 import StudentPicker from '../academy/StudentPicker'
 import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
 
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 const today = () => new Date().toISOString().slice(0, 10)
-
-const METHODS = [
-  ['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'],
-  ['bank_transfer', 'Bank transfer'], ['other', 'Other'],
-]
-
-// One line per state, in the order a membership passes through them. Kept on
-// the screen rather than in a help page because "why is she pending?" is the
-// question the front desk actually asks.
-const LIFECYCLE = [
-  ['pending', 'Signed up, nothing paid yet — cannot train'],
-  ['upcoming', 'Paid, but the start date has not arrived'],
-  ['active', 'Running — can train'],
-  ['expiring', 'Ends within 5 days — time to sell the renewal'],
-  ['expired', 'The dates ran out'],
-  ['cancelled', 'Called off'],
-]
-
-function CollectPayment({ subscription, onDone, onCancel }) {
-  const [amount, setAmount] = useState(String(subscription.amount_due ?? ''))
-  const [paidOn, setPaidOn] = useState(today)
-  const [method, setMethod] = useState('cash')
-  const [reference, setReference] = useState('')
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
-
-  async function save(event) {
-    event.preventDefault()
-    setBusy(true)
-    setError(null)
-    try {
-      await apiFetch('/billing/payments/', {
-        method: 'POST',
-        body: JSON.stringify({
-          invoice: subscription.invoice,
-          amount,
-          paid_on: paidOn,
-          method,
-          reference,
-        }),
-      })
-      onDone()
-    } catch (err) {
-      setError(err.message)
-      setBusy(false)
-    }
-  }
-
-  const short = Number(amount) > 0 && Number(amount) < Number(subscription.amount_due)
-
-  return (
-    <form className="card wide" onSubmit={save}>
-      <h2>Take payment — {subscription.student_name}</h2>
-      <p className="muted small">
-        {subscription.tier_name} · ₹{money(subscription.amount_due)} outstanding.
-        This records against the same invoice you see under Fees &amp; Billing.
-      </p>
-
-      <div className="set-entry">
-        <label>Amount
-          <input type="number" step="0.01" min="0.01" required value={amount}
-                 onChange={(e) => setAmount(e.target.value)} />
-        </label>
-        <label>Received on
-          <input type="date" required value={paidOn}
-                 onChange={(e) => setPaidOn(e.target.value)} />
-        </label>
-        <label>Method
-          <select value={method} onChange={(e) => setMethod(e.target.value)}>
-            {METHODS.map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <label>Reference
-          <input value={reference} placeholder="UPI ref, receipt no."
-                 onChange={(e) => setReference(e.target.value)} />
-        </label>
-      </div>
-
-      {short && (
-        <p className="muted small">
-          Part payment — the membership starts and ₹
-          {money(Number(subscription.amount_due) - Number(amount))} stays outstanding.
-        </p>
-      )}
-
-      {error && <p className="error">{error}</p>}
-
-      <div className="row-actions">
-        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button>
-        <button type="button" className="link" onClick={onCancel}>Cancel</button>
-      </div>
-    </form>
-  )
-}
 
 function SignUpMember({ tiers, onDone, onCancel }) {
   const [student, setStudent] = useState(null)
@@ -300,7 +205,10 @@ export default function Memberships({ role }) {
 
       {canManage && collecting && (
         <CollectPayment
-          subscription={collecting}
+          invoice={collecting.invoice}
+          amountDue={collecting.amount_due}
+          heading={`Take payment — ${collecting.student_name}`}
+          note="This records against the same invoice you see under Fees & Billing."
           onCancel={() => setCollecting(null)}
           onDone={() => {
             setCollecting(null)

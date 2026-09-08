@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
+import { apiFetch, apiPage } from '../lib/api'
+import CollectPayment from './CollectPayment'
+import BatchesCard from './profile/BatchesCard'
+import DocumentsCard from './profile/DocumentsCard'
+import MembershipCard from './profile/MembershipCard'
+import PassCard from './profile/PassCard'
+import PhotoCard from './profile/PhotoCard'
 
 const STATUSES = [
   ['active', 'Active'], ['trial', 'Trial'], ['paused', 'Paused'], ['left', 'Left'],
@@ -8,8 +14,19 @@ const STATUSES = [
 
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 
-/** One member: their details, which batches they're in, and what they owe. */
-export default function StudentDetail({ student, branches, canEdit, onSaved, onClose }) {
+/**
+ * One member, everything about them, in one place.
+ *
+ * This is the screen the front desk lives on: their details, their photo,
+ * their ID, what plan they are on, which batches they're in and what they
+ * owe — all editable from here rather than from four different screens.
+ * Every card talks to the same endpoints the list screens use, so nothing
+ * here keeps a second copy of anything.
+ */
+export default function StudentDetail({
+  student, branches, canEdit, org, role, onSaved, onClose,
+}) {
+  const [current, setCurrent] = useState(student)
   const [form, setForm] = useState(() => ({
     full_name: student.full_name,
     phone: student.phone ?? '',
@@ -22,28 +39,37 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
     branch: student.branch ?? '',
     notes: student.notes ?? '',
   }))
-  const [enrolments, setEnrolments] = useState(null)
   const [invoices, setInvoices] = useState(null)
+  const [collecting, setCollecting] = useState(null)
+  const [refresh, setRefresh] = useState(0)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const gymOn = (org?.verticals ?? []).includes('gym')
+  const isManager = ['owner', 'manager'].includes(role)
+  const requiresPayment = org?.membership_requires_payment !== false
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      apiFetchAll(`/batches/enrolments/?student=${student.id}`),
-      apiPage(`/billing/invoices/?student=${student.id}`).catch(() => null),
-    ])
-      .then(([e, i]) => {
-        if (cancelled) return
-        setEnrolments(e)
-        setInvoices(i)
-      })
-      .catch((err) => !cancelled && setError(err.message))
+    apiPage(`/billing/invoices/?student=${student.id}`)
+      .then((page) => !cancelled && setInvoices(page))
+      .catch(() => !cancelled && setInvoices(null))
     return () => {
       cancelled = true
     }
-  }, [student.id])
+  }, [student.id, refresh])
+
+  async function reloadStudent() {
+    try {
+      setCurrent(await apiFetch(`/students/${student.id}/`))
+    } catch {
+      // The card that triggered this shows its own error; a failed refresh
+      // just means the header is briefly stale.
+    }
+    onSaved()
+  }
 
   async function save(event) {
     event.preventDefault()
@@ -66,6 +92,20 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
     setBusy(false)
   }
 
+  async function remove() {
+    setBusy(true)
+    setError(null)
+    try {
+      await apiFetch(`/students/${student.id}/`, { method: 'DELETE' })
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+      setConfirmDelete(false)
+    }
+  }
+
   const field = (key, label, type = 'text') => (
     <label>
       {label}
@@ -79,16 +119,34 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
   const outstanding = (invoices?.items ?? [])
     .reduce((total, inv) => total + Number(inv.balance), 0)
 
+  if (collecting) {
+    return (
+      <CollectPayment
+        invoice={collecting.id}
+        amountDue={collecting.balance}
+        heading={`Take payment — ${current.full_name}`}
+        note={collecting.description || 'Against this invoice.'}
+        onCancel={() => setCollecting(null)}
+        onDone={() => {
+          setCollecting(null)
+          setRefresh((n) => n + 1)
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <div className="row">
-        <h1>{student.full_name}</h1>
+        <h1>{current.full_name}</h1>
         <button type="button" className="link" onClick={onClose}>← Back to members</button>
       </div>
 
       {error && <p className="error">{error}</p>}
 
       <div className="stack wide">
+        <PhotoCard student={current} canEdit={canEdit} onChanged={reloadStudent} />
+
         <form className="card wide" onSubmit={save}>
           <h2>Details</h2>
 
@@ -144,27 +202,19 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
           )}
         </form>
 
-        <div className="card wide">
-          <h2>Batches</h2>
-          {enrolments === null ? (
-            <p className="muted">Loading…</p>
-          ) : enrolments.length === 0 ? (
-            <p className="muted">Not enrolled in any batch yet.</p>
-          ) : (
-            <table className="data-table">
-              <thead><tr><th>Batch</th><th>Enrolled</th><th>Status</th></tr></thead>
-              <tbody>
-                {enrolments.map((e) => (
-                  <tr key={e.id}>
-                    <td>{e.batch_name}</td>
-                    <td>{e.enrolled_on}</td>
-                    <td>{e.is_active ? 'Active' : `Left ${e.left_on ?? ''}`}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {gymOn && (
+          <MembershipCard
+            student={current}
+            canManage={canEdit}
+            requiresPayment={requiresPayment}
+          />
+        )}
+
+        {gymOn && <PassCard student={current} canManage={canEdit} />}
+
+        <BatchesCard student={current} canManage={canEdit} />
+
+        {isManager && <DocumentsCard student={current} canManage={canEdit} />}
 
         {invoices && (
           <div className="card wide">
@@ -179,7 +229,10 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
             ) : (
               <table className="data-table">
                 <thead>
-                  <tr><th>Description</th><th>Amount</th><th>Paid</th><th>Due</th><th>Status</th></tr>
+                  <tr>
+                    <th>Description</th><th>Amount</th><th>Paid</th><th>Due</th>
+                    <th>Status</th>{canEdit && <th />}
+                  </tr>
                 </thead>
                 <tbody>
                   {invoices.items.map((inv) => (
@@ -189,10 +242,51 @@ export default function StudentDetail({ student, branches, canEdit, onSaved, onC
                       <td>₹{money(inv.amount_paid)}</td>
                       <td>{inv.due_on}</td>
                       <td><span className={`pill ${inv.status}`}>{inv.status}</span></td>
+                      {canEdit && (
+                        <td>
+                          {Number(inv.balance) > 0 && !inv.is_cancelled && (
+                            <button type="button" className="link"
+                                    onClick={() => setCollecting(inv)}>
+                              Take payment
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        )}
+
+        {canEdit && (
+          <div className="card wide">
+            <h2>Remove this member</h2>
+            {confirmDelete ? (
+              <>
+                <p className="muted small">
+                  This deletes {current.full_name} along with their photo, ID
+                  scans, memberships and batch enrolments. It is refused if they
+                  have ever been invoiced — the money history has to name
+                  somebody. If they have simply stopped coming, set their status
+                  to <strong>Left</strong> instead.
+                </p>
+                <div className="row-actions">
+                  <button type="button" className="danger" disabled={busy} onClick={remove}>
+                    {busy ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                  <button type="button" className="link" onClick={() => setConfirmDelete(false)}>
+                    Keep them
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="row-actions">
+                <button type="button" className="link" onClick={() => setConfirmDelete(true)}>
+                  Delete member
+                </button>
+              </div>
             )}
           </div>
         )}

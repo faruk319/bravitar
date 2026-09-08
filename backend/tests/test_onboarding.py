@@ -270,3 +270,39 @@ class DocumentPrivacyTests(OnboardingTestCase):
             student=outsider.id, file=upload("x.jpg", JPEG)
         )
         self.assertEqual(response.status_code, 400)
+
+
+class MemberDeletionTests(OnboardingTestCase):
+    """Deleting a member is allowed, until money is involved."""
+
+    def test_a_member_with_no_history_can_be_deleted(self):
+        response = self.client_for(self.manager).delete(
+            f"/api/students/{self.student.id}/"
+        )
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Student.objects.filter(pk=self.student.id).exists())
+
+    def test_deleting_takes_the_id_scans_with_it(self):
+        self.post_document()
+        self.client_for(self.manager).delete(f"/api/students/{self.student.id}/")
+        self.assertEqual(MemberDocument.objects.filter(student=self.student).count(), 0)
+
+    def test_a_member_who_has_been_invoiced_cannot_be_deleted(self):
+        """Invoices PROTECT their member. Without this the delete comes back
+        as a 500 instead of an explanation."""
+        from datetime import date as date_type
+        from decimal import Decimal
+
+        from billing.models import Invoice
+
+        Invoice.objects.create(
+            organization=self.org, student=self.student, amount=Decimal("1500.00"),
+            issued_on=date_type(2026, 1, 1), due_on=date_type(2026, 1, 1),
+        )
+
+        response = self.client_for(self.manager).delete(
+            f"/api/students/{self.student.id}/"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("left", str(response.data).lower())
+        self.assertTrue(Student.objects.filter(pk=self.student.id).exists())

@@ -58,6 +58,8 @@ export default function Members({ role, org }) {
         student={selected}
         branches={branches}
         canEdit={canEdit}
+        org={org}
+        role={role}
         onClose={() => setSelected(null)}
         onSaved={() => setRefresh((n) => n + 1)}
       />

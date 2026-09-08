@@ -54,6 +54,12 @@ class Student(models.Model):
     # walked in, so anyone running the academy may see it.
     photo = models.ImageField(upload_to=member_photo_path, null=True, blank=True)
 
+    # What their QR pass encodes. Random rather than derived from the id, so
+    # scanning one member's pass tells you nothing about anyone else's, and
+    # reissuable, so a photographed pass can be killed without touching the
+    # member record.
+    qr_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

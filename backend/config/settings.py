@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     "karate",
     # Gym operations
     "subscriptions",
+    "checkins",
 ]
 
 MIDDLEWARE = [

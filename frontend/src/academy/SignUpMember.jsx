@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { apiFetch, apiFetchAll, apiUpload } from '../lib/api'
-import { useBranches } from '../academy/useBranches'
+import { PAYMENT_METHODS } from './CollectPayment'
+import { useBranches } from './useBranches'
 
 /**
  * Signing somebody up, start to finish, on one screen.
@@ -16,11 +17,6 @@ import { useBranches } from '../academy/useBranches'
 
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 const today = () => new Date().toISOString().slice(0, 10)
-
-const METHODS = [
-  ['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'],
-  ['bank_transfer', 'Bank transfer'], ['other', 'Other'],
-]
 
 function Step({ number, title, done, active, children, hint }) {
   return (
@@ -509,7 +505,7 @@ export default function SignUpMember({ role, org, onClose, onSaved }) {
               <label>Method
                 <select value={payment.method}
                         onChange={(e) => setPayment({ ...payment, method: e.target.value })}>
-                  {METHODS.map(([value, label]) => (
+                  {PAYMENT_METHODS.map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
                 </select>

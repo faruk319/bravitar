@@ -37,4 +37,5 @@ urlpatterns = [
     path('api/karate/', include('karate.urls')),
     # Gym operations
     path('api/gym-ops/', include('subscriptions.urls')),
+    path('api/checkins/', include('checkins.urls')),
 ]

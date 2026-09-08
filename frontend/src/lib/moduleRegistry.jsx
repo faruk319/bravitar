@@ -7,6 +7,7 @@ import BeltBoard from '../karate/BeltBoard'
 import Sparring from '../karate/Sparring'
 import LanePlanner from '../swimming/LanePlanner'
 import SwimLevels from '../swimming/SwimLevels'
+import CheckInDesk from '../gymops/CheckInDesk'
 import MembershipTiers from '../gymops/MembershipTiers'
 import Memberships from '../gymops/Memberships'
 import Renewals from '../gymops/Renewals'
@@ -31,6 +32,7 @@ export const MODULE_COMPONENTS = {
   enquiries: Enquiries,
 
   // Gym operations
+  checkin: CheckInDesk,
   tiers: MembershipTiers,
   memberships: Memberships,
   renewals: Renewals,

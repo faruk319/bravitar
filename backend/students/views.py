@@ -1,8 +1,10 @@
 from django.db.models import Count
+from django.db.models.deletion import ProtectedError
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
@@ -49,6 +51,21 @@ class StudentDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyA
             .annotate(document_total=Count("documents"))
             .order_by(*Student._meta.ordering)
         )
+
+    def perform_destroy(self, instance):
+        """Invoices PROTECT the member they were raised against, so deleting
+        somebody who has ever been billed would come back as a 500. It should
+        not be possible anyway: an invoice naming nobody is not a record of
+        anything, and a member who stopped coming is marked Left, not erased.
+        """
+        try:
+            instance.delete()
+        except ProtectedError as error:
+            raise ValidationError({"detail": (
+                f"{instance.full_name} has invoices on file, so the record has to "
+                "stay — otherwise the money history would name nobody. Set their "
+                "status to Left instead."
+            )}) from error
 
 
 class MemberPhotoView(OrganizationScopedMixin, generics.GenericAPIView):

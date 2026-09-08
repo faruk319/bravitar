@@ -440,3 +440,36 @@ optgroup { font-weight: 600; }
 .file-pick-block input[type="file"] { display: block; margin-top: 0.3rem; }
 
 .finished { border-color: #1d6b1d; }
+
+/* Destructive confirmation. Only ever shown behind a second click. */
+button.danger {
+  background: #a32424; border-color: #a32424; color: #fff;
+}
+button.danger:hover { background: #8c1e1e; }
+
+/* Profile cards stack with room to breathe — this screen is long. */
+.stack.wide > * + * { margin-top: 1rem; }
+
+/* The desk's verdict has to be readable from arm's length across a counter. */
+.verdict h2 { font-size: 1.5rem; margin: 0 0 0.35rem; }
+.verdict.in { border-color: #1d6b1d; background: #f4fbf4; }
+.verdict.out { border-color: #a32424; background: #fdf5f5; }
+
+.scanner-view {
+  width: 240px; height: 180px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border); background: #1b1b1f;
+}
+.scanner-view.empty {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 0.85rem; background: #f4f4f6;
+}
+
+.pass-qr {
+  width: 180px; height: 180px; image-rendering: pixelated;
+  border: 1px solid var(--border); border-radius: 8px; background: #fff;
+}
+.pass-qr.empty {
+  display: flex; align-items: center; justify-content: center; color: var(--muted);
+}
+
+.divider { border: 0; border-top: 1px solid var(--border); margin: 1rem 0; }

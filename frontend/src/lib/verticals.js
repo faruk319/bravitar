@@ -20,6 +20,7 @@ export const VERTICALS = [
     label: 'Gym Management',
     description: 'Memberships, check-ins, classes and trainers.',
     modules: [
+      { key: 'checkin', label: 'Check In' },
       { key: 'tiers', label: 'Membership Plans' },
       { key: 'memberships', label: 'Memberships' },
       { key: 'renewals', label: 'Renewals' },
