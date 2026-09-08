@@ -6,6 +6,102 @@ import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 const today = () => new Date().toISOString().slice(0, 10)
 
+const METHODS = [
+  ['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'],
+  ['bank_transfer', 'Bank transfer'], ['other', 'Other'],
+]
+
+// One line per state, in the order a membership passes through them. Kept on
+// the screen rather than in a help page because "why is she pending?" is the
+// question the front desk actually asks.
+const LIFECYCLE = [
+  ['pending', 'Signed up, nothing paid yet — cannot train'],
+  ['upcoming', 'Paid, but the start date has not arrived'],
+  ['active', 'Running — can train'],
+  ['expiring', 'Ends within 5 days — time to sell the renewal'],
+  ['expired', 'The dates ran out'],
+  ['cancelled', 'Called off'],
+]
+
+function CollectPayment({ subscription, onDone, onCancel }) {
+  const [amount, setAmount] = useState(String(subscription.amount_due ?? ''))
+  const [paidOn, setPaidOn] = useState(today)
+  const [method, setMethod] = useState('cash')
+  const [reference, setReference] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  async function save(event) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      await apiFetch('/billing/payments/', {
+        method: 'POST',
+        body: JSON.stringify({
+          invoice: subscription.invoice,
+          amount,
+          paid_on: paidOn,
+          method,
+          reference,
+        }),
+      })
+      onDone()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
+  const short = Number(amount) > 0 && Number(amount) < Number(subscription.amount_due)
+
+  return (
+    <form className="card wide" onSubmit={save}>
+      <h2>Take payment — {subscription.student_name}</h2>
+      <p className="muted small">
+        {subscription.tier_name} · ₹{money(subscription.amount_due)} outstanding.
+        This records against the same invoice you see under Fees &amp; Billing.
+      </p>
+
+      <div className="set-entry">
+        <label>Amount
+          <input type="number" step="0.01" min="0.01" required value={amount}
+                 onChange={(e) => setAmount(e.target.value)} />
+        </label>
+        <label>Received on
+          <input type="date" required value={paidOn}
+                 onChange={(e) => setPaidOn(e.target.value)} />
+        </label>
+        <label>Method
+          <select value={method} onChange={(e) => setMethod(e.target.value)}>
+            {METHODS.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label>Reference
+          <input value={reference} placeholder="UPI ref, receipt no."
+                 onChange={(e) => setReference(e.target.value)} />
+        </label>
+      </div>
+
+      {short && (
+        <p className="muted small">
+          Part payment — the membership starts and ₹
+          {money(Number(subscription.amount_due) - Number(amount))} stays outstanding.
+        </p>
+      )}
+
+      {error && <p className="error">{error}</p>}
+
+      <div className="row-actions">
+        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Record payment'}</button>
+        <button type="button" className="link" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  )
+}
+
 function SignUpMember({ tiers, onDone, onCancel }) {
   const [student, setStudent] = useState(null)
   const [tierId, setTierId] = useState('')
@@ -86,6 +182,7 @@ export default function Memberships({ role }) {
   const [tiers, setTiers] = useState([])
   const [status, setStatus] = useState('')
   const [signingUp, setSigningUp] = useState(false)
+  const [collecting, setCollecting] = useState(null)
   const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState(null)
 
@@ -130,14 +227,19 @@ export default function Memberships({ role }) {
     <>
       <h1>Memberships</h1>
       <p className="muted">
-        Who is on a plan and until when. Starting one raises its invoice under
-        Fees &amp; Billing, where the payment is recorded.
+        Who is on a plan and until when. Starting a membership raises its
+        invoice; taking the payment is what turns it from <strong>pending</strong>
+        into <strong>active</strong>.
       </p>
 
       <div className="stat-row">
         <div className="stat-tile">
           <span className="muted small">Current members</span>
           <div className="stat-value">{overview.current_members}</div>
+        </div>
+        <div className="stat-tile">
+          <span className="muted small">Awaiting payment</span>
+          <div className="stat-value">{overview.counts.pending ?? 0}</div>
         </div>
         <div className="stat-tile">
           <span className="muted small">Expiring soon</span>
@@ -174,7 +276,9 @@ export default function Memberships({ role }) {
       <div className="filters">
         <select value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">All memberships</option>
+          <option value="pending">Awaiting payment</option>
           <option value="active">Running</option>
+          <option value="upcoming">Upcoming</option>
           <option value="expired">Lapsed</option>
           <option value="cancelled">Cancelled</option>
         </select>
@@ -189,6 +293,17 @@ export default function Memberships({ role }) {
           onCancel={() => setSigningUp(false)}
           onDone={() => {
             setSigningUp(false)
+            setRefresh((n) => n + 1)
+          }}
+        />
+      )}
+
+      {canManage && collecting && (
+        <CollectPayment
+          subscription={collecting}
+          onCancel={() => setCollecting(null)}
+          onDone={() => {
+            setCollecting(null)
             setRefresh((n) => n + 1)
           }}
         />
@@ -241,17 +356,43 @@ export default function Memberships({ role }) {
                     </td>
                     {canManage && (
                       <td>
-                        {!s.cancelled_on && (
-                          <button type="button" className="link" onClick={() => cancel(s)}>
-                            Cancel
-                          </button>
-                        )}
+                        <div className="row-actions">
+                          {Number(s.amount_due) > 0 && !s.cancelled_on && (
+                            <button type="button" className="link"
+                                    onClick={() => setCollecting(s)}>
+                              Take payment
+                            </button>
+                          )}
+                          {!s.cancelled_on && (
+                            <button type="button" className="link" onClick={() => cancel(s)}>
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            <details className="lifecycle">
+              <summary className="muted small">What do these statuses mean?</summary>
+              <ul>
+                {LIFECYCLE.map(([value, meaning]) => (
+                  <li key={value}>
+                    <span className={`pill ${value}`}>{value}</span>
+                    <span className="muted small">{meaning}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="muted small">
+                Only <strong>active</strong> and <strong>expiring</strong> let a
+                member through the door. If your gym lets members pay later,
+                switch off &ldquo;require payment before access&rdquo; in Settings
+                and memberships go live on their start date instead.
+              </p>
+            </details>
           </>
         )}
       </div>

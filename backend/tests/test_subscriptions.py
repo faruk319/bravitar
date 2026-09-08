@@ -434,3 +434,132 @@ class MembershipBillingTests(GymTestCase):
         self.assertEqual(
             Invoice.objects.filter(organization=self.org, student=self.student).count(), 1
         )
+
+
+class MembershipStateTests(GymTestCase):
+    """When is a member active, pending, expired or cancelled?
+
+    One word has to answer one question — can this person train today? — and
+    only `active` and `expiring` may mean yes. The trap this guards is a
+    membership that reads "active" while nobody has paid a rupee for it, which
+    is what the date-only status used to do.
+    """
+
+    def pay(self, subscription_id, amount):
+        invoice_id = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{subscription_id}/"
+        ).data["invoice"]
+        return self.client_for(self.manager).post(
+            "/api/billing/payments/",
+            {"invoice": invoice_id, "amount": amount, "paid_on": str(self.today)},
+            format="json",
+        )
+
+    def status_of(self, subscription_id):
+        return self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{subscription_id}/"
+        ).data["status"]
+
+    def test_an_unpaid_membership_is_pending_not_active(self):
+        created = self.subscribe()
+        self.assertEqual(created.data["status"], SubscriptionStatus.PENDING)
+
+    def test_paying_turns_it_active(self):
+        created = self.subscribe()
+        self.pay(created.data["id"], "1500.00")
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.ACTIVE)
+
+    def test_a_part_payment_is_enough_to_start_training(self):
+        """Once a member has handed over money they have committed. The
+        balance is chased on the billing screen, not at the door."""
+        created = self.subscribe()
+        self.pay(created.data["id"], "100.00")
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.ACTIVE)
+
+    def test_a_gym_that_lets_members_pay_later_gets_dates_back(self):
+        self.org.membership_requires_payment = False
+        self.org.save()
+
+        created = self.subscribe()
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.ACTIVE)
+
+    def test_expiry_beats_non_payment(self):
+        """The dates ran out, so the membership is over. The money is still
+        owed, but that is billing's problem — not an access decision."""
+        created = self.subscribe(started_on=self.today - timedelta(days=60))
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.EXPIRED)
+
+    def test_cancelling_beats_everything(self):
+        created = self.subscribe()
+        self.pay(created.data["id"], "1500.00")
+        self.client_for(self.manager).patch(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/",
+            {"cancelled_on": str(self.today)}, format="json",
+        )
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.CANCELLED)
+
+    def test_a_paid_membership_starting_later_is_upcoming(self):
+        created = self.subscribe(started_on=self.today + timedelta(days=10))
+        self.pay(created.data["id"], "1500.00")
+        self.assertEqual(self.status_of(created.data["id"]), SubscriptionStatus.UPCOMING)
+
+    def test_a_pending_membership_does_not_admit_anyone(self):
+        created = self.subscribe()
+        subscription = MemberSubscription.objects.get(pk=created.data["id"])
+        self.assertFalse(subscription.is_current)
+
+    def test_pending_members_are_not_counted_as_being_on_a_tier(self):
+        """A tier card claiming 5 members when none of them paid would make
+        the revenue figures next to it fiction."""
+        self.subscribe()
+        card = self.client_for(self.manager).get("/api/gym-ops/tiers/").data["results"][0]
+        self.assertEqual(card["active_members"], 0)
+
+        created = MemberSubscription.objects.get(organization=self.org)
+        self.pay(created.id, "1500.00")
+        card = self.client_for(self.manager).get("/api/gym-ops/tiers/").data["results"][0]
+        self.assertEqual(card["active_members"], 1)
+
+
+class MembershipStatusFilterTests(GymTestCase):
+    """Filtering by a derived status has to happen in SQL, or a page of
+    results is counted from one set of rows and filled from another."""
+
+    def setUp(self):
+        super().setUp()
+        self.paid = self.subscribe()
+        invoice_id = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{self.paid.data['id']}/"
+        ).data["invoice"]
+        self.client_for(self.manager).post(
+            "/api/billing/payments/",
+            {"invoice": invoice_id, "amount": "1500.00", "paid_on": str(self.today)},
+            format="json",
+        )
+        self.unpaid = self.subscribe(
+            student=Student.objects.create(
+                organization=self.org, full_name="Owes Money", joined_on=self.today
+            )
+        )
+
+    def listed(self, status):
+        response = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/?status={status}"
+        )
+        return {row["id"] for row in response.data["results"]}
+
+    def test_pending_lists_only_the_unpaid_one(self):
+        self.assertEqual(self.listed(SubscriptionStatus.PENDING), {self.unpaid.data["id"]})
+
+    def test_active_excludes_the_unpaid_one(self):
+        self.assertEqual(self.listed(SubscriptionStatus.ACTIVE), {self.paid.data["id"]})
+
+    def test_the_filter_agrees_with_the_row_it_returns(self):
+        """The SQL filter and the Python property are two implementations of
+        one rule; if they drift, the screen lies about what it is showing."""
+        for status in (SubscriptionStatus.PENDING, SubscriptionStatus.ACTIVE):
+            for row_id in self.listed(status):
+                self.assertEqual(
+                    MemberSubscription.objects.get(pk=row_id).status, status,
+                    f"a row returned for status={status} does not have that status",
+                )

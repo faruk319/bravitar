@@ -16,6 +16,13 @@ class Organization(models.Model):
     custom_domain = models.CharField(max_length=255, unique=True, null=True, blank=True)
     domain_verified = models.BooleanField(default=False)
 
+    # Whether a membership only starts admitting the member once money has
+    # arrived. On (the default) a fresh unpaid membership reads "pending"
+    # rather than "active", so the front desk is never told somebody is a
+    # paid-up member when nothing has been collected. Gyms that let regulars
+    # settle up later switch this off and get date-only memberships back.
+    membership_requires_payment = models.BooleanField(default=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

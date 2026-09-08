@@ -94,12 +94,12 @@ export async function apiFetchAll(path, { maxPages = 50 } = {}) {
 }
 
 /** Posts multipart form data (file uploads), letting the browser set the boundary. */
-export async function apiUpload(path, formData) {
+export async function apiUpload(path, formData, method = 'POST') {
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token
 
   const response = await fetch(`/api${path}`, {
-    method: 'POST',
+    method,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
   })

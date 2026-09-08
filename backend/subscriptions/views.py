@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
@@ -33,11 +33,17 @@ class GymScopedMixin(OrganizationScopedMixin):
         return [HasGymVertical()]
 
 
+def _tier_subscriptions():
+    """Tier cards report how many members are current, and "current" now reads
+    the organization's payment policy and the invoice behind each membership."""
+    return Prefetch("subscriptions", queryset=MemberSubscription.objects.with_status())
+
+
 class TierListCreateView(GymScopedMixin, generics.ListCreateAPIView):
     serializer_class = MembershipTierSerializer
 
     def get_queryset(self):
-        queryset = self.scoped(MembershipTier).prefetch_related("subscriptions")
+        queryset = self.scoped(MembershipTier).prefetch_related(_tier_subscriptions())
         if self.request.query_params.get("active") == "true":
             queryset = queryset.filter(is_active=True)
         return queryset
@@ -47,7 +53,7 @@ class TierDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = MembershipTierSerializer
 
     def get_queryset(self):
-        return self.scoped(MembershipTier).prefetch_related("subscriptions")
+        return self.scoped(MembershipTier).prefetch_related(_tier_subscriptions())
 
     def perform_destroy(self, instance):
         """Subscriptions PROTECT their tier, so a tier anyone has ever been on
@@ -75,24 +81,17 @@ class SubscriptionListCreateView(GymScopedMixin, generics.ListCreateAPIView):
         subscription.raise_invoice()
 
     def get_queryset(self):
-        queryset = self.scoped(MemberSubscription).select_related("student", "tier")
+        queryset = (
+            self.scoped(MemberSubscription).select_related("student", "tier").with_status()
+        )
         params = self.request.query_params
 
         if student := params.get("student"):
             queryset = queryset.filter(student_id=student)
         if tier := params.get("tier"):
             queryset = queryset.filter(tier_id=tier)
-
-        today = timezone.localdate()
-        wanted = params.get("status")
-        if wanted == SubscriptionStatus.ACTIVE:
-            queryset = queryset.filter(
-                cancelled_on__isnull=True, started_on__lte=today, expires_on__gte=today
-            )
-        elif wanted == SubscriptionStatus.EXPIRED:
-            queryset = queryset.filter(cancelled_on__isnull=True, expires_on__lt=today)
-        elif wanted == SubscriptionStatus.CANCELLED:
-            queryset = queryset.filter(cancelled_on__isnull=False)
+        if wanted := params.get("status"):
+            queryset = queryset.by_status(wanted, self.organization)
         return queryset
 
 
@@ -100,7 +99,9 @@ class SubscriptionDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIVi
     serializer_class = MemberSubscriptionSerializer
 
     def get_queryset(self):
-        return self.scoped(MemberSubscription).select_related("student", "tier")
+        return (
+            self.scoped(MemberSubscription).select_related("student", "tier").with_status()
+        )
 
     @transaction.atomic
     def perform_update(self, serializer):
@@ -130,6 +131,7 @@ def expiring_soon(request):
             Q(expires_on__gte=today - timedelta(days=30), expires_on__lte=today + timedelta(days=days))
         )
         .select_related("student", "tier")
+        .with_status()
         .order_by("expires_on")
     )
 
@@ -164,6 +166,7 @@ def membership_overview(request):
     subscriptions = list(
         MemberSubscription.objects.filter(organization=organization)
         .select_related("tier")
+        .with_status()
     )
 
     counts = {value: 0 for value, _ in SubscriptionStatus.CHOICES}

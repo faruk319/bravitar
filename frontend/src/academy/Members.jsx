@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 
-import { apiFetch, apiPage } from '../lib/api'
+import { apiPage } from '../lib/api'
+import SignUpMember from './SignUpMember'
 import StudentDetail from './StudentDetail'
 import { useBranches } from './useBranches'
 
 const STATUSES = ['active', 'trial', 'paused', 'left']
 
-export default function Members({ role }) {
+export default function Members({ role, org }) {
   const branches = useBranches()
   const [students, setStudents] = useState(null)
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [branch, setBranch] = useState('')
   const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ full_name: '', phone: '', email: '' })
   const [refresh, setRefresh] = useState(0)
   const [selected, setSelected] = useState(null)
   const [error, setError] = useState(null)
@@ -38,24 +38,18 @@ export default function Members({ role }) {
     }
   }, [search, status, branch, refresh])
 
-  async function addStudent(event) {
-    event.preventDefault()
-    setError(null)
-    try {
-      await apiFetch('/students/', {
-        method: 'POST',
-        body: JSON.stringify({
-          ...form,
-          branch: branch || null,
-          joined_on: new Date().toISOString().slice(0, 10),
-        }),
-      })
-      setForm({ full_name: '', phone: '', email: '' })
-      setAdding(false)
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
+  // Adding a member is the sign-up flow — there is deliberately only one way
+  // to create one, so a member added here and a member signed up at the desk
+  // are the same record with the same photo, ID and plan behind them.
+  if (adding) {
+    return (
+      <SignUpMember
+        role={role}
+        org={org}
+        onClose={() => setAdding(false)}
+        onSaved={() => setRefresh((n) => n + 1)}
+      />
+    )
   }
 
   if (selected) {
@@ -87,28 +81,9 @@ export default function Members({ role }) {
           {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
         {canEdit && (
-          <button type="button" onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Cancel' : '+ Add member'}
-          </button>
+          <button type="button" onClick={() => setAdding(true)}>+ Add member</button>
         )}
       </div>
-
-      {canEdit && adding && (
-        <form className="card wide set-entry" onSubmit={addStudent}>
-          <label>Name
-            <input required value={form.full_name}
-                   onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-          </label>
-          <label>Phone
-            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          </label>
-          <label>Email
-            <input type="email" value={form.email}
-                   onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </label>
-          <button type="submit">Save</button>
-        </form>
-      )}
 
       {error && <p className="error">{error}</p>}
 

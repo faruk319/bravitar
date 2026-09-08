@@ -170,9 +170,70 @@ function Belts({ canEdit }) {
   )
 }
 
-export default function PluginSettings({ verticals, branches, canEdit }) {
+function GymAccess({ org, canEdit, onOrgChange }) {
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const requiresPayment = org.membership_requires_payment
+
+  async function toggle() {
+    setBusy(true)
+    setError(null)
+    try {
+      const updated = await apiFetch('/organizations/current/', {
+        method: 'PATCH',
+        body: JSON.stringify({ membership_requires_payment: !requiresPayment }),
+      })
+      onOrgChange(updated)
+    } catch (err) {
+      setError(err.message)
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div className="card wide">
+      <h2>Membership access</h2>
+      <p className="muted small">
+        Decides when a new membership starts letting the member train.
+      </p>
+
+      {error && <p className="error">{error}</p>}
+
+      <label className="checkbox">
+        <input type="checkbox" checked={requiresPayment} disabled={!canEdit || busy}
+               onChange={toggle} />
+        Require payment before access
+      </label>
+
+      <p className="muted small">
+        {requiresPayment ? (
+          <>
+            <strong>On.</strong> A new membership reads <span className="pill pending">pending</span>
+            {' '}until money is taken against its invoice, then turns
+            {' '}<span className="pill active">active</span>. Any part payment is enough —
+            the balance is still chased under Fees &amp; Billing.
+          </>
+        ) : (
+          <>
+            <strong>Off.</strong> A membership goes
+            {' '}<span className="pill active">active</span> on its start date whether or
+            not it has been paid for. Use this if your members settle up later; what
+            they owe still shows under Fees &amp; Billing.
+          </>
+        )}
+      </p>
+    </div>
+  )
+}
+
+
+export default function PluginSettings({ org, verticals, branches, canEdit, onOrgChange }) {
   return (
     <>
+      {verticals.includes('gym') && (
+        <GymAccess org={org} canEdit={canEdit} onOrgChange={onOrgChange} />
+      )}
       {verticals.includes('swimming') && <Pools branches={branches} canEdit={canEdit} />}
       {verticals.includes('karate') && <Belts canEdit={canEdit} />}
     </>

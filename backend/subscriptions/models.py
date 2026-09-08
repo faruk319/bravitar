@@ -1,12 +1,73 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from organizations.models import Organization
 from students.models import Student
 
 from .constants import BillingPeriod, SubscriptionStatus
+
+
+class MemberSubscriptionQuerySet(models.QuerySet):
+    """Status is derived from three places — the dates, the organization's
+    payment policy, and the invoice's payments — so reading it off a plain
+    queryset costs three extra queries per row. These helpers load it in one
+    go, and translate a status back into something the database can filter on.
+    """
+
+    def with_status(self):
+        return self.select_related("organization", "invoice").prefetch_related(
+            "invoice__payments"
+        )
+
+    def _with_paid(self):
+        # An aggregate annotation drops the model's default ordering, and an
+        # unordered queryset makes pagination skip and repeat rows. Put it back.
+        return self.annotate(
+            _paid=Coalesce(
+                models.Sum("invoice__payments__amount"),
+                models.Value(Decimal("0")),
+                output_field=models.DecimalField(max_digits=12, decimal_places=2),
+            )
+        ).order_by(*MemberSubscription._meta.ordering)
+
+    def awaiting_payment(self, organization):
+        """Live memberships that nobody has paid a rupee towards."""
+        if not organization.membership_requires_payment:
+            return self.none()
+        return self._with_paid().filter(
+            cancelled_on__isnull=True,
+            expires_on__gte=timezone.localdate(),
+            invoice__isnull=False,
+            invoice__is_cancelled=False,
+            _paid__lte=0,
+        )
+
+    def by_status(self, wanted, organization):
+        """Filter to one derived status, in SQL, so pagination still counts
+        the right rows. Anything unrecognised leaves the queryset alone."""
+        today = timezone.localdate()
+
+        if wanted == SubscriptionStatus.CANCELLED:
+            return self.filter(cancelled_on__isnull=False)
+        if wanted == SubscriptionStatus.EXPIRED:
+            return self.filter(cancelled_on__isnull=True, expires_on__lt=today)
+        if wanted == SubscriptionStatus.PENDING:
+            return self.awaiting_payment(organization)
+
+        if wanted in (SubscriptionStatus.ACTIVE, SubscriptionStatus.UPCOMING):
+            queryset = self.filter(cancelled_on__isnull=True, expires_on__gte=today)
+            if wanted == SubscriptionStatus.ACTIVE:
+                queryset = queryset.filter(started_on__lte=today)
+            else:
+                queryset = queryset.filter(started_on__gt=today)
+            # Unpaid memberships read as "pending", not as either of these.
+            unpaid = self.awaiting_payment(organization).values("pk")
+            return queryset.exclude(pk__in=unpaid)
+        return self
 
 
 class MembershipTier(models.Model):
@@ -97,6 +158,8 @@ class MemberSubscription(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = MemberSubscriptionQuerySet.as_manager()
+
     class Meta:
         ordering = ["-expires_on", "-id"]
         indexes = [models.Index(fields=["organization", "expires_on"])]
@@ -105,15 +168,37 @@ class MemberSubscription(models.Model):
         return f"{self.student.full_name} on {self.tier.name} to {self.expires_on}"
 
     @property
+    def awaiting_payment(self):
+        """True when the gym takes payment up front and none has arrived.
+
+        Deliberately keyed on *nothing* paid rather than a balance owing: once
+        a member has handed over any amount they have committed, so they train
+        and the remainder is chased on the billing screen. That keeps the line
+        easy to say out loud — "not a rupee in yet" — instead of turning the
+        front desk into a debt calculation.
+        """
+        if not self.organization.membership_requires_payment:
+            return False
+        if self.invoice is None or self.invoice.is_cancelled:
+            # No bill to settle — either legacy data or a waived membership.
+            return False
+        return self.invoice.amount_paid <= 0
+
+    @property
     def status(self):
         if self.cancelled_on:
             return SubscriptionStatus.CANCELLED
 
         today = timezone.localdate()
-        if self.started_on > today:
-            return SubscriptionStatus.UPCOMING
+        # Expiry outranks payment: once the dates are gone the membership is
+        # over whether or not it was ever paid for. The money is still owed,
+        # but it is billing's problem, not an access decision.
         if self.expires_on < today:
             return SubscriptionStatus.EXPIRED
+        if self.awaiting_payment:
+            return SubscriptionStatus.PENDING
+        if self.started_on > today:
+            return SubscriptionStatus.UPCOMING
         if self.days_remaining <= SubscriptionStatus.EXPIRING_WINDOW_DAYS:
             return SubscriptionStatus.EXPIRING
         return SubscriptionStatus.ACTIVE
@@ -125,7 +210,7 @@ class MemberSubscription(models.Model):
     @property
     def is_current(self):
         """Whether this membership entitles the member to walk in today."""
-        return self.status in (SubscriptionStatus.ACTIVE, SubscriptionStatus.EXPIRING)
+        return self.status in SubscriptionStatus.ADMITTING
 
     @classmethod
     def expiry_for(cls, tier, started_on):

@@ -51,8 +51,14 @@ class Invoice(models.Model):
 
     @property
     def amount_paid(self):
-        total = self.payments.aggregate(total=models.Sum("amount"))["total"]
-        return (total or Decimal("0")).quantize(Decimal("0.01"))
+        # Membership status now reads this for every row on the list screens,
+        # so honour a prefetch when there is one instead of firing an
+        # aggregate per invoice.
+        if "payments" in getattr(self, "_prefetched_objects_cache", {}):
+            total = sum((p.amount for p in self.payments.all()), Decimal("0"))
+        else:
+            total = self.payments.aggregate(total=models.Sum("amount"))["total"] or Decimal("0")
+        return total.quantize(Decimal("0.01"))
 
     @property
     def balance(self):

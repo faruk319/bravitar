@@ -58,3 +58,58 @@ class PaginationShapeTests(TenantAPITestCase):
     def test_filters_apply_before_paging(self):
         response = self.client_for(self.owner).get("/api/students/?search=Student 001")
         self.assertEqual(response.data["count"], 1)
+
+
+class MembershipStatusPaginationTests(TenantAPITestCase):
+    """A status filter that annotates has to stay ordered.
+
+    Django drops a model's default ordering when you add an aggregate, and an
+    unordered queryset lets the paginator hand back the same row on two pages
+    while another row is never shown at all.
+    """
+
+    def test_filtering_by_a_derived_status_stays_ordered(self):
+        from subscriptions.models import MemberSubscription
+
+        self.org.verticals = ["gym"]
+        self.org.save()
+        for status in ("pending", "active", "expired", "cancelled"):
+            queryset = MemberSubscription.objects.filter(
+                organization=self.org
+            ).by_status(status, self.org)
+            self.assertTrue(
+                queryset.ordered,
+                f"status={status} returns an unordered queryset, so paging it drops rows",
+            )
+
+
+class MemberListPaginationTests(TenantAPITestCase):
+    """Counting each member's documents must not cost their ordering.
+
+    Goes through HTTP rather than poking the view, because the defect only
+    shows up once the paginator is the thing consuming the queryset.
+    """
+
+    def test_paging_the_member_list_shows_every_member_once(self):
+        from datetime import date
+
+        from students.models import Student
+
+        names = [f"Member {i:02d}" for i in range(25)]
+        for name in names:
+            Student.objects.create(
+                organization=self.org, full_name=name, joined_on=date(2026, 1, 1)
+            )
+
+        seen = []
+        url = "/api/students/?page_size=10"
+        client = self.client_for(self.manager)
+        while url:
+            response = client.get(url)
+            self.assertEqual(response.status_code, 200)
+            seen.extend(row["full_name"] for row in response.data["results"])
+            following = response.data.get("next")
+            url = following[following.index("/api/"):] if following else None
+
+        self.assertEqual(len(seen), len(set(seen)), "a member was returned on two pages")
+        self.assertEqual(sorted(seen), sorted(names))

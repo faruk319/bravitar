@@ -55,7 +55,10 @@ class OrganizationSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Organization
-        fields = ["id", "name", "slug", "verticals", "plan", "custom_domain", "domain_verified"]
+        fields = [
+            "id", "name", "slug", "verticals", "plan", "custom_domain",
+            "domain_verified", "membership_requires_payment",
+        ]
         # The slug is the subdomain every existing link points at, so it isn't
         # editable here; plan and domain_verified are set by billing and the
         # domain-verification flow, not by hand.

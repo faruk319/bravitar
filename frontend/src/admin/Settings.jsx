@@ -177,9 +177,11 @@ export default function Settings({ org, role, onOrgChange }) {
       </div>
 
       <PluginSettings
+        org={org}
         verticals={org.verticals}
         branches={branches ?? []}
         canEdit={isOwner}
+        onOrgChange={onOrgChange}
       />
     </>
   )

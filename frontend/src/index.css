@@ -395,3 +395,48 @@ optgroup { font-weight: 600; }
 .pill.upcoming { background: #e6e9fb; color: #3a3f8f; }
 .pill.expiring { background: #fdf0d5; color: #8a5a00; }
 .pill.expired, .pill.cancelled { background: #fbe0e0; color: #a32424; }
+
+/* Awaiting payment: not a failure, just not done yet — so amber, the same
+   colour the part-paid invoice pill uses, not the red of expired. */
+.pill.pending { background: #fdf0d5; color: #8a5a00; }
+
+.lifecycle { margin-top: 1rem; }
+.lifecycle summary { cursor: pointer; }
+.lifecycle ul { list-style: none; padding: 0; margin: 0.75rem 0; }
+.lifecycle li {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.2rem 0;
+}
+.lifecycle li .pill { min-width: 5.5rem; text-align: center; }
+
+/* Onboarding wizard: steps read top to bottom, finished ones recede so the
+   one that needs attention is the one you look at. */
+.step { position: relative; }
+.step.done { opacity: 0.72; }
+.step.current { border-color: var(--accent, #3a3f8f); }
+.step-head { display: flex; align-items: center; gap: 0.65rem; }
+.step-head h2 { margin: 0; }
+.step-number {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  background: var(--border); color: var(--muted);
+  font-size: 0.8rem; font-weight: 600; flex: none;
+}
+.step.done .step-number { background: #dcf3dc; color: #1d6b1d; }
+.step.current .step-number { background: #e6e9fb; color: #3a3f8f; }
+
+.photo-capture { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.photo-preview {
+  width: 160px; height: 160px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border); background: #f4f4f6;
+}
+.photo-preview.empty {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 0.85rem;
+}
+/* A file input styled as a link — the native control is unreadable next to
+   the other buttons. */
+.file-pick { cursor: pointer; }
+.file-pick input[type="file"] { display: none; }
+.file-pick-block input[type="file"] { display: block; margin-top: 0.3rem; }
+
+.finished { border-color: #1d6b1d; }
