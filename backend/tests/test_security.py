@@ -186,13 +186,17 @@ class WritePermissionsAreAFloorTests(TenantAPITestCase):
         """The scanner endpoint is the door's way in; the desk endpoint names
         members and is not."""
         self.assertRefused(self.as_key().post(
-            "/api/checkins/", {"student": self.student.id}, format="json"
+            "/api/attendance/checkins/", {"student": self.student.id}, format="json"
         ))
 
     def test_a_write_still_needs_its_vertical(self):
-        self.org.verticals = ["swimming"]
+        """Body measurements are behind the fitness module; a POST must not
+        walk past that gate just because it is a write."""
+        self.org.verticals = ["gym"]
         self.org.save()
         response = self.client_for(self.manager).post(
-            "/api/checkins/", {"student": self.student.id}, format="json"
+            "/api/gym/body/entries/",
+            {"metric": "weight", "value": "80", "unit": "kg", "measured_on": "2026-01-01"},
+            format="json",
         )
         self.assertEqual(response.status_code, 403)

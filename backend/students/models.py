@@ -8,8 +8,7 @@ from .constants import DocumentKind, StudentStatus
 
 
 def member_photo_path(instance, filename):
-    """Unguessable path under an organization's own folder. Nothing here is
-    served statically — the only way in is a view that checks the caller."""
+    """Unguessable path; never served statically."""
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
     return f"member_photos/{instance.organization_id}/{uuid.uuid4().hex}.{extension}"
 
@@ -49,15 +48,12 @@ class Student(models.Model):
         help_text="Supabase user id, if this student has their own login.",
     )
 
-    # The face at the front desk. Unlike a progress photo — which is private
-    # to the member — this exists so whoever is on the desk can tell who just
-    # walked in, so anyone running the academy may see it.
+    # For the front desk, so unlike a progress photo this is not private to
+    # the member — anyone running the academy may see it.
     photo = models.ImageField(upload_to=member_photo_path, null=True, blank=True)
 
-    # What their QR pass encodes. Random rather than derived from the id, so
-    # scanning one member's pass tells you nothing about anyone else's, and
-    # reissuable, so a photographed pass can be killed without touching the
-    # member record.
+    # What the QR pass encodes. Random, not derived from the id, and
+    # reissuable when a pass gets photographed.
     qr_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -71,17 +67,11 @@ class Student(models.Model):
 
 
 class MemberDocument(models.Model):
-    """A scan of a member's proof of identity.
+    """A member's proof of identity. Managers and owners only, never an API
+    key, never served statically.
 
-    Held to a tighter rule than the rest of the member record: managers and
-    owners only, never an API key, and never served statically. A coach taking
-    the 6am class has no reason to see anybody's Aadhaar.
-
-    **The full document number is deliberately not storable.** Only the last
-    four digits go in `number_last4`, which is all anyone needs to match a
-    scan to a person. Keeping whole Aadhaar numbers turns a small academy's
-    database into something worth stealing, and there is no feature here that
-    needs them.
+    The full number is deliberately not storable — only the last four digits,
+    which is all anyone needs to match a scan to a person.
     """
 
     organization = models.ForeignKey(

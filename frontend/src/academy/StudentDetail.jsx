@@ -210,7 +210,7 @@ export default function StudentDetail({
           />
         )}
 
-        {gymOn && <PassCard student={current} canManage={canEdit} />}
+        <PassCard student={current} canManage={canEdit} />
 
         <BatchesCard student={current} canManage={canEdit} />
 

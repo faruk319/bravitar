@@ -1,20 +1,11 @@
-"""Checks every onboarding upload has to pass.
-
-Two things are being defended against. An unbounded upload is how one tenant
-fills the disk for every other tenant; and a content type nobody checked is
-how a file called "aadhaar.jpg" turns out to be something else entirely once
-it is sitting on the server.
-
-The type is decided by looking at the bytes, not by trusting the browser's
-Content-Type header or the file's extension — both are attacker-controlled.
-"""
+"""Upload checks. Type comes from the bytes, never the extension or the
+browser's Content-Type — both are attacker-controlled."""
 
 from rest_framework import serializers
 
 from .constants import Upload
 
-# Leading bytes that identify the formats we accept. A file whose first bytes
-# match none of these is rejected whatever it claims to be.
+# Accepted formats, by leading bytes.
 SIGNATURES = [
     (b"\xff\xd8\xff", "image/jpeg"),
     (b"\x89PNG\r\n\x1a\n", "image/png"),

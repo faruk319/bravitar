@@ -18,15 +18,9 @@ class OrganizationScopedMixin:
         return get_current_organization(self.request)
 
     def get_permissions(self):
-        """Writes need staff *on top of* whatever the view already asks for.
-
-        This used to return `[IsOrganizationStaff()]` alone, which silently
-        threw away every other permission the view had declared. A view asking
-        for a vertical gate, or for managers, or for a real person rather than
-        an API key, got none of it the moment the request was a POST — so ID
-        scans were writable by anyone on staff and member photos were writable
-        by an integration token. Permissions are a floor, not a replacement.
-        """
+        """Writes need staff *on top of* what the view already asks for.
+        Returning staff alone silently dropped vertical gates, manager-only and
+        IsPerson on every POST."""
         permissions = [permission() for permission in self.permission_classes]
         if self.staff_only_writes and self.request.method not in ("GET", "HEAD", "OPTIONS"):
             permissions.append(IsOrganizationStaff())

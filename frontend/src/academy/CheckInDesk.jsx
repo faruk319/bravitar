@@ -3,16 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import StudentPicker from '../academy/StudentPicker'
 import { apiFetch, apiObjectUrl } from '../lib/api'
 
-/**
- * The front desk.
- *
- * One question, answered large: does this person come in? The verdict is the
- * membership status read out loud — nothing here decides anything the
- * Memberships screen doesn't already say, it just says it at the counter.
- *
- * A refused attempt is recorded rather than swallowed, so "twelve people were
- * turned away this week" is a number the gym can see.
- */
+/** The front desk. The verdict comes from admission_for; nothing is decided twice. */
 
 const REFUSAL_HELP = {
   no_membership: 'Never been on a plan. Put them on one from their profile.',
@@ -56,14 +47,8 @@ function MemberFace({ student }) {
     : <div className="photo-preview empty">No photo</div>
 }
 
-/**
- * Camera scanning, where the browser can do it.
- *
- * Uses the built-in BarcodeDetector rather than shipping a decoder — it is in
- * Chrome and Android, which is what a gym's desk tablet runs. Where it is
- * missing the desk still works by searching for the member, so this is an
- * accelerator, never the only way in.
- */
+/** Camera scanning via the browser's own BarcodeDetector — an accelerator, not
+ * the only way in. Falls back to searching by name. */
 function Scanner({ onToken, onError }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -170,7 +155,7 @@ function Verdict({ visit, onDismiss }) {
   )
 }
 
-export default function CheckInDesk({ role }) {
+export default function CheckInDesk() {
   const [student, setStudent] = useState(null)
   const [verdict, setVerdict] = useState(null)
   const [today, setToday] = useState(null)
@@ -178,11 +163,9 @@ export default function CheckInDesk({ role }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  const canManage = ['owner', 'manager'].includes(role)
-
   useEffect(() => {
     let cancelled = false
-    apiFetch('/checkins/today/')
+    apiFetch('/attendance/checkins/today/')
       .then((data) => !cancelled && setToday(data))
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -205,14 +188,14 @@ export default function CheckInDesk({ role }) {
   }, [])
 
   const onToken = useCallback(
-    (token) => admit({ token, device: 'desk' }, '/checkins/scan/'),
+    (token) => admit({ token, device: 'desk' }, '/attendance/checkins/scan/'),
     [admit],
   )
 
   async function checkOut(visit) {
     setError(null)
     try {
-      await apiFetch(`/checkins/${visit.id}/out/`, { method: 'POST' })
+      await apiFetch(`/attendance/checkins/${visit.id}/out/`, { method: 'POST' })
       setRefresh((n) => n + 1)
     } catch (err) {
       setError(err.message)
@@ -221,10 +204,9 @@ export default function CheckInDesk({ role }) {
 
   return (
     <>
-      <h1>Check in</h1>
-      <p className="muted">
-        Scan a pass or find the member. Whether they come in is read straight
-        off their membership — nothing is decided twice.
+      <p className="muted small">
+        Scan a pass or find the member. Whether they come in is read off their
+        record — nothing is decided twice.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -249,7 +231,7 @@ export default function CheckInDesk({ role }) {
                 {student.phone && <div className="muted small">{student.phone}</div>}
                 <div className="row-actions">
                   <button type="button" disabled={busy}
-                          onClick={() => admit({ student: student.id }, '/checkins/')}>
+                          onClick={() => admit({ student: student.id }, '/attendance/checkins/')}>
                     {busy ? 'Checking in…' : 'Check in'}
                   </button>
                 </div>
@@ -262,7 +244,7 @@ export default function CheckInDesk({ role }) {
       {today && (
         <div className="stat-row">
           <div className="stat-tile">
-            <span className="muted small">In the gym now</span>
+            <span className="muted small">Here now</span>
             <div className="stat-value">{today.counts.inside}</div>
           </div>
           <div className="stat-tile">
@@ -310,8 +292,7 @@ export default function CheckInDesk({ role }) {
         <div className="card wide">
           <h2>Turned away today</h2>
           <p className="muted small">
-            Each of these is a conversation worth having — most of them are a
-            payment that was never taken.
+            Each of these is a conversation worth having.
           </p>
           <table className="data-table">
             <thead>
@@ -330,11 +311,6 @@ export default function CheckInDesk({ role }) {
         </div>
       )}
 
-      {!canManage && (
-        <p className="muted small">
-          Removing a mis-scanned visit is a manager&apos;s job.
-        </p>
-      )}
     </>
   )
 }

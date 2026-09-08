@@ -1,8 +1,27 @@
 from django.db import models
+from django.utils import timezone
 
 from batches.models import Batch
-from organizations.models import Organization
+from organizations.models import Branch, Organization
 from students.models import Student
+
+from .admission import Refusal
+
+
+class CheckInMethod:
+    """How they got through the door. `biometric` is unused until a reader is
+    plugged in — it posts to the same endpoint the scanner does."""
+
+    QR = "qr"
+    MANUAL = "manual"
+    BIOMETRIC = "biometric"
+
+    CHOICES = [
+        (QR, "QR code"),
+        (MANUAL, "Front desk"),
+        (BIOMETRIC, "Biometric"),
+    ]
+    VALUES = [value for value, _ in CHOICES]
 
 
 class AttendanceStatus:
@@ -23,8 +42,11 @@ class AttendanceStatus:
 
 
 class AttendanceRecord(models.Model):
-    """One student, one batch, one day. The unique constraint means marking a
-    register twice corrects it rather than double-counting."""
+    """One student, one batch, one day — the register a coach marks.
+
+    Separate from CheckIn because this can record an *absence*; a check-in only
+    exists when someone actually walked in.
+    """
 
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="attendance_records"
@@ -49,3 +71,95 @@ class AttendanceRecord(models.Model):
 
     def __str__(self):
         return f"{self.student.full_name} {self.status} on {self.date}"
+
+
+class CheckIn(models.Model):
+    """One visit, or one refused attempt.
+
+    Refusals are rows too — a gym turning people away needs to see that it is.
+    Who gets in is decided in `admission.py`.
+    """
+
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="checkins"
+    )
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="checkins"
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, related_name="checkins", null=True, blank=True
+    )
+    # Set when a vertical's rule named one; core doesn't require a sale.
+    subscription = models.ForeignKey(
+        "subscriptions.MemberSubscription", on_delete=models.SET_NULL,
+        related_name="checkins", null=True, blank=True,
+    )
+
+    checked_in_at = models.DateTimeField(default=timezone.now)
+    checked_out_at = models.DateTimeField(null=True, blank=True)
+
+    method = models.CharField(
+        max_length=20, choices=CheckInMethod.CHOICES, default=CheckInMethod.MANUAL
+    )
+    admitted = models.BooleanField(default=True)
+    refused_reason = models.CharField(max_length=30, choices=Refusal.CHOICES, blank=True)
+    # Free text so a device can name itself without a devices table.
+    device = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["-checked_in_at", "-id"]
+        indexes = [
+            models.Index(fields=["organization", "-checked_in_at"]),
+            models.Index(fields=["student", "-checked_in_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.student.full_name} at {self.checked_in_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_inside(self):
+        return self.admitted and self.checked_out_at is None
+
+    @property
+    def minutes(self):
+        if self.checked_out_at is None:
+            return None
+        return int((self.checked_out_at - self.checked_in_at).total_seconds() // 60)
+
+    def check_out(self, at=None):
+        self.checked_out_at = at or timezone.now()
+        self.save(update_fields=["checked_out_at"])
+        return self
+
+    def mark_register(self):
+        """Mark today's batches present. Only fills blanks — a coach who marked
+        them excused knows something the turnstile doesn't."""
+        if not self.admitted:
+            return []
+
+        on = timezone.localdate(self.checked_in_at)
+        batches = Batch.objects.filter(
+            organization_id=self.organization_id,
+            is_active=True,
+            enrolments__student_id=self.student_id,
+            enrolments__is_active=True,
+        ).distinct()
+
+        marked = []
+        for batch in batches:
+            if on.weekday() not in (batch.days_of_week or []):
+                continue
+            record, created = AttendanceRecord.objects.get_or_create(
+                organization_id=self.organization_id,
+                batch=batch,
+                student_id=self.student_id,
+                date=on,
+                defaults={
+                    "status": AttendanceStatus.PRESENT,
+                    "marked_by": "check-in",
+                    "note": "Marked by check-in",
+                },
+            )
+            if created:
+                marked.append(record)
+        return marked

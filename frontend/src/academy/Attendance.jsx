@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../lib/api'
+import CheckInDesk from './CheckInDesk'
 
 const STATUSES = ['present', 'absent', 'late', 'excused']
 const today = () => new Date().toISOString().slice(0, 10)
 
-export default function Attendance() {
+function Register() {
   const [batches, setBatches] = useState([])
   const [batchId, setBatchId] = useState('')
   const [date, setDate] = useState(today)
@@ -72,9 +73,6 @@ export default function Attendance() {
 
   return (
     <>
-      <h1>Attendance</h1>
-      <p className="muted">Mark the register, and see who is actually turning up.</p>
-
       <div className="filters">
         <select value={batchId} onChange={(e) => setBatchId(e.target.value)}>
           {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -123,6 +121,32 @@ export default function Attendance() {
           </table>
         )}
       </div>
+    </>
+  )
+}
+
+
+/** Two ways of recording the same fact: the coach's register, and the door. */
+export default function Attendance() {
+  const [view, setView] = useState('register')
+
+  return (
+    <>
+      <h1>Attendance</h1>
+      <p className="muted">Who turned up — marked by a coach, or read off the door.</p>
+
+      <div className="tabs">
+        <button type="button" className={view === 'register' ? 'tab on' : 'tab'}
+                onClick={() => setView('register')}>
+          Register
+        </button>
+        <button type="button" className={view === 'door' ? 'tab on' : 'tab'}
+                onClick={() => setView('door')}>
+          At the door
+        </button>
+      </div>
+
+      {view === 'register' ? <Register /> : <CheckInDesk />}
     </>
   )
 }

@@ -7,14 +7,7 @@ const time = (value) =>
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   })
 
-/**
- * A member's door pass, and where they have been using it.
- *
- * The QR is rendered by the server, so the same image prints on a card,
- * attaches to an email and shows on a phone. Reissuing is here because a pass
- * that has been photographed and shared is the one failure mode this design
- * has, and killing it should not need a support call.
- */
+/** A member's door pass and their recent visits. Reissue kills a leaked pass. */
 export default function PassCard({ student, canManage }) {
   const [qr, setQr] = useState(null)
   const [visits, setVisits] = useState(null)
@@ -26,7 +19,7 @@ export default function PassCard({ student, canManage }) {
 
   useEffect(() => {
     let cancelled = false
-    apiPage(`/checkins/?student=${student.id}`)
+    apiPage(`/attendance/checkins/?student=${student.id}`)
       .then((page) => !cancelled && setVisits(page))
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -34,13 +27,12 @@ export default function PassCard({ student, canManage }) {
     }
   }, [student.id, refresh])
 
-  // The pass is only fetched when somebody asks to see it — a profile page
-  // does not need to put a working key on screen by default.
+  // Fetched only when asked for — a profile shouldn't display a working key.
   useEffect(() => {
     if (!showing) return undefined
     let objectUrl = null
     let cancelled = false
-    apiObjectUrl(`/checkins/pass/${student.id}/qr.png`)
+    apiObjectUrl(`/attendance/checkins/pass/${student.id}/qr.png`)
       .then((value) => {
         if (cancelled) {
           URL.revokeObjectURL(value)
@@ -61,7 +53,7 @@ export default function PassCard({ student, canManage }) {
     setBusy(true)
     setError(null)
     try {
-      await apiFetch(`/checkins/pass/${student.id}/`, { method: 'POST' })
+      await apiFetch(`/attendance/checkins/pass/${student.id}/`, { method: 'POST' })
       setConfirmReissue(false)
       setRefresh((n) => n + 1)
     } catch (err) {
@@ -92,9 +84,8 @@ export default function PassCard({ student, canManage }) {
             : <div className="pass-qr empty">Loading…</div>}
           <div>
             <p className="muted small">
-              Scanning this at the desk checks {student.full_name} in — if their
-              membership admits them. Print it, or let them keep it on their
-              phone.
+              Scanning this checks {student.full_name} in, if their record
+              admits them. Print it, or let them keep it on their phone.
             </p>
             {canManage && (
               confirmReissue ? (
