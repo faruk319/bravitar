@@ -200,3 +200,77 @@ class WritePermissionsAreAFloorTests(TenantAPITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 403)
+
+
+class HalfDoneWritesTests(TenantAPITestCase):
+    """A rejected request must leave nothing behind."""
+
+    def setUp(self):
+        super().setUp()
+        from organizations.models import Branch
+
+        self.branch = Branch.objects.create(academy=self.org, name="Andheri")
+
+    def invite(self, **payload):
+        return self.client_for(self.owner).post(
+            f"/api/organizations/current/branches/{self.branch.id}/team/",
+            payload, format="json",
+        )
+
+    def memberships(self, email):
+        from organizations.models import Membership
+
+        return Membership.objects.filter(
+            organization=self.org.organization, email__iexact=email
+        )
+
+    def test_a_refused_role_creates_nobody(self):
+        """The role used to be written into a new membership before anything
+        checked it, and the rejection left that row behind."""
+        response = self.invite(email="ghost@example.com", role="owner")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.memberships("ghost@example.com").exists())
+
+    def test_a_bad_address_creates_nobody(self):
+        response = self.invite(email="not-an-address", role="staff")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.memberships("not-an-address").count(), 0)
+
+    def test_a_good_invitation_still_lands(self):
+        response = self.invite(email="coach@example.com", role="staff")
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(self.memberships("coach@example.com").exists())
+
+
+class BranchIdsAreNotEnumerableTests(TenantAPITestCase):
+    """Assigning a foreign branch was already refused, but the refusal used to
+    differ from "no such branch" — enough to map branch ids platform-wide."""
+
+    def test_a_foreign_branch_reads_the_same_as_a_missing_one(self):
+        from organizations.models import Branch, Membership
+
+        theirs = Branch.objects.create(academy=self.other_org, name="Not Ours")
+        membership = Membership.objects.get(
+            organization=self.org.organization, user_id="manager-1"
+        )
+
+        def assign(branch_id):
+            return self.client_for(self.owner).patch(
+                f"/api/organizations/current/team/{membership.id}/",
+                {"branches": [branch_id]}, format="json",
+            )
+
+        real_elsewhere = assign(theirs.id)
+        never_existed = assign(999_999)
+
+        self.assertEqual(real_elsewhere.status_code, 400)
+        self.assertEqual(never_existed.status_code, 400)
+
+        # Same refusal for both. Only the id they already sent differs.
+        codes = lambda response: [  # noqa: E731
+            error.code for error in response.data["branches"]
+        ]
+        self.assertEqual(codes(real_elsewhere), codes(never_existed))
+        self.assertEqual(codes(real_elsewhere), ["does_not_exist"])
+        self.assertEqual(membership.branches.count(), 0)

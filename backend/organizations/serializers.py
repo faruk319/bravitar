@@ -181,7 +181,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
     # A through model makes this read-only by default; assignments carry a
     # role, so `update` builds them rather than letting DRF `set()` them.
     branches = serializers.PrimaryKeyRelatedField(
-        many=True, required=False, queryset=Branch.objects.all()
+        many=True, required=False, queryset=Branch.objects.none()
     )
 
     class Meta:
@@ -191,6 +191,21 @@ class TeamMemberSerializer(serializers.ModelSerializer):
             "branches", "branch_names",
         ]
         read_only_fields = ["id", "is_pending", "created_at", "joined_at", "branch_names"]
+
+    def __init__(self, *args, **kwargs):
+        """Scope the branch choices to this academy.
+
+        validate_branches already refuses a foreign one, but an unscoped
+        queryset answers differently for a real branch elsewhere than for an
+        id that doesn't exist — which is enough to enumerate branch ids across
+        the platform.
+        """
+        super().__init__(*args, **kwargs)
+        academy = self.context.get("academy")
+        if academy is not None:
+            self.fields["branches"].child_relation.queryset = Branch.objects.filter(
+                academy=academy
+            )
 
     def get_branch_names(self, obj):
         return [branch.name for branch in obj.branches.all()]

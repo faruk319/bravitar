@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
@@ -260,13 +262,27 @@ class BranchTeamView(generics.ListCreateAPIView):
             branch=self.branch()
         ).select_related("membership")
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
+        """Inviting somebody creates their membership, so the role and the
+        address are checked before anything is written — a rejected request
+        used to leave a stray membership behind."""
         branch = self.branch()
         academy = get_current_academy(request)
         email = (request.data.get("email") or "").strip()
         role = request.data.get("role") or Role.MANAGER
 
+        if role not in Role.PER_BRANCH:
+            raise ValidationError(
+                {"role": f"Role must be one of: {', '.join(Role.PER_BRANCH)}."}
+            )
+
         if email and not request.data.get("membership"):
+            try:
+                validate_email(email)
+            except DjangoValidationError:
+                raise ValidationError({"email": "That isn't an email address."}) from None
+
             membership, _ = Membership.objects.get_or_create(
                 organization=academy.organization, email__iexact=email,
                 defaults={"email": email, "role": role, "user_id": ""},
