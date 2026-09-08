@@ -113,15 +113,26 @@ class PrimaryBranchTests(BranchAdminTestCase):
     is worse than no toggle.
     """
 
-    def test_only_one_branch_can_be_primary(self):
-        first = self.create(name="Andheri", is_primary=True).data
-        second = self.create(name="Bandra", is_primary=True).data
+    def test_the_first_branch_becomes_the_main_one(self):
+        first = self.create(name="Andheri").data
+        self.assertTrue(first["is_primary"])
 
-        self.assertFalse(Branch.objects.get(pk=first["id"]).is_primary)
-        self.assertTrue(Branch.objects.get(pk=second["id"]).is_primary)
+    def test_later_branches_do_not_take_it_over(self):
+        """It settles on the first one, so nothing has to move when a location
+        closes."""
+        first = self.create(name="Andheri").data
+        second = self.create(name="Bandra").data
+
+        self.assertTrue(Branch.objects.get(pk=first["id"]).is_primary)
+        self.assertFalse(Branch.objects.get(pk=second["id"]).is_primary)
+
+    def test_it_cannot_be_moved_by_asking(self):
+        self.create(name="Andheri")
+        second = self.create(name="Bandra", is_primary=True).data
+        self.assertFalse(Branch.objects.get(pk=second["id"]).is_primary)
 
     def test_a_new_member_lands_in_the_primary_branch(self):
-        primary = self.create(name="Andheri", is_primary=True).data
+        primary = self.create(name="Andheri").data
         self.create(name="Bandra")
 
         response = self.client_for(self.owner).post(
@@ -131,7 +142,7 @@ class PrimaryBranchTests(BranchAdminTestCase):
         self.assertEqual(response.data["branch"], primary["id"])
 
     def test_naming_a_branch_still_wins(self):
-        self.create(name="Andheri", is_primary=True)
+        self.create(name="Andheri")
         bandra = self.create(name="Bandra").data
 
         response = self.client_for(self.owner).post(
@@ -141,8 +152,7 @@ class PrimaryBranchTests(BranchAdminTestCase):
         )
         self.assertEqual(response.data["branch"], bandra["id"])
 
-    def test_with_no_primary_a_member_stays_unfiled(self):
-        self.create(name="Andheri")
+    def test_with_no_branches_at_all_a_member_stays_unfiled(self):
         response = self.client_for(self.owner).post(
             "/api/students/", {"full_name": "Walk In", "joined_on": "2026-01-01"},
             format="json",
@@ -150,7 +160,7 @@ class PrimaryBranchTests(BranchAdminTestCase):
         self.assertIsNone(response.data["branch"])
 
     def test_the_primary_of_one_academy_does_not_reach_another(self):
-        self.create(name="Andheri", is_primary=True)
+        self.create(name="Andheri")
         Branch.objects.create(academy=self.other_org, name="Theirs", is_primary=True)
 
         primaries = Branch.objects.filter(is_primary=True).count()
@@ -234,3 +244,79 @@ class AssigningWhoRunsABranchTests(BranchAdminTestCase):
             {"managers": []}, format="json",
         )
         self.assertEqual(manager.branches.count(), 0)
+
+
+class WhoWorksAtABranchTests(BranchAdminTestCase):
+    """The branch page assigns people to that branch, with a role for it."""
+
+    def setUp(self):
+        super().setUp()
+        self.branch = self.create(name="Andheri").data
+
+    def add(self, actor=None, **payload):
+        return self.client_for(actor or self.owner).post(
+            f"/api/organizations/current/branches/{self.branch['id']}/team/",
+            payload, format="json",
+        )
+
+    def membership(self, user_id):
+        from organizations.models import Membership
+
+        return Membership.objects.get(
+            organization=self.org.organization, user_id=user_id
+        )
+
+    def test_somebody_already_on_the_team_can_be_assigned(self):
+        response = self.add(membership=self.membership("manager-1").id, role="manager")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["role"], "manager")
+        self.assertEqual(response.data["email"], "manager@example.com")
+
+    def test_somebody_new_can_be_invited_straight_onto_it(self):
+        response = self.add(email="newcoach@example.com", role="staff")
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["is_pending"])
+
+        from organizations.models import Membership
+
+        self.assertTrue(
+            Membership.objects.filter(
+                organization=self.org.organization, email="newcoach@example.com"
+            ).exists()
+        )
+
+    def test_the_same_person_is_assigned_once_and_their_role_updated(self):
+        person = self.membership("manager-1").id
+        self.add(membership=person, role="staff")
+        self.add(membership=person, role="manager")
+
+        response = self.client_for(self.owner).get(
+            f"/api/organizations/current/branches/{self.branch['id']}/team/"
+        )
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["role"], "manager")
+
+    def test_owner_is_not_a_per_branch_role(self):
+        """An owner is owner everywhere; it isn't something you are at one
+        location."""
+        response = self.add(membership=self.membership("manager-1").id, role="owner")
+        self.assertEqual(response.status_code, 400)
+
+    def test_only_an_owner_assigns(self):
+        response = self.add(
+            actor=self.manager, membership=self.membership("staff-1").id, role="staff"
+        )
+        self.assertIn(response.status_code, (403, 404))
+
+    def test_somebody_can_be_taken_off_a_branch(self):
+        created = self.add(membership=self.membership("manager-1").id, role="manager")
+        response = self.client_for(self.owner).delete(
+            f"/api/organizations/current/branches/team/{created.data['id']}/"
+        )
+        self.assertEqual(response.status_code, 204)
+
+    def test_a_branch_from_another_organization_is_not_reachable(self):
+        response = self.client_for(self.other_owner, academy=self.other_org).get(
+            f"/api/organizations/current/branches/{self.branch['id']}/team/"
+        )
+        self.assertIn(response.status_code, (403, 404))

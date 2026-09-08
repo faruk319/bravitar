@@ -72,9 +72,12 @@ class Branch(models.Model):
     # Which of the academy's sports run here. Empty means all of them — most
     # branches offer everything, and listing them again would just drift.
     verticals = models.JSONField(default=list, blank=True)
-    # The branch a new member lands in when nobody picks one. At most one per
-    # academy; setting a new one clears the old.
+    # The branch a new member lands in when nobody picks one. The first branch
+    # an academy creates; not something to switch about afterwards.
     is_primary = models.BooleanField(default=False)
+    # A closed location keeps everything that happened there and stops being
+    # offered for anything new. Deleting would strand its history.
+    closed_on = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -88,12 +91,21 @@ class Branch(models.Model):
         ]
 
     @property
+    def is_open(self):
+        return self.closed_on is None
+
+    @property
     def offers(self):
         """The sports actually available here."""
         academy = self.academy.verticals or []
         return [v for v in academy if v in self.verticals] if self.verticals else academy
 
     def save(self, *args, **kwargs):
+        # The first branch an academy opens is its main one; after that it is
+        # settled, so nothing has to move when a location closes.
+        if self._state.adding and not self.is_primary:
+            self.is_primary = not Branch.objects.filter(academy_id=self.academy_id).exists()
+
         # Clear the old primary first: the unique constraint rejects the write
         # before any after-the-fact tidying could run.
         with transaction.atomic():
@@ -131,9 +143,12 @@ class Membership(models.Model):
     )
     email = models.EmailField()
     role = models.CharField(max_length=20, choices=Role.CHOICES)
-    # Which locations this person works in. Empty means none — access is
-    # granted, never assumed. Owners ignore this and see every branch.
-    branches = models.ManyToManyField(Branch, blank=True, related_name="team")
+    # Which locations this person works in, and what they are at each. Empty
+    # means none — access is granted, never assumed. Owners ignore this and
+    # are owner everywhere.
+    branches = models.ManyToManyField(
+        Branch, blank=True, related_name="team", through="BranchAssignment"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     joined_at = models.DateTimeField(
         null=True, blank=True, help_text="When the invitation was claimed."
@@ -160,6 +175,42 @@ class Membership(models.Model):
     @property
     def is_pending(self):
         return not self.user_id
+
+    def role_at(self, branch):
+        """What this person is at `branch`. Owners are owner everywhere."""
+        if self.role == Role.OWNER:
+            return Role.OWNER
+        assignment = self.assignments.filter(branch=branch).first()
+        return assignment.role if assignment else None
+
+
+class BranchAssignment(models.Model):
+    """One person at one branch, and what they are there.
+
+    Somebody can manage one location and only teach at another, so the role
+    lives here rather than on the membership. The membership's own role is
+    the organization-wide one: owner, or the default a new assignment takes.
+    """
+
+    membership = models.ForeignKey(
+        Membership, on_delete=models.CASCADE, related_name="assignments"
+    )
+    branch = models.ForeignKey(
+        Branch, on_delete=models.CASCADE, related_name="assignments"
+    )
+    role = models.CharField(max_length=20, choices=Role.CHOICES, default=Role.MANAGER)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["branch__name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["membership", "branch"], name="one_role_per_person_per_branch"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.membership.email} is {self.role} at {self.branch.name}"
 
 
 def _generate_key():

@@ -1,6 +1,8 @@
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,8 +19,9 @@ from tenants.permissions import (
 
 from .constants import Role
 from .invitations import claim_pending_memberships
-from .models import APIKey, Branch, Membership
+from .models import APIKey, Branch, BranchAssignment, Membership
 from .serializers import (
+    BranchAssignmentSerializer,
     APIKeySerializer,
     BranchSerializer,
     MembershipSerializer,
@@ -227,6 +230,112 @@ class BranchListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save(academy=get_current_academy(self.request))
+
+
+class BranchTeamView(generics.ListCreateAPIView):
+    """Who works at one branch, and as what. Adding somebody already on the
+    team assigns them; inviting by email creates the membership first."""
+
+    serializer_class = BranchAssignmentSerializer
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsOrganizationOwner()]
+        return [IsOrganizationStaff(), IsPerson()]
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "academy": get_current_academy(self.request)}
+
+    def branch(self):
+        branch = Branch.objects.filter(
+            academy=get_current_academy(self.request), pk=self.kwargs["pk"]
+        ).first()
+        if branch is None:
+            raise Http404
+        return branch
+
+    def get_queryset(self):
+        return BranchAssignment.objects.filter(
+            branch=self.branch()
+        ).select_related("membership")
+
+    def create(self, request, *args, **kwargs):
+        branch = self.branch()
+        academy = get_current_academy(request)
+        email = (request.data.get("email") or "").strip()
+        role = request.data.get("role") or Role.MANAGER
+
+        if email and not request.data.get("membership"):
+            membership, _ = Membership.objects.get_or_create(
+                organization=academy.organization, email__iexact=email,
+                defaults={"email": email, "role": role, "user_id": ""},
+            )
+            data = {"membership": membership.id, "role": role}
+        else:
+            data = {"membership": request.data.get("membership"), "role": role}
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        assignment, _ = BranchAssignment.objects.update_or_create(
+            membership=serializer.validated_data["membership"],
+            branch=branch,
+            defaults={"role": serializer.validated_data["role"]},
+        )
+        return Response(
+            BranchAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED
+        )
+
+
+class BranchTeamMemberView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = BranchAssignmentSerializer
+    permission_classes = [IsOrganizationOwner]
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(),
+                "academy": get_current_academy(self.request)}
+
+    def get_queryset(self):
+        return BranchAssignment.objects.filter(
+            branch__academy=get_current_academy(self.request)
+        ).select_related("membership")
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationOwner])
+def close_branch(request, pk):
+    """Shut a location without losing what happened there.
+
+    Everything filed against it stays; it stops being offered for anything
+    new. Members still on it are named, since somebody has to move them.
+    """
+    academy = get_current_academy(request)
+    branch = Branch.objects.filter(academy=academy, pk=pk).first()
+    if branch is None:
+        return Response({"detail": "No such branch."}, status=status.HTTP_404_NOT_FOUND)
+
+    if branch.is_primary and academy.branches.filter(closed_on__isnull=True).count() > 1:
+        return Response(
+            {"detail": "This is the main branch. Close the others first."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    branch.closed_on = timezone.localdate()
+    branch.save(update_fields=["closed_on"])
+    return Response(BranchSerializer(branch, context={"academy": academy}).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationOwner])
+def reopen_branch(request, pk):
+    academy = get_current_academy(request)
+    branch = Branch.objects.filter(academy=academy, pk=pk).first()
+    if branch is None:
+        return Response({"detail": "No such branch."}, status=status.HTTP_404_NOT_FOUND)
+
+    branch.closed_on = None
+    branch.save(update_fields=["closed_on"])
+    return Response(BranchSerializer(branch, context={"academy": academy}).data)
 
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):

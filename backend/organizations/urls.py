@@ -10,6 +10,13 @@ urlpatterns = [
     path("current/team/<int:pk>/", views.TeamMemberDetailView.as_view(), name="team-member-detail"),
     path("current/branches/", views.BranchListCreateView.as_view(), name="branch-list-create"),
     path("current/branches/<int:pk>/", views.BranchDetailView.as_view(), name="branch-detail"),
+    path("current/branches/<int:pk>/team/", views.BranchTeamView.as_view(), name="branch-team"),
+    path(
+        "current/branches/team/<int:pk>/",
+        views.BranchTeamMemberView.as_view(), name="branch-team-member",
+    ),
+    path("current/branches/<int:pk>/close/", views.close_branch, name="branch-close"),
+    path("current/branches/<int:pk>/reopen/", views.reopen_branch, name="branch-reopen"),
     path("current/api-keys/", views.APIKeyListCreateView.as_view(), name="api-key-list-create"),
     path(
         "current/api-keys/<int:pk>/revoke/",

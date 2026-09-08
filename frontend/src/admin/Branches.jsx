@@ -1,17 +1,16 @@
 import { useEffect, useState } from 'react'
 
+import BranchTeam from './BranchTeam'
 import ConfirmAction from '../components/ConfirmAction'
+import InfoDot from '../components/InfoDot'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import { verticalLabel } from '../lib/verticals'
 
-/** The academy's locations. Also the unit of access — Team says who works where. */
+/** The academy's locations. Also the unit of access — a role is held per branch. */
 
-const blank = () => ({
-  name: '', address: '', phone: '', email: '', is_primary: false,
-  verticals: [], managers: [],
-})
+const blank = () => ({ name: '', address: '', phone: '', email: '', verticals: [] })
 
-function BranchForm({ branch, academyVerticals, team, onSaved, onCancel }) {
+function BranchForm({ branch, academyVerticals, canEdit, onSaved, onClose }) {
   const [form, setForm] = useState(() =>
     branch
       ? {
@@ -19,141 +18,187 @@ function BranchForm({ branch, academyVerticals, team, onSaved, onCancel }) {
           address: branch.address ?? '',
           phone: branch.phone ?? '',
           email: branch.email ?? '',
-          is_primary: branch.is_primary,
           verticals: branch.verticals ?? [],
-          managers: (team ?? []).filter((m) => m.branches.includes(branch.id)).map((m) => m.id),
         }
       : blank(),
   )
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const set = (key) => (e) => {
+    setForm({ ...form, [key]: e.target.value })
+    setSaved(false)
+  }
 
   async function save(event) {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      await apiFetch(
+      const result = await apiFetch(
         branch
           ? `/organizations/current/branches/${branch.id}/`
           : '/organizations/current/branches/',
         { method: branch ? 'PATCH' : 'POST', body: JSON.stringify(form) },
       )
-      onSaved()
+      setSaved(true)
+      onSaved(result)
     } catch (err) {
       setError(err.message)
-      setBusy(false)
+    }
+    setBusy(false)
+  }
+
+  async function setOpen(open) {
+    setError(null)
+    try {
+      const result = await apiFetch(
+        `/organizations/current/branches/${branch.id}/${open ? 'reopen' : 'close'}/`,
+        { method: 'POST' },
+      )
+      onSaved(result)
+    } catch (err) {
+      setError(err.message)
     }
   }
 
-  const set = (key) => (e) =>
-    setForm({ ...form, [key]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
-
   return (
-    <form className="card wide" onSubmit={save}>
-      <h2>{branch ? `Edit ${branch.name}` : 'New branch'}</h2>
-
-      <div className="two-up">
-        <label>Name
-          <input required value={form.name} placeholder="Andheri West" onChange={set('name')} />
-        </label>
-        <label>Phone
-          <input value={form.phone} onChange={set('phone')} />
-        </label>
+    <>
+      <div className="row-actions">
+        <button type="button" className="link" onClick={onClose}>← Branches</button>
       </div>
 
-      <label>Address
-        <input value={form.address} onChange={set('address')} />
-      </label>
-
-      <label>Email
-        <input type="email" value={form.email} onChange={set('email')} />
-      </label>
-
-      {academyVerticals.length > 1 && (
-        <fieldset>
-          <legend>Sports run here</legend>
-          <p className="muted small">
-            Leave all of them ticked unless this branch runs only some — a
-            pool-less branch has no business offering swimming.
-          </p>
-          <div className="vertical-grid">
-            {academyVerticals.map((value) => {
-              const on = form.verticals.length === 0 || form.verticals.includes(value)
-              return (
-                <label key={value} className="checkbox">
-                  <input
-                    type="checkbox" checked={on}
-                    onChange={() => {
-                      const current = form.verticals.length === 0
-                        ? academyVerticals
-                        : form.verticals
-                      const next = on
-                        ? current.filter((v) => v !== value)
-                        : [...current, value]
-                      setForm({
-                        ...form,
-                        verticals: next.length === academyVerticals.length ? [] : next,
-                      })
-                    }}
-                  />
-                  {verticalLabel(value)}
-                </label>
-              )
-            })}
-          </div>
-        </fieldset>
-      )}
-
-      {team.length > 0 && (
-        <fieldset>
-          <legend>Who runs it</legend>
-          <p className="muted small">
-            Anyone not on the list can&apos;t see this branch at all. Leave it
-            empty and it stays owner-only until you assign somebody.
-          </p>
-          <div className="vertical-grid">
-            {team.map((member) => (
-              <label key={member.id} className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.managers.includes(member.id)}
-                  onChange={() => setForm({
-                    ...form,
-                    managers: form.managers.includes(member.id)
-                      ? form.managers.filter((id) => id !== member.id)
-                      : [...form.managers, member.id],
-                  })}
-                />
-                {member.email} ({member.role})
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      )}
-
-      <label className="checkbox">
-        <input type="checkbox" checked={form.is_primary} onChange={set('is_primary')} />
-        Main branch
-      </label>
-      <span className="muted small">
-        A member signed up without a branch lands here. Only one branch can be
-        the main one — setting this clears whichever was.
-      </span>
+      <div className="row">
+        <h1>{branch ? branch.name : 'New branch'}</h1>
+        {branch?.is_primary && <span className="pill spaced">main branch</span>}
+        {branch && !branch.is_open && <span className="pill left spaced">closed</span>}
+      </div>
 
       {error && <p className="error">{error}</p>}
 
-      <div className="row-actions">
-        <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save branch'}</button>
-        <button type="button" className="link" onClick={onCancel}>Cancel</button>
-      </div>
-    </form>
+      {branch && (
+        <div className="stat-row">
+          <div className="stat-tile">
+            <span className="muted small">Members</span>
+            <div className="stat-value">{branch.student_count}</div>
+          </div>
+          <div className="stat-tile">
+            <span className="muted small">Batches</span>
+            <div className="stat-value">{branch.batch_count}</div>
+          </div>
+          <div className="stat-tile">
+            <span className="muted small">Team</span>
+            <div className="stat-value">{branch.team_count}</div>
+          </div>
+          <div className="stat-tile">
+            <span className="muted small">Here now</span>
+            <div className="stat-value">{branch.here_now}</div>
+          </div>
+        </div>
+      )}
+
+      <form className="card wide" onSubmit={save}>
+        <h2>Details</h2>
+
+        <div className="two-up">
+          <label>Name
+            <input required value={form.name} disabled={!canEdit} onChange={set('name')} />
+          </label>
+          <label>Phone
+            <input value={form.phone} disabled={!canEdit} onChange={set('phone')} />
+          </label>
+        </div>
+
+        <div className="two-up">
+          <label>Address
+            <input value={form.address} disabled={!canEdit} onChange={set('address')} />
+          </label>
+          <label>Email
+            <input type="email" value={form.email} disabled={!canEdit} onChange={set('email')} />
+          </label>
+        </div>
+
+        {academyVerticals.length > 1 && (
+          <fieldset>
+            <legend>
+              Sports{' '}
+              <InfoDot>
+                All of them unless you untick some. A branch can only offer what
+                the academy runs.
+              </InfoDot>
+            </legend>
+            <div className="vertical-grid">
+              {academyVerticals.map((value) => {
+                const on = form.verticals.length === 0 || form.verticals.includes(value)
+                return (
+                  <label key={value} className="checkbox">
+                    <input
+                      type="checkbox" checked={on} disabled={!canEdit}
+                      onChange={() => {
+                        const current = form.verticals.length === 0
+                          ? academyVerticals
+                          : form.verticals
+                        const next = on
+                          ? current.filter((v) => v !== value)
+                          : [...current, value]
+                        setForm({
+                          ...form,
+                          verticals: next.length === academyVerticals.length ? [] : next,
+                        })
+                        setSaved(false)
+                      }}
+                    />
+                    {verticalLabel(value)}
+                  </label>
+                )
+              })}
+            </div>
+          </fieldset>
+        )}
+
+        {canEdit && (
+          <div className="row-actions">
+            <button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+            {saved && <span className="muted small">Saved ✓</span>}
+          </div>
+        )}
+      </form>
+
+      {branch && <BranchTeam branch={branch} canEdit={canEdit} />}
+
+      {branch && canEdit && (
+        <div className="card wide">
+          <h2>
+            {branch.is_open ? 'Close this branch' : 'Reopen this branch'}{' '}
+            <InfoDot>
+              Closing keeps everything that happened here and stops the branch
+              being offered for anything new.
+            </InfoDot>
+          </h2>
+          <div className="row-actions">
+            {branch.is_open ? (
+              <ConfirmAction
+                label="Close branch"
+                heading={`Close ${branch.name}?`}
+                detail={branch.student_count
+                  ? `${branch.student_count} members are still filed here — move them first, or they stay at a closed branch.`
+                  : 'It stops being offered for new members and batches. Nothing is deleted.'}
+                confirmLabel="Yes, close it"
+                onConfirm={() => setOpen(false)}
+              />
+            ) : (
+              <button type="button" onClick={() => setOpen(true)}>Reopen</button>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
 export default function Branches({ role, org }) {
   const academyVerticals = org?.verticals ?? []
-  const [team, setTeam] = useState([])
   const [branches, setBranches] = useState(null)
   const [editing, setEditing] = useState(null)
   const [refresh, setRefresh] = useState(0)
@@ -163,15 +208,16 @@ export default function Branches({ role, org }) {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([
-      apiFetchAll('/organizations/current/branches/'),
-      // Owners assign; anyone else just sees the counts.
-      apiFetchAll('/organizations/current/team/').catch(() => []),
-    ])
-      .then(([rows, people]) => {
+    apiFetchAll('/organizations/current/branches/')
+      .then((rows) => {
         if (cancelled) return
         setBranches(rows)
-        setTeam(people.filter((m) => m.role !== 'owner'))
+        // Keep the open branch in step after a save.
+        setEditing((current) =>
+          current && current !== 'new'
+            ? rows.find((b) => b.id === current.id) ?? null
+            : current,
+        )
       })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -189,11 +235,11 @@ export default function Branches({ role, org }) {
       <BranchForm
         branch={editing === 'new' ? null : editing}
         academyVerticals={academyVerticals}
-        team={team}
-        onCancel={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null)
+        canEdit={isOwner}
+        onClose={() => setEditing(null)}
+        onSaved={(saved) => {
           setRefresh((n) => n + 1)
+          setEditing(saved?.id ? saved : null)
         }}
       />
     )
@@ -201,11 +247,13 @@ export default function Branches({ role, org }) {
 
   return (
     <>
-      <h1>Branches</h1>
-      <p className="muted">
-        Where this academy operates. Members, batches and check-ins belong to a
-        branch, and Team decides who works at which.
-      </p>
+      <div className="row">
+        <h1>Branches</h1>
+        <InfoDot>
+          Locations of this academy. Members, batches and check-ins belong to
+          one, and each person holds a role per branch.
+        </InfoDot>
+      </div>
 
       {error && <p className="error">{error}</p>}
 
@@ -218,10 +266,7 @@ export default function Branches({ role, org }) {
       {branches === null ? (
         <p className="muted">Loading…</p>
       ) : branches.length === 0 ? (
-        <p className="muted">
-          One location, so nothing to divide up. Add a branch when you open a
-          second — until then nobody is restricted by branch.
-        </p>
+        <p className="muted">One location, so nothing to divide up.</p>
       ) : (
         <div className="card wide">
           <table className="data-table">
@@ -233,15 +278,14 @@ export default function Branches({ role, org }) {
             </thead>
             <tbody>
               {branches.map((branch) => (
-                <tr key={branch.id}>
+                <tr key={branch.id} className={branch.is_open ? '' : 'revoked-row'}>
                   <td>
-                    <strong>{branch.name}</strong>
-                    {branch.is_primary && (
-                      <span className="pill spaced">main</span>
-                    )}
-                    {branch.address && (
-                      <div className="muted small">{branch.address}</div>
-                    )}
+                    <button type="button" className="link" onClick={() => setEditing(branch)}>
+                      {branch.name}
+                    </button>
+                    {branch.is_primary && <span className="pill spaced">main</span>}
+                    {!branch.is_open && <span className="pill left spaced">closed</span>}
+                    {branch.address && <div className="muted small">{branch.address}</div>}
                     {branch.verticals?.length > 0 && (
                       <div className="muted small">
                         {branch.offers.map(verticalLabel).join(', ')} only
@@ -257,27 +301,24 @@ export default function Branches({ role, org }) {
                   <td>{branch.batch_count}</td>
                   <td>
                     {branch.team_count === 0
-                      ? <span className="pill pending">nobody yet</span>
+                      ? <span className="pill pending">nobody</span>
                       : branch.team_count}
                   </td>
                   {isOwner && (
                     <td>
                       <div className="row-actions">
-                        <button type="button" className="link"
-                                onClick={() => setEditing(branch)}>
-                          Edit
+                        <button type="button" className="link" onClick={() => setEditing(branch)}>
+                          Open
                         </button>
-                        <ConfirmAction
-                          label="Delete"
-                          heading={`Delete ${branch.name}?`}
-                          detail={
-                            branch.student_count || branch.batch_count
-                              ? `It still has ${branch.student_count} members and ${branch.batch_count} batches, so this will be refused — move them first.`
-                              : "Nothing is filed here, so nothing is lost. This can't be undone."
-                          }
-                          confirmLabel="Yes, delete it"
-                          onConfirm={() => remove(branch)}
-                        />
+                        {branch.student_count === 0 && branch.batch_count === 0 && (
+                          <ConfirmAction
+                            label="Delete"
+                            heading={`Delete ${branch.name}?`}
+                            detail="Nothing is filed here, so nothing is lost. This can't be undone."
+                            confirmLabel="Yes, delete it"
+                            onConfirm={() => remove(branch)}
+                          />
+                        )}
                       </div>
                     </td>
                   )}
@@ -285,13 +326,6 @@ export default function Branches({ role, org }) {
               ))}
             </tbody>
           </table>
-
-          {isOwner && branches.some((b) => b.team_count === 0) && (
-            <p className="muted small">
-              A branch with nobody assigned is invisible to every manager —
-              only owners can see it. Assign people under Team.
-            </p>
-          )}
         </div>
       )}
     </>

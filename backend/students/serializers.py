@@ -75,6 +75,16 @@ class MemberPhotoSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
 
+def must_be_writable(student, context, what):
+    """A create doesn't pass through the scoped queryset, so the branch check
+    has to happen where the relation is named."""
+    writable = context.get("writable_branches")
+    if writable is not None and student.branch_id not in writable:
+        raise serializers.ValidationError(
+            f"{student.full_name} is at a branch you don't run, so you can't {what}."
+        )
+
+
 class MemberDocumentSerializer(serializers.ModelSerializer):
     kind_label = serializers.CharField(source="get_kind_display", read_only=True)
     is_verified = serializers.BooleanField(read_only=True)
@@ -102,6 +112,7 @@ class MemberDocumentSerializer(serializers.ModelSerializer):
     def validate_student(self, value):
         if value.academy_id != self.context["academy"].id:
             raise serializers.ValidationError("That member belongs to another academy.")
+        must_be_writable(value, self.context, "file a document for them")
         return value
 
     def validate_number_last4(self, value):

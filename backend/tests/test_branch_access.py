@@ -471,3 +471,114 @@ class TransferringAMemberTests(BranchTestCase):
             format="json",
         )
         self.assertIn(response.status_code, (401, 403))
+
+
+class RolePerBranchTests(BranchTestCase):
+    """Somebody can manage one location and only teach at another, so what
+    they may change is narrower than what they may see."""
+
+    def setUp(self):
+        super().setUp()
+        from organizations.models import BranchAssignment
+
+        self.membership.role = Role.MANAGER
+        self.membership.save(update_fields=["role"])
+        BranchAssignment.objects.create(
+            membership=self.membership, branch=self.andheri, role=Role.MANAGER
+        )
+        BranchAssignment.objects.create(
+            membership=self.membership, branch=self.bandra, role=Role.STAFF
+        )
+
+    def test_they_see_both_branches(self):
+        from batches.models import Batch
+
+        Batch.objects.create(academy=self.org, name="Andheri AM", branch=self.andheri)
+        Batch.objects.create(academy=self.org, name="Bandra AM", branch=self.bandra)
+
+        response = self.client_for(self.manager).get("/api/batches/")
+        self.assertEqual(
+            {row["name"] for row in response.data["results"]},
+            {"Andheri AM", "Bandra AM"},
+        )
+
+    def test_staff_work_is_allowed_at_both(self):
+        """Editing a member is staff-level, so it follows them to either."""
+        for student in (self.here, self.there):
+            response = self.client_for(self.manager).patch(
+                f"/api/students/{student.id}/", {"phone": "111"}, format="json"
+            )
+            self.assertEqual(response.status_code, 200)
+
+    def test_managers_work_only_at_the_branch_they_manage(self):
+        """Filing an ID scan is manager-level, so it stops at Bandra where
+        they only teach."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        def file_a_scan(student):
+            return self.client_for(self.manager).post(
+                "/api/students/documents/",
+                {
+                    "student": student.id, "kind": "aadhaar",
+                    "file": SimpleUploadedFile("id.jpg", b"\xff\xd8\xff\xe0", "image/jpeg"),
+                },
+                format="multipart",
+            )
+
+        self.assertEqual(file_a_scan(self.here).status_code, 201)
+        self.assertIn(file_a_scan(self.there).status_code, (400, 403, 404))
+
+    def test_a_role_at_one_branch_says_nothing_about_another(self):
+        self.assertEqual(self.membership.role_at(self.andheri), Role.MANAGER)
+        self.assertEqual(self.membership.role_at(self.bandra), Role.STAFF)
+
+    def test_an_owner_is_owner_everywhere(self):
+        owner = Membership.objects.get(
+            organization=self.org.organization, user_id="owner-1"
+        )
+        self.assertEqual(owner.role_at(self.bandra), Role.OWNER)
+
+
+class ClosingABranchTests(BranchTestCase):
+    """A location that shut keeps everything that happened there."""
+
+    def close(self, branch, actor=None):
+        return self.client_for(actor or self.owner).post(
+            f"/api/organizations/current/branches/{branch.id}/close/"
+        )
+
+    def test_closing_keeps_its_members_and_history(self):
+        response = self.close(self.bandra)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["is_open"])
+
+        self.there.refresh_from_db()
+        self.assertEqual(self.there.branch, self.bandra)
+
+    def test_a_closed_branch_can_be_reopened(self):
+        self.close(self.bandra)
+        response = self.client_for(self.owner).post(
+            f"/api/organizations/current/branches/{self.bandra.id}/reopen/"
+        )
+        self.assertTrue(response.data["is_open"])
+
+    def test_the_main_branch_cannot_be_closed_while_others_are_open(self):
+        """Somewhere has to take a member who arrives with no branch named."""
+        main = Branch.objects.filter(academy=self.org, is_primary=True).first()
+        response = self.close(main)
+        self.assertEqual(response.status_code, 400)
+
+    def test_only_an_owner_closes_a_branch(self):
+        self.assertIn(self.close(self.bandra, actor=self.manager).status_code, (403, 404))
+
+    def test_a_branch_says_who_is_inside_right_now(self):
+        from attendance.models import CheckIn
+
+        CheckIn.objects.create(
+            academy=self.org, student=self.there, branch=self.bandra, admitted=True
+        )
+        response = self.client_for(self.owner).get(
+            "/api/organizations/current/branches/"
+        )
+        row = next(r for r in response.data["results"] if r["id"] == self.bandra.id)
+        self.assertEqual(row["here_now"], 1)

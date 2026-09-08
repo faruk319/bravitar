@@ -157,12 +157,6 @@ export default function DocumentsCard({ student, canManage }) {
         </form>
       )}
 
-      {canManage && (
-        <p className="muted small">
-          Only the last four digits are stored, never the whole number. Scans are
-          visible to owners and managers only.
-        </p>
-      )}
     </div>
   )
 }

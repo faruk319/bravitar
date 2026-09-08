@@ -505,3 +505,22 @@ dialog.confirm p { margin: 0 0 0.9rem; }
   border: 1px solid var(--border); border-radius: 8px; background: var(--card, #fff);
 }
 .academy-picker select { border: 0; background: none; font-weight: 600; }
+
+/* A rule worth knowing, out of the way until asked for. */
+.info-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.05rem; height: 1.05rem; border-radius: 50%;
+  background: var(--border); color: var(--muted);
+  font-size: 0.68rem; font-style: italic; font-weight: 700;
+  cursor: help; position: relative; vertical-align: middle;
+}
+.info-bubble {
+  display: none; position: absolute; top: 1.5rem; left: 0; z-index: 20;
+  width: 17rem; padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card, #fff); color: var(--muted);
+  font: inherit; font-size: 0.8rem; font-style: normal; font-weight: 400;
+  line-height: 1.45; text-align: left;
+  box-shadow: 0 6px 20px rgba(20, 20, 25, 0.12);
+}
+.info-dot:hover .info-bubble, .info-dot:focus .info-bubble { display: block; }

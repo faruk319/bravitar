@@ -83,3 +83,15 @@ class Role:
     MANAGES = [OWNER, MANAGER]
     # Day-to-day running: students, batches, registers, training content.
     RUNS_SESSIONS = [OWNER, MANAGER, STAFF]
+
+    # A role held at one branch can differ from one held at another, so roles
+    # have to be comparable rather than just listed.
+    RANK = {OWNER: 3, MANAGER: 2, STAFF: 1, MEMBER: 0}
+
+    # What an owner assigns per branch. Owner is organization-wide by
+    # definition — it isn't something you are at one location.
+    PER_BRANCH = [MANAGER, STAFF]
+
+    @classmethod
+    def at_least(cls, held, needed):
+        return cls.RANK.get(held, 0) >= cls.RANK.get(needed, 0)

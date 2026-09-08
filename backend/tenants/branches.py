@@ -26,8 +26,12 @@ def academy_has_branches(academy):
     return Branch.objects.filter(academy=academy).exists()
 
 
-def allowed_branch_ids(request, academy):
+def branch_ids_for(request, academy, needed_role=None):
     """Branch ids this caller may work in, or None for "no restriction".
+
+    With `needed_role`, only the branches where they hold at least that role —
+    somebody can manage one location and only teach at another, so what they
+    may *change* is narrower than what they may see.
 
     None and an empty set mean opposite things: None is an owner or a
     single-branch academy, empty is somebody nobody has assigned yet.
@@ -49,7 +53,17 @@ def allowed_branch_ids(request, academy):
     if membership.role == Role.OWNER:
         return None
 
-    return set(membership.branches.values_list("id", flat=True))
+    assignments = membership.assignments.values_list("branch_id", "role")
+    return {
+        branch_id
+        for branch_id, role in assignments
+        if needed_role is None or Role.at_least(role, needed_role)
+    }
+
+
+def allowed_branch_ids(request, academy):
+    """Everywhere they work, whatever they are there."""
+    return branch_ids_for(request, academy)
 
 
 def restrict(queryset, model, branch_ids):

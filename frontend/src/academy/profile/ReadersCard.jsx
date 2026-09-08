@@ -108,13 +108,6 @@ export default function ReadersCard({ student, canManage }) {
         </form>
       )}
 
-      {canManage && (
-        <p className="muted small">
-          Enrol the finger or face on the reader itself, then link the number it
-          gave them here. No fingerprint or face data is stored by Bravitar —
-          the reader matches locally and only tells us who it matched.
-        </p>
-      )}
     </div>
   )
 }

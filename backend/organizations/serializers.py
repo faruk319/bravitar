@@ -15,7 +15,14 @@ def validate_selectable_verticals(value, allowed_extra=frozenset()):
             f"Not available yet: {', '.join(sorted(unavailable))}."
         )
     return list(dict.fromkeys(value))
-from .models import Academy, APIKey, Branch, Membership, Organization
+from .models import (
+    Academy,
+    APIKey,
+    Branch,
+    BranchAssignment,
+    Membership,
+    Organization,
+)
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -171,6 +178,11 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
     is_pending = serializers.BooleanField(read_only=True)
     branch_names = serializers.SerializerMethodField()
+    # A through model makes this read-only by default; assignments carry a
+    # role, so `update` builds them rather than letting DRF `set()` them.
+    branches = serializers.PrimaryKeyRelatedField(
+        many=True, required=False, queryset=Branch.objects.all()
+    )
 
     class Meta:
         model = Membership
@@ -226,8 +238,32 @@ def other_owners(membership):
     ).exclude(pk=membership.pk)
 
 
+class BranchAssignmentSerializer(serializers.ModelSerializer):
+    email = serializers.CharField(source="membership.email", read_only=True)
+    is_pending = serializers.BooleanField(source="membership.is_pending", read_only=True)
+
+    class Meta:
+        model = BranchAssignment
+        fields = ["id", "membership", "email", "role", "is_pending", "created_at"]
+        read_only_fields = ["id", "email", "is_pending", "created_at"]
+
+    def validate_role(self, value):
+        if value not in Role.PER_BRANCH:
+            raise serializers.ValidationError(
+                f"Role must be one of: {', '.join(Role.PER_BRANCH)}."
+            )
+        return value
+
+    def validate_membership(self, value):
+        if value.organization_id != self.context["academy"].organization_id:
+            raise serializers.ValidationError("That person is not on this team.")
+        return value
+
+
 class BranchSerializer(serializers.ModelSerializer):
     offers = serializers.ListField(read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+    here_now = serializers.SerializerMethodField()
     team_count = serializers.SerializerMethodField()
     # Who runs it, set as the branch is created. Write-only because the team
     # roster is where assignments are read and changed from.
@@ -242,10 +278,13 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "address", "phone", "email", "is_primary", "created_at",
             "student_count", "batch_count", "team_count", "verticals", "offers",
-            "managers",
+            "managers", "closed_on", "is_open", "here_now",
         ]
+        # The main branch is the first one opened and settles there, so nothing
+        # has to move when a location closes.
         read_only_fields = [
-            "id", "created_at", "student_count", "batch_count", "team_count", "offers",
+            "id", "created_at", "student_count", "batch_count", "team_count",
+            "offers", "is_primary", "is_open", "here_now",
         ]
 
     def get_student_count(self, obj):
@@ -285,6 +324,11 @@ class BranchSerializer(serializers.ModelSerializer):
                 f"This academy doesn't run: {', '.join(stray)}."
             )
         return value
+
+    def get_here_now(self, obj):
+        """Checked in and not out. What you want in front of you before
+        closing a branch or handing it to somebody."""
+        return obj.checkins.filter(admitted=True, checked_out_at__isnull=True).count()
 
     def get_team_count(self, obj):
         """How many people may work here. Owners aren't counted — they are

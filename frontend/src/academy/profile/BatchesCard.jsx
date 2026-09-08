@@ -159,12 +159,6 @@ export default function BatchesCard({ student, canManage }) {
         </table>
       )}
 
-      {canManage && enrolments?.some((e) => !e.is_active) && (
-        <p className="muted small">
-          &ldquo;Take out&rdquo; keeps the record so past attendance still reads
-          correctly. Delete only removes an enrolment made by mistake.
-        </p>
-      )}
     </div>
   )
 }
