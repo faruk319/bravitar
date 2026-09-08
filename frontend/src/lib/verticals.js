@@ -9,6 +9,7 @@ const CORE_MODULES = [
   { key: 'members', label: 'Members' },
   { key: 'batches', label: 'Batches & Schedule' },
   { key: 'attendance', label: 'Attendance' },
+  { key: 'bookings', label: 'Class Booking' },
   { key: 'billing', label: 'Fees & Billing' },
   { key: 'enquiries', label: 'Enquiries' },
 ]

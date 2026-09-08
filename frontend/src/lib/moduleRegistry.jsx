@@ -1,4 +1,5 @@
 import Attendance from '../academy/Attendance'
+import Bookings from '../academy/Bookings'
 import Batches from '../academy/Batches'
 import Billing from '../academy/Billing'
 import Enquiries from '../academy/Enquiries'
@@ -27,6 +28,7 @@ export const MODULE_COMPONENTS = {
   members: Members,
   batches: Batches,
   attendance: Attendance,
+  bookings: Bookings,
   billing: Billing,
   enquiries: Enquiries,
 

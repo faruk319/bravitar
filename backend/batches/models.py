@@ -65,3 +65,139 @@ class Enrolment(models.Model):
 
     def __str__(self):
         return f"{self.student.full_name} in {self.batch.name}"
+
+
+class BookingStatus:
+    """A place in one session.
+
+    `waitlisted` is a real place in a queue, not a failed booking — when
+    somebody cancels, the first person waiting takes their place.
+    """
+
+    BOOKED = "booked"
+    WAITLISTED = "waitlisted"
+    CANCELLED = "cancelled"
+    ATTENDED = "attended"
+    NO_SHOW = "no_show"
+
+    CHOICES = [
+        (BOOKED, "Booked"),
+        (WAITLISTED, "Waiting"),
+        (CANCELLED, "Cancelled"),
+        (ATTENDED, "Attended"),
+        (NO_SHOW, "Didn't turn up"),
+    ]
+    # Holding a place, or waiting for one.
+    OPEN = [BOOKED, WAITLISTED]
+    # Took up a place on the day.
+    TOOK_PLACE = [BOOKED, ATTENDED, NO_SHOW]
+
+
+class ClassBooking(models.Model):
+    """One member's place in one session of a batch.
+
+    Separate from Enrolment, which says somebody is in a batch generally. A
+    booking is for a date: it is what capacity and class credits are counted
+    against, and what a waitlist queues for.
+    """
+
+    BRANCH_FIELD = "batch__branch"
+
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="class_bookings"
+    )
+    batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name="bookings")
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="class_bookings"
+    )
+    session_date = models.DateField()
+
+    status = models.CharField(
+        max_length=20, choices=BookingStatus.CHOICES, default=BookingStatus.BOOKED
+    )
+    booked_at = models.DateTimeField(auto_now_add=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["session_date", "booked_at", "id"]
+        indexes = [models.Index(fields=["batch", "session_date"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "student", "session_date"],
+                condition=models.Q(status__in=["booked", "waitlisted"]),
+                name="one_open_booking_per_session",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student.full_name} — {self.batch.name} on {self.session_date}"
+
+    @property
+    def is_open(self):
+        return self.status in BookingStatus.OPEN
+
+    @classmethod
+    def places_taken(cls, batch, session_date):
+        return cls.objects.filter(
+            batch=batch, session_date=session_date, status=BookingStatus.BOOKED
+        ).count()
+
+    @classmethod
+    def waiting(cls, batch, session_date):
+        return cls.objects.filter(
+            batch=batch, session_date=session_date, status=BookingStatus.WAITLISTED
+        ).order_by("booked_at", "id")
+
+    def cancel(self):
+        """Give the place up, and hand it to whoever is waiting."""
+        from django.utils import timezone
+
+        was_booked = self.status == BookingStatus.BOOKED
+        self.status = BookingStatus.CANCELLED
+        self.cancelled_at = timezone.now()
+        self.save(update_fields=["status", "cancelled_at"])
+
+        return self.promote_from_waitlist() if was_booked else None
+
+    def promote_from_waitlist(self):
+        """The first person waiting who is still within their allowance.
+
+        Waiting doesn't spend a credit — somebody waitlisted for three classes
+        and given none should not have paid for three — so the allowance is
+        checked here instead, and anyone now over it is passed over rather
+        than being given a place they can't keep.
+        """
+        from .allowance import classes_allowed_per_week
+
+        if self.batch.capacity is None:
+            return None
+        if ClassBooking.places_taken(self.batch, self.session_date) >= self.batch.capacity:
+            return None
+
+        for candidate in ClassBooking.waiting(self.batch, self.session_date):
+            allowed = classes_allowed_per_week(candidate.student)
+            if allowed is not None and booked_that_week(
+                candidate.student, self.session_date
+            ) >= allowed:
+                continue
+            candidate.status = BookingStatus.BOOKED
+            candidate.save(update_fields=["status"])
+            return candidate
+        return None
+
+
+def week_of(day):
+    """Monday to Sunday around `day` — the window a weekly allowance counts in."""
+    from datetime import timedelta
+
+    monday = day - timedelta(days=day.weekday())
+    return monday, monday + timedelta(days=6)
+
+
+def booked_that_week(student, day):
+    start, end = week_of(day)
+    return ClassBooking.objects.filter(
+        student=student,
+        session_date__range=(start, end),
+        status__in=BookingStatus.TOOK_PLACE,
+    ).count()

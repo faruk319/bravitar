@@ -524,3 +524,15 @@ dialog.confirm p { margin: 0 0 0.9rem; }
   box-shadow: 0 6px 20px rgba(20, 20, 25, 0.12);
 }
 .info-dot:hover .info-bubble, .info-dot:focus .info-bubble { display: block; }
+
+.subrow td { background: rgba(20, 20, 25, 0.02); }
+.booking-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.booking-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 999px;
+  font-size: 0.85rem;
+}
+.pill.booked { background: #dcf3dc; color: #1d6b1d; }
+.pill.waitlisted { background: #fdf0d5; color: #8a5a00; }
+.pill.attended { background: #e6e9fb; color: #3a3f8f; }
+.pill.no_show { background: #fbe0e0; color: #a32424; }

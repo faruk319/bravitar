@@ -166,7 +166,18 @@ class CheckIn(models.Model):
             )
             if created:
                 marked.append(record)
+
+        self._settle_bookings(on)
         return marked
+
+    def _settle_bookings(self, on):
+        """A place you booked and then turned up for is attended. Without this
+        the booking still reads as an unfilled place after the class."""
+        from batches.models import BookingStatus, ClassBooking
+
+        ClassBooking.objects.filter(
+            student_id=self.student_id, session_date=on, status=BookingStatus.BOOKED
+        ).update(status=BookingStatus.ATTENDED)
 
 
 class BiometricEnrolment(models.Model):

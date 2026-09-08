@@ -1,8 +1,11 @@
+from django.utils import timezone
 from rest_framework import serializers
+
+from attendance.admission import admission_for
 
 from students.models import Student
 
-from .models import Batch, Enrolment
+from .models import Batch, BookingStatus, ClassBooking, Enrolment
 
 
 class BatchSerializer(serializers.ModelSerializer):
@@ -62,4 +65,55 @@ class EnrolmentSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"batch": f"{batch.name} is full ({batch.capacity} places)."}
                 )
+        return attrs
+
+
+class ClassBookingSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    batch_name = serializers.CharField(source="batch.name", read_only=True)
+    start_time = serializers.TimeField(source="batch.start_time", read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ClassBooking
+        fields = [
+            "id", "batch", "batch_name", "student", "student_name",
+            "session_date", "start_time", "status", "is_open", "booked_at",
+        ]
+        read_only_fields = [
+            "id", "batch_name", "student_name", "start_time", "status",
+            "is_open", "booked_at",
+        ]
+
+    def validate(self, attrs):
+        academy = self.context["academy"]
+        batch, student = attrs["batch"], attrs["student"]
+        day = attrs["session_date"]
+
+        if batch.academy_id != academy.id or student.academy_id != academy.id:
+            raise serializers.ValidationError("That belongs to another academy.")
+        if not batch.is_active:
+            raise serializers.ValidationError({"batch": f"{batch.name} isn't running."})
+        if day < timezone.localdate():
+            raise serializers.ValidationError(
+                {"session_date": "That day has already been and gone."}
+            )
+        if batch.days_of_week and day.weekday() not in batch.days_of_week:
+            raise serializers.ValidationError(
+                {"session_date": f"{batch.name} doesn't run that day."}
+            )
+        if ClassBooking.objects.filter(
+            batch=batch, student=student, session_date=day,
+            status__in=BookingStatus.OPEN,
+        ).exists():
+            raise serializers.ValidationError(
+                {"student": f"{student.full_name} already has a place that day."}
+            )
+
+        # No point holding a place for somebody the door won't let in.
+        verdict = admission_for(student)
+        if not verdict.allowed:
+            raise serializers.ValidationError(
+                {"student": f"{student.full_name} can't book — {verdict.message.lower()}."}
+            )
         return attrs
