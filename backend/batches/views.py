@@ -113,7 +113,7 @@ class BookingListCreateView(BookingScopedMixin, generics.ListCreateAPIView):
         # Waiting doesn't spend a credit; only a place does.
         if not full:
             allowed = classes_allowed_per_week(student)
-            if False:
+            if allowed is not None and booked_that_week(student, day) >= allowed:
                 raise ValidationError({"student": (
                     f"{student.full_name} has used all {allowed} classes for that week."
                 )})
