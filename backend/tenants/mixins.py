@@ -1,5 +1,8 @@
+from rest_framework.exceptions import ValidationError
+
 from .branches import allowed_branch_ids, restrict
 from .context import get_current_academy
+from .scope import academies_in_scope
 from .permissions import IsOrganizationMember, IsOrganizationStaff
 
 
@@ -40,7 +43,7 @@ class OrganizationScopedMixin:
         writable only from its own — the desk at one branch has to be able to
         find a member who walked into the wrong one.
         """
-        queryset = model.objects.filter(academy=self.academy)
+        queryset = model.objects.filter(academy__in=academies_in_scope(self.request))
         reading = self.request.method in ("GET", "HEAD", "OPTIONS")
         if not (reading and getattr(model, "BRANCH_VISIBLE_ACROSS", False)):
             queryset = restrict(queryset, model, self.allowed_branches)
@@ -59,4 +62,9 @@ class OrganizationScopedMixin:
         }
 
     def perform_create(self, serializer):
+        if self.academy is None:
+            raise ValidationError(
+                {"detail": "Choose one academy before adding anything — "
+                           "\"all academies\" doesn't say where this belongs."}
+            )
         serializer.save(academy=self.academy)

@@ -7,6 +7,8 @@ import Team from '../admin/Team'
 import { useAuth } from '../auth/AuthContext'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
+import AcademyPicker from '../components/AcademyPicker'
+import { currentAcademy } from '../lib/academy'
 import { rootUrl } from '../lib/tenant'
 import { modulesForVerticals, verticalLabel } from '../lib/verticals'
 
@@ -36,13 +38,37 @@ export default function DashboardPage() {
       <div className="centered">
         <div className="card">
           <p className="error">{error}</p>
-          <a href={rootUrl()}>Back to your academies</a>
+          <a href={rootUrl()}>Back to your organizations</a>
         </div>
       </div>
     )
   }
 
   if (!org) return <div className="centered"><p className="muted">Loading…</p></div>
+
+  // Several academies and none chosen: there is nothing to show until the
+  // owner says which, so ask rather than guessing one.
+  if (org.viewing === 'none') {
+    return (
+      <div className="centered">
+        <div className="card">
+          <h2>{org.organization?.name}</h2>
+          <p className="muted">
+            This organization runs {org.academies?.length} academies. Choose
+            which one you&apos;re working in.
+          </p>
+          <AcademyPicker
+            academies={org.academies ?? []}
+            current={currentAcademy()}
+            maySeeAll={org.may_see_all_academies}
+          />
+          <p className="muted small">
+            <a href={rootUrl()}>Switch organization</a>
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const modules = modulesForVerticals(org.verticals)
   const activeModule = modules.find((m) => m.key === active)
@@ -101,11 +127,16 @@ export default function DashboardPage() {
         <div className="sidebar-footer">
           <span className="muted small">{user?.email}</span>
           <button type="button" className="link" onClick={signOut}>Sign out</button>
-          <a className="small" href={rootUrl()}>Switch academy</a>
         </div>
       </aside>
 
       <main className="content">
+        <AcademyPicker
+          academies={org.academies ?? []}
+          current={currentAcademy()}
+          maySeeAll={org.may_see_all_academies}
+        />
+
         {activeAdmin ? (
           activeAdmin.key === 'team' ? (
             <Team role={org.role} />

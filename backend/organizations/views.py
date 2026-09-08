@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from tenants.context import get_current_academy, get_current_organization
+from tenants.scope import verticals_in_scope
 from tenants.exceptions import OrganizationNotFound
 from tenants.permissions import (
     IsOrganizationMember,
@@ -82,12 +83,60 @@ class CurrentOrganizationView(APIView):
         return [IsOrganizationMember()]
 
     def get(self, request):
+        """The academy in view, or — when the caller is looking at all of them,
+        or hasn't picked one — the organization and what it contains, so the
+        switcher has something to show."""
+        organization = get_current_organization(request)
         academy = get_current_academy(request)
+
         if academy is None:
-            raise OrganizationNotFound()
+            if organization is None:
+                raise OrganizationNotFound()
+
+            # "All academies" and "none chosen" both leave no single academy,
+            # but they are opposite states: one is a view, the other a prompt.
+            looking_at_all = (
+                request.headers.get("X-Academy") or ""
+            ).strip().lower() == "all"
+
+            payload = {
+                "academy": None,
+                "viewing": "all" if looking_at_all else "none",
+                "role": request.membership.role,
+                **self._organization_payload(request, organization),
+            }
+            if looking_at_all:
+                payload.update({
+                    "name": organization.name,
+                    "slug": organization.slug,
+                    "verticals": verticals_in_scope(request),
+                })
+            return Response(payload)
+
         data = OrganizationSerializer(academy).data
         data["role"] = request.membership.role
+        data["viewing"] = "one"
+        data.update(self._organization_payload(request, organization))
         return Response(data)
+
+    def _organization_payload(self, request, organization):
+        academies = list(organization.academies.all())
+        return {
+            "organization": {
+                "id": organization.id,
+                "name": organization.name,
+                "slug": organization.slug,
+                "plan": organization.plan,
+            },
+            "academies": [
+                {"id": a.id, "name": a.name, "slug": a.slug, "verticals": a.verticals}
+                for a in academies
+            ],
+            # Only an owner may look at everything at once; a manager working
+            # in two would be reading two sets of books on one screen.
+            "may_see_all_academies": request.membership.role == Role.OWNER
+            and len(academies) > 1,
+        }
 
     def patch(self, request):
         academy = get_current_academy(request)

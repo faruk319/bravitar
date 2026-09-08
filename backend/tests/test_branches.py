@@ -187,3 +187,50 @@ class BranchSportsTests(BranchAdminTestCase):
         self.org.save()
 
         self.assertEqual(branch.offers, ["gym"])
+
+
+class AssigningWhoRunsABranchTests(BranchAdminTestCase):
+    """A new branch needs somebody who can see it — an owner can put
+    themselves on it or name someone as they create it."""
+
+    def membership(self, user_id):
+        from organizations.models import Membership
+
+        return Membership.objects.get(
+            organization=self.org.organization, user_id=user_id
+        )
+
+    def test_a_branch_can_be_created_with_its_manager(self):
+        manager = self.membership("manager-1")
+        response = self.create(managers=[manager.id])
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["team_count"], 1)
+        self.assertEqual(
+            list(manager.branches.values_list("name", flat=True)), ["Andheri"]
+        )
+
+    def test_a_branch_with_nobody_on_it_is_owner_only(self):
+        response = self.create()
+        self.assertEqual(response.data["team_count"], 0)
+
+    def test_somebody_from_another_organization_cannot_be_put_on_it(self):
+        response = self.create(managers=[self.membership_elsewhere().id])
+        self.assertEqual(response.status_code, 400)
+
+    def membership_elsewhere(self):
+        from organizations.models import Membership
+
+        return Membership.objects.get(
+            organization=self.other_org.organization, user_id="owner-2"
+        )
+
+    def test_editing_replaces_who_runs_it(self):
+        manager = self.membership("manager-1")
+        branch = self.create(managers=[manager.id]).data
+
+        self.client_for(self.owner).patch(
+            f"/api/organizations/current/branches/{branch['id']}/",
+            {"managers": []}, format="json",
+        )
+        self.assertEqual(manager.branches.count(), 0)

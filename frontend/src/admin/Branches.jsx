@@ -6,9 +6,12 @@ import { verticalLabel } from '../lib/verticals'
 
 /** The academy's locations. Also the unit of access — Team says who works where. */
 
-const blank = () => ({ name: '', address: '', phone: '', email: '', is_primary: false, verticals: [] })
+const blank = () => ({
+  name: '', address: '', phone: '', email: '', is_primary: false,
+  verticals: [], managers: [],
+})
 
-function BranchForm({ branch, academyVerticals, onSaved, onCancel }) {
+function BranchForm({ branch, academyVerticals, team, onSaved, onCancel }) {
   const [form, setForm] = useState(() =>
     branch
       ? {
@@ -18,6 +21,7 @@ function BranchForm({ branch, academyVerticals, onSaved, onCancel }) {
           email: branch.email ?? '',
           is_primary: branch.is_primary,
           verticals: branch.verticals ?? [],
+          managers: (team ?? []).filter((m) => m.branches.includes(branch.id)).map((m) => m.id),
         }
       : blank(),
   )
@@ -101,6 +105,33 @@ function BranchForm({ branch, academyVerticals, onSaved, onCancel }) {
         </fieldset>
       )}
 
+      {team.length > 0 && (
+        <fieldset>
+          <legend>Who runs it</legend>
+          <p className="muted small">
+            Anyone not on the list can&apos;t see this branch at all. Leave it
+            empty and it stays owner-only until you assign somebody.
+          </p>
+          <div className="vertical-grid">
+            {team.map((member) => (
+              <label key={member.id} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.managers.includes(member.id)}
+                  onChange={() => setForm({
+                    ...form,
+                    managers: form.managers.includes(member.id)
+                      ? form.managers.filter((id) => id !== member.id)
+                      : [...form.managers, member.id],
+                  })}
+                />
+                {member.email} ({member.role})
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
       <label className="checkbox">
         <input type="checkbox" checked={form.is_primary} onChange={set('is_primary')} />
         Main branch
@@ -122,6 +153,7 @@ function BranchForm({ branch, academyVerticals, onSaved, onCancel }) {
 
 export default function Branches({ role, org }) {
   const academyVerticals = org?.verticals ?? []
+  const [team, setTeam] = useState([])
   const [branches, setBranches] = useState(null)
   const [editing, setEditing] = useState(null)
   const [refresh, setRefresh] = useState(0)
@@ -131,8 +163,16 @@ export default function Branches({ role, org }) {
 
   useEffect(() => {
     let cancelled = false
-    apiFetchAll('/organizations/current/branches/')
-      .then((data) => !cancelled && setBranches(data))
+    Promise.all([
+      apiFetchAll('/organizations/current/branches/'),
+      // Owners assign; anyone else just sees the counts.
+      apiFetchAll('/organizations/current/team/').catch(() => []),
+    ])
+      .then(([rows, people]) => {
+        if (cancelled) return
+        setBranches(rows)
+        setTeam(people.filter((m) => m.role !== 'owner'))
+      })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
       cancelled = true
@@ -149,6 +189,7 @@ export default function Branches({ role, org }) {
       <BranchForm
         branch={editing === 'new' ? null : editing}
         academyVerticals={academyVerticals}
+        team={team}
         onCancel={() => setEditing(null)}
         onSaved={() => {
           setEditing(null)

@@ -55,16 +55,25 @@ class TenantResolutionMiddleware:
         return None, None
 
     def _resolve_academy(self, request, organization):
+        """Also sets `request.academy_named_but_missing` — a header naming an
+        academy that isn't in this organization is refused rather than quietly
+        ignored, since silently falling back would hide the mistake."""
+        request.academy_named_but_missing = False
         if organization is None:
             return None
 
         academies = Academy.objects.filter(organization=organization)
-        wanted = request.headers.get("X-Academy")
-        if wanted:
-            by_slug = academies.filter(slug=wanted).first()
-            if by_slug:
-                return by_slug
-            return academies.filter(pk=wanted).first() if wanted.isdigit() else None
+        wanted = (request.headers.get("X-Academy") or "").strip()
+
+        if wanted and wanted.lower() != "all":
+            found = academies.filter(slug=wanted).first()
+            if found is None and wanted.isdigit():
+                found = academies.filter(pk=wanted).first()
+            request.academy_named_but_missing = found is None
+            return found
+
+        if wanted.lower() == "all":
+            return None  # scope.py decides whether they may look at all of it
 
         # One academy is the common case; more than one and the caller has to say.
         return academies.first() if academies.count() == 1 else None

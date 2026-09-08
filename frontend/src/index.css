@@ -498,3 +498,10 @@ dialog.confirm p { margin: 0 0 0.9rem; }
 
 .pill.approved { background: #dcf3dc; color: #1d6b1d; }
 .pill.declined, .pill.withdrawn { background: var(--border); color: var(--muted); }
+
+.academy-picker {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  margin-bottom: 1rem; padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card, #fff);
+}
+.academy-picker select { border: 0; background: none; font-weight: 600; }

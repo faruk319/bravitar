@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { apiFetch, apiFetchAll } from '../lib/api'
+import { rootUrl } from '../lib/tenant'
 import PluginSettings from './PluginSettings'
 import { SELECTABLE_VERTICALS, VERTICALS } from '../lib/verticals'
 
@@ -120,6 +121,18 @@ export default function Settings({ org, role, onOrgChange }) {
           </div>
         )}
       </form>
+
+      <div className="card wide">
+        <h2>Your organizations</h2>
+        <p className="muted small">
+          You rarely change organization, so it lives here rather than in the
+          sidebar. Academies inside this one are switched at the top of the
+          screen.
+        </p>
+        <div className="row-actions">
+          <a className="link" href={rootUrl()}>Switch organization</a>
+        </div>
+      </div>
 
       <PluginSettings
         org={org}

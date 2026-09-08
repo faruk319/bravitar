@@ -56,10 +56,16 @@ class PickingAnAcademyTests(TenantAPITestCase):
 
     def test_two_academies_need_the_header(self):
         """Picking one for the caller would quietly show the wrong academy's
-        members and money."""
+        members and money — so it answers with the choice instead."""
         self.add_second_academy()
         response = self.client_for(self.owner).get("/api/organizations/current/")
-        self.assertEqual(response.status_code, 403)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["academy"])
+        self.assertEqual(
+            {a["slug"] for a in response.data["academies"]}, {"irontemple", "aqua"}
+        )
+        self.assertTrue(response.data["may_see_all_academies"])
 
     def test_the_header_chooses_the_academy(self):
         second = self.add_second_academy()
@@ -205,3 +211,124 @@ class ApiKeysBelongToTheOrganizationTests(TenantAPITestCase):
         self.assertEqual(
             [row["full_name"] for row in response.data["results"]], ["Ours"]
         )
+
+
+class LookingAtEveryAcademyTests(TenantAPITestCase):
+    """The owner's view across their whole business. Reads merge; writes still
+    need one academy, because a new member has to land somewhere."""
+
+    def setUp(self):
+        super().setUp()
+        self.second = Academy.objects.create(
+            organization=self.org.organization,
+            name="Aqua Wing", slug="aqua", verticals=["swimming"],
+        )
+        Student.objects.create(
+            academy=self.org, full_name="Gym Member", joined_on=date(2026, 1, 1)
+        )
+        Student.objects.create(
+            academy=self.second, full_name="Swimmer", joined_on=date(2026, 1, 1)
+        )
+
+    def seeing_all(self, actor):
+        client = self.client_for(actor)
+        client.defaults["HTTP_X_ACADEMY"] = "all"
+        return client
+
+    def test_an_owner_sees_both_academies_members_at_once(self):
+        response = self.seeing_all(self.owner).get("/api/students/")
+        self.assertEqual(
+            {row["full_name"] for row in response.data["results"]},
+            {"Gym Member", "Swimmer"},
+        )
+
+    def test_a_manager_cannot_look_at_everything(self):
+        """Two sets of books on one screen is an owner's call, not a
+        manager's."""
+        response = self.seeing_all(self.manager).get("/api/students/")
+        self.assertIn(response.status_code, (403, 404))
+
+    def test_a_gate_passes_if_any_academy_in_view_runs_that_sport(self):
+        """Looking at a gym and a swim school together, both plugins apply."""
+        client = self.seeing_all(self.owner)
+        self.assertEqual(client.get("/api/gym-ops/tiers/").status_code, 200)
+        self.assertEqual(client.get("/api/swimming/pools/").status_code, 200)
+
+    def test_a_gate_still_refuses_a_sport_nobody_runs(self):
+        response = self.seeing_all(self.owner).get("/api/karate/belts/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_adding_a_member_needs_one_academy_named(self):
+        response = self.seeing_all(self.owner).post(
+            "/api/students/", {"full_name": "New", "joined_on": "2026-01-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("one academy", str(response.data).lower())
+
+    def test_naming_an_academy_puts_the_member_there(self):
+        client = self.client_for(self.owner)
+        client.defaults["HTTP_X_ACADEMY"] = self.second.slug
+        response = client.post(
+            "/api/students/", {"full_name": "New", "joined_on": "2026-01-01"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            Student.objects.get(pk=response.data["id"]).academy, self.second
+        )
+
+
+    def test_looking_at_all_is_not_the_same_as_choosing_nothing(self):
+        """Both leave no single academy, but one is a view and the other is a
+        prompt — telling them apart is what stops the picker looping."""
+        chose_nothing = self.client_for(self.owner).get("/api/organizations/current/")
+        self.assertEqual(chose_nothing.data["viewing"], "none")
+
+        chose_all = self.seeing_all(self.owner).get("/api/organizations/current/")
+        self.assertEqual(chose_all.data["viewing"], "all")
+        self.assertEqual(
+            sorted(chose_all.data["verticals"]), ["fitness", "gym", "swimming"]
+        )
+
+    def test_all_stops_at_the_organization(self):
+        """"Every academy" means every one of *theirs*."""
+        Student.objects.create(
+            academy=self.other_org, full_name="Someone Else", joined_on=date(2026, 1, 1)
+        )
+        response = self.seeing_all(self.owner).get("/api/students/")
+        self.assertNotIn(
+            "Someone Else", {row["full_name"] for row in response.data["results"]}
+        )
+
+
+class TwoStepSignupTests(TenantAPITestCase):
+    def sign_up(self, **overrides):
+        from .base import make_user
+
+        payload = {
+            "name": "Bravitar Fitness", "slug": "bravitar",
+            "academy_name": "Iron Temple Gym", "verticals": ["gym"],
+        }
+        payload.update(overrides)
+        return self.client_for(make_user("newbie-9", "n9@example.com")).post(
+            "/api/organizations/signup/", payload, format="json"
+        )
+
+    def test_the_organization_and_the_academy_get_their_own_names(self):
+        response = self.sign_up()
+        self.assertEqual(response.status_code, 201)
+
+        organization = Organization.objects.get(slug="bravitar")
+        self.assertEqual(organization.name, "Bravitar Fitness")
+        self.assertEqual(organization.academies.get().name, "Iron Temple Gym")
+
+    def test_the_academy_takes_the_business_name_when_none_is_given(self):
+        """Most businesses run one academy under their own name."""
+        self.sign_up(academy_name="")
+        organization = Organization.objects.get(slug="bravitar")
+        self.assertEqual(organization.academies.get().name, "Bravitar Fitness")
+
+    def test_the_response_says_which_subdomain_to_go_to(self):
+        response = self.sign_up()
+        self.assertEqual(response.data["organization_slug"], "bravitar")

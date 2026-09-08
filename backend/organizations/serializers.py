@@ -40,17 +40,43 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
 
 class OrganizationSignupSerializer(serializers.ModelSerializer):
+    """`name` and `slug` are the organization's; `academy_name` is its first
+    academy, defaulting to the same name for the common one-academy case."""
+
     verticals = serializers.ListField(child=serializers.CharField(), allow_empty=False)
+    academy_name = serializers.CharField(required=False, allow_blank=True)
+    organization_slug = serializers.CharField(source="organization.slug", read_only=True)
 
     class Meta:
         model = Academy
-        fields = ["id", "name", "slug", "verticals"]
-        read_only_fields = ["id"]
+        fields = ["id", "name", "slug", "verticals", "academy_name", "organization_slug"]
+        read_only_fields = ["id", "organization_slug"]
 
     def validate_slug(self, value):
         if Organization.objects.filter(slug=value).exists():
             raise serializers.ValidationError("That web address is taken.")
         return value
+
+    def validate_managers(self, value):
+        academy = self.context["academy"]
+        stray = [m.email for m in value if m.organization_id != academy.organization_id]
+        if stray:
+            raise serializers.ValidationError("Those people are not on this team.")
+        return value
+
+    def create(self, validated_data):
+        managers = validated_data.pop("managers", [])
+        branch = super().create(validated_data)
+        for membership in managers:
+            membership.branches.add(branch)
+        return branch
+
+    def update(self, instance, validated_data):
+        managers = validated_data.pop("managers", None)
+        branch = super().update(instance, validated_data)
+        if managers is not None:
+            branch.team.set(managers)
+        return branch
 
     def validate_verticals(self, value):
         return validate_selectable_verticals(value)
@@ -58,10 +84,16 @@ class OrganizationSignupSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Signing up creates the organization and its first academy together.
         The subdomain is the organization's; the academy carries the sports."""
+        academy_name = validated_data.pop("academy_name", "") or validated_data["name"]
         organization = Organization.objects.create(
             name=validated_data["name"], slug=validated_data["slug"]
         )
-        return Academy.objects.create(organization=organization, **validated_data)
+        return Academy.objects.create(
+            organization=organization,
+            name=academy_name,
+            slug=validated_data["slug"],
+            verticals=validated_data["verticals"],
+        )
 
 
 class MembershipSerializer(serializers.ModelSerializer):
@@ -105,6 +137,27 @@ class OrganizationSettingsSerializer(serializers.ModelSerializer):
         # editable here; plan and domain_verified are set by billing and the
         # domain-verification flow, not by hand.
         read_only_fields = ["id", "slug", "plan", "custom_domain", "domain_verified"]
+
+    def validate_managers(self, value):
+        academy = self.context["academy"]
+        stray = [m.email for m in value if m.organization_id != academy.organization_id]
+        if stray:
+            raise serializers.ValidationError("Those people are not on this team.")
+        return value
+
+    def create(self, validated_data):
+        managers = validated_data.pop("managers", [])
+        branch = super().create(validated_data)
+        for membership in managers:
+            membership.branches.add(branch)
+        return branch
+
+    def update(self, instance, validated_data):
+        managers = validated_data.pop("managers", None)
+        branch = super().update(instance, validated_data)
+        if managers is not None:
+            branch.team.set(managers)
+        return branch
 
     def validate_verticals(self, value):
         # An academy already on a vertical that has since been withdrawn keeps
@@ -176,6 +229,11 @@ def other_owners(membership):
 class BranchSerializer(serializers.ModelSerializer):
     offers = serializers.ListField(read_only=True)
     team_count = serializers.SerializerMethodField()
+    # Who runs it, set as the branch is created. Write-only because the team
+    # roster is where assignments are read and changed from.
+    managers = serializers.PrimaryKeyRelatedField(
+        many=True, write_only=True, required=False, queryset=Membership.objects.all()
+    )
     student_count = serializers.SerializerMethodField()
     batch_count = serializers.SerializerMethodField()
 
@@ -184,6 +242,7 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "address", "phone", "email", "is_primary", "created_at",
             "student_count", "batch_count", "team_count", "verticals", "offers",
+            "managers",
         ]
         read_only_fields = [
             "id", "created_at", "student_count", "batch_count", "team_count", "offers",
@@ -194,6 +253,27 @@ class BranchSerializer(serializers.ModelSerializer):
 
     def get_batch_count(self, obj):
         return obj.batches.count()
+
+    def validate_managers(self, value):
+        academy = self.context["academy"]
+        stray = [m.email for m in value if m.organization_id != academy.organization_id]
+        if stray:
+            raise serializers.ValidationError("Those people are not on this team.")
+        return value
+
+    def create(self, validated_data):
+        managers = validated_data.pop("managers", [])
+        branch = super().create(validated_data)
+        for membership in managers:
+            membership.branches.add(branch)
+        return branch
+
+    def update(self, instance, validated_data):
+        managers = validated_data.pop("managers", None)
+        branch = super().update(instance, validated_data)
+        if managers is not None:
+            branch.team.set(managers)
+        return branch
 
     def validate_verticals(self, value):
         """A branch offers a subset of what the academy does — it can't invent

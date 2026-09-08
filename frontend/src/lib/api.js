@@ -1,3 +1,4 @@
+import { academyHeader } from './academy'
 import { supabase } from './supabase'
 
 /**
@@ -14,6 +15,7 @@ export async function apiFetch(path, options = {}) {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...academyHeader(),
       ...options.headers,
     },
   })
@@ -100,7 +102,10 @@ export async function apiUpload(path, formData, method = 'POST') {
 
   const response = await fetch(`/api${path}`, {
     method,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...academyHeader(),
+    },
     body: formData,
   })
 
@@ -121,7 +126,10 @@ export async function apiObjectUrl(path) {
   const token = data.session?.access_token
 
   const response = await fetch(`/api${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...academyHeader(),
+    },
   })
   if (!response.ok) throw new ApiError(`Could not load image (${response.status})`, response.status)
   return URL.createObjectURL(await response.blob())

@@ -3,12 +3,13 @@ from rest_framework.permissions import BasePermission
 from organizations.constants import Role
 from organizations.models import Membership
 
-from .context import get_current_academy
+from .context import get_current_academy, get_current_organization
+from .scope import verticals_in_scope
 
 
 class IsOrganizationMember(BasePermission):
-    """Request must be scoped to an Academy (via subdomain, custom
-    domain, or API key) and the authenticated user must belong to it.
+    """Request must resolve to an Organization (via subdomain, custom domain,
+    or API key) and the authenticated user must belong to it.
 
     Belonging is not enough on its own: only roles in `Role.CAN_SIGN_IN` may
     use the API. Member sign-in is not switched on yet, so a member-role row
@@ -19,20 +20,24 @@ class IsOrganizationMember(BasePermission):
     message = "You are not a member of this academy."
 
     def has_permission(self, request, view):
-        academy = get_current_academy(request)
-        if academy is None or not getattr(request.user, "is_authenticated", False):
+        organization = get_current_organization(request)
+        if organization is None or not getattr(request.user, "is_authenticated", False):
+            return False
+
+        if getattr(request, "academy_named_but_missing", False):
+            self.message = "No such academy in this organization."
             return False
 
         if getattr(request.user, "is_api_key", False):
             # A key belongs to one organization and can only ever act inside
             # it, whatever host the request arrived on.
-            if request.user.organization_id != academy.organization_id:
+            if request.user.organization_id != organization.id:
                 return False
             request.membership = None
             return True
 
         membership = Membership.objects.filter(
-            organization=academy.organization, user_id=request.user.id
+            organization=organization, user_id=request.user.id
         ).first()
 
         if membership is None:
@@ -43,10 +48,16 @@ class IsOrganizationMember(BasePermission):
 
             if claim_pending_memberships(request.user):
                 membership = Membership.objects.filter(
-                    organization=academy.organization, user_id=request.user.id
+                    organization=organization, user_id=request.user.id
                 ).first()
 
         if membership is None:
+            return False
+
+        if (request.headers.get("X-Academy") or "").strip().lower() == "all" \
+                and membership.role != Role.OWNER:
+            # Answering with an empty list would be a quiet wrong answer.
+            self.message = "Only an owner can look at every academy at once."
             return False
 
         if membership.role not in Role.CAN_SIGN_IN:
@@ -132,8 +143,9 @@ class RequiresVertical(IsOrganizationMember):
         if not super().has_permission(request, view):
             return False
 
-        academy = get_current_academy(request)
-        if self.vertical in (academy.verticals or []):
+        # Across the academies in scope: looking at all of them, a gym gate
+        # passes if any of them runs a gym.
+        if self.vertical in verticals_in_scope(request):
             return True
 
         # A plain attribute, not a property: the base class sets `self.message`
