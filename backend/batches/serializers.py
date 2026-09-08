@@ -11,19 +11,31 @@ from .models import Batch, BookingStatus, ClassBooking, Enrolment
 class BatchSerializer(serializers.ModelSerializer):
     branch_name = serializers.CharField(source="branch.name", read_only=True, default=None)
     enrolled_count = serializers.IntegerField(read_only=True)
+    coach_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Batch
         fields = [
-            "id", "name", "description", "coach_name", "days_of_week",
-            "start_time", "end_time", "capacity", "is_active",
+            "id", "name", "description", "coach", "coach_name", "coach_label",
+            "days_of_week", "start_time", "end_time", "capacity", "is_active",
             "branch", "branch_name", "enrolled_count",
         ]
-        read_only_fields = ["id", "branch_name", "enrolled_count"]
+        read_only_fields = ["id", "branch_name", "enrolled_count", "coach_label"]
+
+    def get_coach_label(self, batch):
+        """Whoever is running it — the linked person, or the old free text."""
+        if batch.coach_id:
+            return batch.coach.email or batch.coach.user_id
+        return batch.coach_name
 
     def validate_days_of_week(self, value):
         if any(not isinstance(day, int) or day < 0 or day > 6 for day in value):
             raise serializers.ValidationError("Days must be integers 0 (Mon) to 6 (Sun).")
+        return value
+
+    def validate_coach(self, value):
+        if value and value.organization_id != self.context["academy"].organization_id:
+            raise serializers.ValidationError("That person is not on this team.")
         return value
 
     def validate_branch(self, value):

@@ -17,6 +17,12 @@ class Batch(models.Model):
 
     name = models.CharField(max_length=255)
     description = models.CharField(max_length=500, blank=True)
+    # Was a free-text name, which could not be paid, scheduled or held to
+    # anything. Kept for rows written before there was somebody to point at.
+    coach = models.ForeignKey(
+        "organizations.Membership", on_delete=models.SET_NULL,
+        related_name="batches_coached", null=True, blank=True,
+    )
     coach_name = models.CharField(max_length=255, blank=True)
 
     # 0 = Monday .. 6 = Sunday, matching Python's weekday().

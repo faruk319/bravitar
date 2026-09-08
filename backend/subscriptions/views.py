@@ -1,8 +1,10 @@
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -10,11 +12,16 @@ from rest_framework.response import Response
 from exercises.permissions import HasGymVertical
 from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
-from tenants.permissions import IsOrganizationManager
+from tenants.permissions import IsOrganizationManager, IsPerson
 
 from .constants import SubscriptionStatus
 from .models import MemberSubscription, MembershipTier
-from .serializers import MemberSubscriptionSerializer, MembershipTierSerializer
+from .trainers import TrainerAssignment
+from .serializers import (
+    MemberSubscriptionSerializer,
+    MembershipTierSerializer,
+    TrainerAssignmentSerializer,
+)
 
 
 class GymScopedMixin(OrganizationScopedMixin):
@@ -192,3 +199,71 @@ def membership_overview(request):
         "per_tier": sorted(per_tier.values(), key=lambda t: -t["members"]),
         "value_on_current_memberships": round(recurring_value, 2),
     })
+
+
+class TrainerScopedMixin(GymScopedMixin):
+    serializer_class = TrainerAssignmentSerializer
+
+
+class TrainerAssignmentListCreateView(TrainerScopedMixin, generics.ListCreateAPIView):
+    def get_queryset(self):
+        queryset = self.scoped(TrainerAssignment).select_related("trainer", "student")
+        params = self.request.query_params
+        if trainer := params.get("trainer"):
+            queryset = queryset.filter(trainer_id=trainer)
+        if student := params.get("student"):
+            queryset = queryset.filter(student_id=student)
+        if params.get("running") == "true":
+            queryset = queryset.filter(ended_on__isnull=True)
+        return queryset
+
+
+class TrainerAssignmentDetailView(TrainerScopedMixin, generics.RetrieveUpdateAPIView):
+    def get_queryset(self):
+        return self.scoped(TrainerAssignment).select_related("trainer", "student")
+
+
+@api_view(["GET"])
+@permission_classes([HasGymVertical, IsOrganizationManager, IsPerson])
+def trainer_earnings(request):
+    """What each trainer earned in a month.
+
+    Counted on payments received, not on invoices raised — a cut of a bill
+    nobody has paid is a promise, not earnings.
+    """
+    academy = get_current_academy(request)
+    start = parse_date(request.query_params.get("from", "")) or timezone.localdate().replace(day=1)
+    end = parse_date(request.query_params.get("to", "")) or _end_of_month(start)
+
+    rows = {}
+    assignments = TrainerAssignment.objects.filter(
+        academy=academy
+    ).select_related("trainer", "student")
+
+    for assignment in assignments:
+        earned = assignment.earned_between(start, end)
+        entry = rows.setdefault(
+            assignment.trainer_id,
+            {
+                "trainer": assignment.trainer_id,
+                "trainer_email": assignment.trainer.email,
+                "clients": 0,
+                "earned": Decimal("0.00"),
+            },
+        )
+        if assignment.is_running:
+            entry["clients"] += 1
+        entry["earned"] += earned
+
+    return Response({
+        "from": start,
+        "to": end,
+        "trainers": sorted(rows.values(), key=lambda r: -r["earned"]),
+        "total": sum((r["earned"] for r in rows.values()), Decimal("0.00")),
+    })
+
+
+def _end_of_month(day):
+    from calendar import monthrange
+
+    return day.replace(day=monthrange(day.year, day.month)[1])

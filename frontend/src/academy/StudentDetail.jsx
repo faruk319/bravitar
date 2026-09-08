@@ -8,6 +8,7 @@ import DocumentsCard from './profile/DocumentsCard'
 import MembershipCard from './profile/MembershipCard'
 import PassCard from './profile/PassCard'
 import PhotoCard from './profile/PhotoCard'
+import TrainerCard from './profile/TrainerCard'
 import TransferCard from './profile/TransferCard'
 import ReadersCard from './profile/ReadersCard'
 
@@ -215,6 +216,10 @@ export default function StudentDetail({
             canManage={mayEdit}
             requiresPayment={requiresPayment}
           />
+        )}
+
+        {gymOn && isManager && (
+          <TrainerCard student={current} canManage={mayEdit} />
         )}
 
         <PassCard student={current} canManage={mayEdit} />

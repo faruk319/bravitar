@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 
 import ConfirmAction from '../components/ConfirmAction'
-import InfoDot from '../components/InfoDot'
 import StudentPicker from './StudentPicker'
 import { apiFetch, apiFetchAll } from '../lib/api'
 
-/** Places in a class on a given day: what's left, who has one, who is waiting. */
+/** One tab of Batches: a batch's sessions day by day, and who has a place.
+ *  A "class" is a batch; this is one dated run of it. */
 
 const today = () => new Date().toISOString().slice(0, 10)
 const addDays = (from, days) =>
@@ -118,14 +118,6 @@ export default function Bookings() {
 
   return (
     <>
-      <div className="row">
-        <h1>Class Booking</h1>
-        <InfoDot>
-          A place for one day. Capacity and the plan&apos;s weekly credits are
-          counted against these; a full class starts a waiting list.
-        </InfoDot>
-      </div>
-
       <div className="filters">
         <label>Week from
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />

@@ -59,6 +59,11 @@ class SubscriptionStatus:
     # The two states that let somebody through the door.
     ADMITTING = [ACTIVE, EXPIRING]
 
+    # The plan is still theirs, whether or not the door would let them in
+    # today. What was sold, rather than what is admitted — an unpaid member
+    # has bought personal training even while the door turns them away.
+    IN_FORCE = [PENDING, UPCOMING, ACTIVE, EXPIRING]
+
     # A membership counts as "expiring" this many days out. This is the window
     # the renewal reminders work from.
     EXPIRING_WINDOW_DAYS = 5

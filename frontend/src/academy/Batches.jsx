@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
 
+import Bookings from './Bookings'
+import InfoDot from '../components/InfoDot'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import StudentPicker from './StudentPicker'
 import { useBranches } from './useBranches'
 
+/**
+ * A batch IS the class — a recurring group with days, a time and a capacity.
+ * The two tabs are the two questions asked about it: who is on the roster
+ * (Batches), and who has a place on a given day (Sessions).
+ */
+
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const blankBatch = () => ({
-  name: '', description: '', coach_name: '', branch: '',
+  name: '', description: '', coach: '', branch: '',
   days_of_week: [], start_time: '', end_time: '', capacity: '',
 })
 
-function BatchForm({ batch, branches, onSaved, onCancel }) {
+function BatchForm({ batch, branches, team, onSaved, onCancel }) {
   const [form, setForm] = useState(() =>
     batch
       ? {
           name: batch.name, description: batch.description ?? '',
-          coach_name: batch.coach_name ?? '', branch: batch.branch ?? '',
+          coach: batch.coach ?? '', branch: batch.branch ?? '',
           days_of_week: batch.days_of_week ?? [],
           start_time: batch.start_time?.slice(0, 5) ?? '',
           end_time: batch.end_time?.slice(0, 5) ?? '',
@@ -45,6 +53,7 @@ function BatchForm({ batch, branches, onSaved, onCancel }) {
         method: batch ? 'PATCH' : 'POST',
         body: JSON.stringify({
           ...form,
+          coach: form.coach === '' ? null : Number(form.coach),
           branch: form.branch === '' ? null : Number(form.branch),
           start_time: form.start_time || null,
           end_time: form.end_time || null,
@@ -70,8 +79,13 @@ function BatchForm({ batch, branches, onSaved, onCancel }) {
         </label>
         <label>
           Coach
-          <input value={form.coach_name}
-                 onChange={(e) => setForm({ ...form, coach_name: e.target.value })} />
+          <select value={form.coach}
+                  onChange={(e) => setForm({ ...form, coach: e.target.value })}>
+            <option value="">
+              {batch?.coach_label && !batch.coach ? batch.coach_label : 'No coach'}
+            </option>
+            {team.map((p) => <option key={p.id} value={p.id}>{p.email}</option>)}
+          </select>
         </label>
       </div>
 
@@ -216,10 +230,12 @@ function Roster({ batch, canManage, onChanged }) {
 
 export default function Batches({ role }) {
   const branches = useBranches()
+  const [team, setTeam] = useState([])
   const [batches, setBatches] = useState(null)
   const [branch, setBranch] = useState('')
   const [expanded, setExpanded] = useState(null)
   const [editing, setEditing] = useState(null)   // batch object, or 'new'
+  const [tab, setTab] = useState('batches')
   const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState(null)
 
@@ -235,6 +251,13 @@ export default function Batches({ role }) {
     }
   }, [branch, refresh])
 
+  // Coaches come off the team; a member is not one.
+  useEffect(() => {
+    apiFetchAll('/organizations/current/team/')
+      .then((people) => setTeam(people.filter((p) => p.role !== 'member')))
+      .catch(() => setTeam([]))
+  }, [])
+
   const reload = () => setRefresh((n) => n + 1)
 
   if (error) return <p className="error">{error}</p>
@@ -244,6 +267,7 @@ export default function Batches({ role }) {
       <BatchForm
         batch={editing === 'new' ? null : editing}
         branches={branches}
+        team={team}
         onCancel={() => setEditing(null)}
         onSaved={() => {
           setEditing(null)
@@ -255,65 +279,85 @@ export default function Batches({ role }) {
 
   return (
     <>
-      <h1>Batches &amp; Schedule</h1>
-      <p className="muted">Classes and training groups, across every branch.</p>
-
-      <div className="filters">
-        <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-          <option value="">All branches</option>
-          {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
-        {canManage && (
-          <button type="button" onClick={() => setEditing('new')}>+ New batch</button>
-        )}
+      <div className="row">
+        <h1>Batches &amp; Classes</h1>
+        <InfoDot>
+          A batch is a class — a group that runs on set days. A session is one
+          dated run of it, and that is what places and weekly credits count against.
+        </InfoDot>
       </div>
 
-      {batches === null ? (
-        <p className="muted">Loading…</p>
-      ) : batches.length === 0 ? (
-        <p className="muted">
-          No batches yet{canManage ? ' — create one to start taking attendance.' : '.'}
-        </p>
-      ) : (
-        <div className="stack wide">
-          {batches.map((batch) => {
-            const full = batch.capacity && batch.enrolled_count >= batch.capacity
-            return (
-              <div className="card wide" key={batch.id}>
-                <div className="row">
-                  <div>
-                    <strong>{batch.name}</strong>
-                    <div className="muted small">
-                      {batch.branch_name ?? 'No branch'} · {batch.coach_name || 'No coach set'} ·{' '}
-                      {(batch.days_of_week ?? []).map((d) => DAYS[d]).join(', ') || 'No days set'}
-                      {batch.start_time && ` · ${batch.start_time.slice(0, 5)}–${batch.end_time?.slice(0, 5)}`}
+      <div className="tabs">
+        <button type="button" className={tab === 'batches' ? 'tab on' : 'tab'}
+                onClick={() => setTab('batches')}>
+          Batches
+        </button>
+        <button type="button" className={tab === 'sessions' ? 'tab on' : 'tab'}
+                onClick={() => setTab('sessions')}>
+          Sessions &amp; booking
+        </button>
+      </div>
+
+      {tab === 'sessions' ? <Bookings /> : (
+        <>
+        <div className="filters">
+          <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value="">All branches</option>
+            {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          {canManage && (
+            <button type="button" onClick={() => setEditing('new')}>+ New batch</button>
+          )}
+        </div>
+
+        {batches === null ? (
+          <p className="muted">Loading…</p>
+        ) : batches.length === 0 ? (
+          <p className="muted">
+            No batches yet{canManage ? ' — create one to start taking attendance.' : '.'}
+          </p>
+        ) : (
+          <div className="stack wide">
+            {batches.map((batch) => {
+              const full = batch.capacity && batch.enrolled_count >= batch.capacity
+              return (
+                <div className="card wide" key={batch.id}>
+                  <div className="row">
+                    <div>
+                      <strong>{batch.name}</strong>
+                      <div className="muted small">
+                        {batch.branch_name ?? 'No branch'} · {batch.coach_label || 'No coach set'} ·{' '}
+                        {(batch.days_of_week ?? []).map((d) => DAYS[d]).join(', ') || 'No days set'}
+                        {batch.start_time && ` · ${batch.start_time.slice(0, 5)}–${batch.end_time?.slice(0, 5)}`}
+                      </div>
+                    </div>
+                    <div className="row-actions">
+                      <span className={full ? 'pill left' : 'pill active'}>
+                        {batch.enrolled_count}/{batch.capacity ?? '∞'}{full ? ' full' : ''}
+                      </span>
+                      {canManage && (
+                        <button type="button" className="link" onClick={() => setEditing(batch)}>
+                          Edit
+                        </button>
+                      )}
+                      <button
+                        type="button" className="link"
+                        onClick={() => setExpanded(expanded === batch.id ? null : batch.id)}
+                      >
+                        {expanded === batch.id ? 'Hide' : 'Members'}
+                      </button>
                     </div>
                   </div>
-                  <div className="row-actions">
-                    <span className={full ? 'pill left' : 'pill active'}>
-                      {batch.enrolled_count}/{batch.capacity ?? '∞'}{full ? ' full' : ''}
-                    </span>
-                    {canManage && (
-                      <button type="button" className="link" onClick={() => setEditing(batch)}>
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      type="button" className="link"
-                      onClick={() => setExpanded(expanded === batch.id ? null : batch.id)}
-                    >
-                      {expanded === batch.id ? 'Hide' : 'Members'}
-                    </button>
-                  </div>
-                </div>
 
-                {expanded === batch.id && (
-                  <Roster batch={batch} canManage={canManage} onChanged={reload} />
-                )}
-              </div>
-            )
-          })}
-        </div>
+                  {expanded === batch.id && (
+                    <Roster batch={batch} canManage={canManage} onChanged={reload} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        </>
       )}
     </>
   )

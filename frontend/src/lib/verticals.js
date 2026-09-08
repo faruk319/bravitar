@@ -7,9 +7,8 @@
 // Every vertical gets these — the cross-vertical core (Phase 4).
 const CORE_MODULES = [
   { key: 'members', label: 'Members' },
-  { key: 'batches', label: 'Batches & Schedule' },
+  { key: 'batches', label: 'Batches & Classes' },
   { key: 'attendance', label: 'Attendance' },
-  { key: 'bookings', label: 'Class Booking' },
   { key: 'billing', label: 'Fees & Billing' },
   { key: 'enquiries', label: 'Enquiries' },
 ]
@@ -24,6 +23,7 @@ export const VERTICALS = [
       { key: 'tiers', label: 'Membership Plans' },
       { key: 'memberships', label: 'Memberships' },
       { key: 'renewals', label: 'Renewals' },
+      { key: 'trainers', label: 'Trainers' },
     ],
   },
   {

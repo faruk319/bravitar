@@ -269,3 +269,6 @@ class MemberSubscription(models.Model):
             (s for s in student.subscriptions.select_related("tier") if s.is_current),
             None,
         )
+
+
+from .trainers import TrainerAssignment  # noqa: E402,F401

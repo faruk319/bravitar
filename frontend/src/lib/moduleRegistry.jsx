@@ -1,5 +1,4 @@
 import Attendance from '../academy/Attendance'
-import Bookings from '../academy/Bookings'
 import Batches from '../academy/Batches'
 import Billing from '../academy/Billing'
 import Enquiries from '../academy/Enquiries'
@@ -11,6 +10,7 @@ import SwimLevels from '../swimming/SwimLevels'
 import MembershipTiers from '../gymops/MembershipTiers'
 import Memberships from '../gymops/Memberships'
 import Renewals from '../gymops/Renewals'
+import Trainers from '../gymops/Trainers'
 import ActivityHeatmap from '../gym/ActivityHeatmap'
 import BodyLog from '../gym/BodyLog'
 import ExerciseLibrary from '../gym/ExerciseLibrary'
@@ -28,7 +28,6 @@ export const MODULE_COMPONENTS = {
   members: Members,
   batches: Batches,
   attendance: Attendance,
-  bookings: Bookings,
   billing: Billing,
   enquiries: Enquiries,
 
@@ -36,6 +35,7 @@ export const MODULE_COMPONENTS = {
   tiers: MembershipTiers,
   memberships: Memberships,
   renewals: Renewals,
+  trainers: Trainers,
 
   // Fitness tracking
   exercises: ExerciseLibrary,

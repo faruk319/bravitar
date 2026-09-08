@@ -2,8 +2,9 @@ from rest_framework import serializers
 
 from students.models import Student
 
-from .constants import BillingPeriod
+from .constants import BillingPeriod, SubscriptionStatus
 from .models import MemberSubscription, MembershipTier
+from .trainers import TrainerAssignment
 
 
 class MembershipTierSerializer(serializers.ModelSerializer):
@@ -133,3 +134,73 @@ class MemberSubscriptionSerializer(serializers.ModelSerializer):
                     )}
                 )
         return attrs
+
+
+class TrainerAssignmentSerializer(serializers.ModelSerializer):
+    trainer_email = serializers.CharField(source="trainer.email", read_only=True)
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+    is_running = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = TrainerAssignment
+        fields = [
+            "id", "trainer", "trainer_email", "student", "student_name",
+            "started_on", "ended_on", "commission_percent", "notes",
+            "is_running", "created_at",
+        ]
+        read_only_fields = [
+            "id", "trainer_email", "student_name", "is_running", "created_at",
+        ]
+
+    def validate_trainer(self, value):
+        academy = self.context["academy"]
+        if value.organization_id != academy.organization_id:
+            raise serializers.ValidationError("That person is not on this team.")
+        return value
+
+    def validate_student(self, value):
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
+        return value
+
+    def validate_commission_percent(self, value):
+        if value < 0 or value > 100:
+            raise serializers.ValidationError("A percentage, so 0 to 100.")
+        return value
+
+    def validate(self, attrs):
+        student = attrs.get("student") or getattr(self.instance, "student", None)
+        if self.instance is not None:
+            return attrs
+
+        tier = self.current_tier(student)
+        if tier is None:
+            raise serializers.ValidationError(
+                {"student": f"{student.full_name} has no membership running."}
+            )
+        if not tier.includes_personal_trainer:
+            raise serializers.ValidationError({"student": (
+                f"{tier.name} doesn't include a personal trainer. "
+                "Move them to a plan that does first."
+            )})
+        if TrainerAssignment.objects.filter(
+            student=student, ended_on__isnull=True
+        ).exists():
+            raise serializers.ValidationError(
+                {"student": f"{student.full_name} already has a trainer."}
+            )
+        return attrs
+
+    @staticmethod
+    def current_tier(student):
+        """What they bought — not whether the door would let them in.
+
+        Payment is not a gate here: commission is counted on payments
+        received, so an unpaid member simply earns their trainer nothing.
+        """
+        for subscription in MemberSubscription.objects.filter(
+            student=student
+        ).with_status():
+            if subscription.status in SubscriptionStatus.IN_FORCE:
+                return subscription.tier
+        return None
