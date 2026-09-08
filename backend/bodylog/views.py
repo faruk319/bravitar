@@ -5,7 +5,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from exercises.permissions import HasFitnessVertical
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.permissions import IsPerson
 
 from .constants import Metric, Pose, Unit
@@ -21,7 +21,7 @@ class BodyLogScopedMixin:
 
     @property
     def academy(self):
-        return get_current_organization(self.request)
+        return get_current_academy(self.request)
 
     def base_queryset(self, model):
         return model.objects.filter(

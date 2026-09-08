@@ -39,12 +39,13 @@ export default function RootPage() {
           <div className="card">
             <h2>Your academies</h2>
             <ul className="org-list">
-              {memberships.map(({ organization, role }) => (
+              {memberships.map(({ organization, academies, role }) => (
                 <li key={organization.id}>
                   <a href={orgUrl(organization.slug)}>
                     <strong>{organization.name}</strong>
                     <span className="muted small">
-                      {organization.verticals.map(verticalLabel).join(', ')} · {role}
+                      {academies.flatMap((a) => a.verticals).map(verticalLabel).join(', ')}
+                      {academies.length > 1 && ` · ${academies.length} academies`} · {role}
                     </span>
                   </a>
                 </li>

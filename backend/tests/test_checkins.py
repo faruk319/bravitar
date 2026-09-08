@@ -18,7 +18,7 @@ from students.models import Student
 from subscriptions.constants import BillingPeriod
 from subscriptions.models import MembershipTier
 
-from .base import BASE_DOMAIN, TenantAPITestCase
+from .base import BASE_DOMAIN, TenantAPITestCase, make_academy
 
 
 class CheckInTestCase(TenantAPITestCase):
@@ -272,7 +272,7 @@ class DoorAccessTests(CheckInTestCase):
     """Who may operate the door, and who may only be let through it."""
 
     def api_key_client(self):
-        _, raw = APIKey.generate(self.org, name="turnstile")
+        _, raw = APIKey.generate(self.org.organization, name="turnstile")
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
         client.credentials(HTTP_X_API_KEY=raw)
         return client
@@ -326,7 +326,7 @@ class DoorAccessTests(CheckInTestCase):
 
 class CrossTenantCheckInTests(CheckInTestCase):
     def test_a_member_of_another_academy_cannot_be_checked_in(self):
-        other = Academy.objects.create(name="Rival", slug="rival", verticals=["gym"])
+        other = make_academy("Rival", "rival", ["gym"])
         outsider = Student.objects.create(
             academy=other, full_name="Not Ours", joined_on=self.today
         )
@@ -355,7 +355,7 @@ class PassImageTests(CheckInTestCase):
         self.assertIn("no-store", response["Cache-Control"])
 
     def test_an_api_key_cannot_fetch_a_pass_image(self):
-        _, raw = APIKey.generate(self.org, name="turnstile")
+        _, raw = APIKey.generate(self.org.organization, name="turnstile")
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
         client.credentials(HTTP_X_API_KEY=raw)
         response = client.get(f"/api/attendance/checkins/pass/{self.student.id}/qr.png")
@@ -487,7 +487,7 @@ class BiometricTests(CheckInTestCase):
         )
 
     def reader_client(self):
-        _, raw = APIKey.generate(self.org, name="reader-1")
+        _, raw = APIKey.generate(self.org.organization, name="reader-1")
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
         client.credentials(HTTP_X_API_KEY=raw)
         return client

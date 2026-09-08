@@ -39,7 +39,7 @@ class BranchTestCase(TenantAPITestCase):
         )
 
         self.membership = Membership.objects.get(
-            academy=self.org, user_id="manager-1"
+            organization=self.org.organization, user_id="manager-1"
         )
 
     def assign(self, *branches):
@@ -249,7 +249,7 @@ class ApiKeysAreNotBranchScopedTests(BranchTestCase):
 
         from .base import BASE_DOMAIN
 
-        _, raw = APIKey.generate(self.org, name="their app")
+        _, raw = APIKey.generate(self.org.organization, name="their app")
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
         client.credentials(HTTP_X_API_KEY=raw)
 
@@ -261,7 +261,7 @@ class OwnersAreNeverRestrictedTests(BranchTestCase):
     def test_assigning_an_owner_a_branch_changes_nothing(self):
 
         owner_membership = Membership.objects.get(
-            academy=self.org, user_id="owner-1"
+            organization=self.org.organization, user_id="owner-1"
         )
         self.assertEqual(owner_membership.role, Role.OWNER)
         owner_membership.branches.set([self.andheri])

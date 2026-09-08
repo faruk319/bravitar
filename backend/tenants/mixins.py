@@ -1,5 +1,5 @@
 from .branches import allowed_branch_ids, restrict
-from .context import get_current_organization
+from .context import get_current_academy
 from .permissions import IsOrganizationMember, IsOrganizationStaff
 
 
@@ -16,7 +16,7 @@ class OrganizationScopedMixin:
 
     @property
     def academy(self):
-        return get_current_organization(self.request)
+        return get_current_academy(self.request)
 
     def get_permissions(self):
         """Writes need staff *on top of* what the view already asks for.

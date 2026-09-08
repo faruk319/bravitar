@@ -109,8 +109,8 @@ class APIKeyPrincipal:
 
     def __init__(self, api_key):
         self.api_key = api_key
-        self.academy = api_key.academy
-        self.academy_id = api_key.academy_id
+        self.organization = api_key.organization
+        self.organization_id = api_key.organization_id
 
     @property
     def pk(self):
@@ -118,7 +118,7 @@ class APIKeyPrincipal:
         return f"apikey-{self.api_key.pk}"
 
     def __str__(self):
-        return f"API key {self.api_key.prefix}… ({self.academy.name})"
+        return f"API key {self.api_key.prefix}… ({self.organization.name})"
 
 
 class APIKeyAuthentication(authentication.BaseAuthentication):

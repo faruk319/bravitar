@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from exercises.permissions import HasGymVertical
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationManager
 
@@ -121,7 +121,7 @@ def expiring_soon(request):
     This is the list the renewal reminders are built from — a member who
     quietly expires is a member who quietly stops coming.
     """
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     days = min(int(request.query_params.get("days", SubscriptionStatus.EXPIRING_WINDOW_DAYS)), 60)
     today = timezone.localdate()
 
@@ -161,7 +161,7 @@ def expiring_soon(request):
 def membership_overview(request):
     """How the membership base looks right now: who is current, who lapsed,
     and what each tier is carrying."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
 
     subscriptions = list(
         MemberSubscription.objects.filter(academy=academy)

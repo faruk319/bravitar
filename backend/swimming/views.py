@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from students.models import Student
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationStaff
 
@@ -89,7 +89,7 @@ def swimmer_progress(request):
     A level counts as reached only when every skill in it is signed off, so
     partial progress never reads as a completed level.
     """
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
 
     levels = list(
         SwimLevel.objects.filter(academy=academy).prefetch_related("skills")

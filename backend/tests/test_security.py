@@ -143,7 +143,7 @@ class WritePermissionsAreAFloorTests(TenantAPITestCase):
         self.student = Student.objects.create(
             academy=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
         )
-        _, self.raw_key = APIKey.generate(self.org, name="their app")
+        _, self.raw_key = APIKey.generate(self.org.organization, name="their app")
 
     def as_key(self):
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")

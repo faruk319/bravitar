@@ -5,7 +5,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationManager, IsOrganizationStaff
 
@@ -81,7 +81,7 @@ def billing_summary(request):
     Readable by anyone running the academy — it is an aggregate of invoices
     they can already list. Changing the books stays with managers.
     """
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     invoices = (
         Invoice.objects.filter(academy=academy, is_cancelled=False)
         .select_related("student")

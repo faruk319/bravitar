@@ -56,7 +56,7 @@ class OnboardingTestCase(TenantAPITestCase):
 
         from .base import BASE_DOMAIN
 
-        _, raw = APIKey.generate(self.org, name="their app")
+        _, raw = APIKey.generate(self.org.organization, name="their app")
         client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
         client.credentials(HTTP_X_API_KEY=raw)
         return client

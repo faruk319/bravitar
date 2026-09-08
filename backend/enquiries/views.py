@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from students.constants import StudentStatus
 from students.models import Student
 from students.serializers import StudentSerializer
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationMember, IsOrganizationStaff
 
@@ -42,7 +42,7 @@ class EnquiryDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyA
 def convert_enquiry(request, pk):
     """Turns an enquiry into a student. Idempotent: converting twice returns
     the student already created rather than making a duplicate."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
 
     try:
         enquiry = Enquiry.objects.select_for_update().get(pk=pk, academy=academy)
@@ -81,7 +81,7 @@ def convert_enquiry(request, pk):
 def enquiry_funnel(request):
     """Counts by stage and source, plus the conversion rate — the number an
     owner actually wants from this module."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     enquiries = Enquiry.objects.filter(academy=academy)
 
     by_status = {value: 0 for value, _ in EnquiryStatus.CHOICES}

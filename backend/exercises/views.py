@@ -3,7 +3,7 @@ from rest_framework import generics
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.permissions import IsOrganizationStaff
 
 from .constants import Category, Equipment, Muscle
@@ -31,7 +31,7 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         return [HasFitnessVertical()]
 
     def get_queryset(self):
-        academy = get_current_organization(self.request)
+        academy = get_current_academy(self.request)
         queryset = Exercise.objects.visible_to(academy).filter(is_active=True)
 
         params = self.request.query_params
@@ -46,7 +46,7 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        academy = get_current_organization(self.request)
+        academy = get_current_academy(self.request)
         serializer.save(
             academy=academy,
             slug=_unique_slug(academy, serializer.validated_data["name"]),
@@ -62,7 +62,7 @@ class ExerciseDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [HasFitnessVertical()]
 
     def get_queryset(self):
-        academy = get_current_organization(self.request)
+        academy = get_current_academy(self.request)
         if self.request.method in ("PUT", "PATCH", "DELETE"):
             # The shared library is read-only; only your own exercises are editable.
             return Exercise.objects.filter(academy=academy)

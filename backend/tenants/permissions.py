@@ -3,7 +3,7 @@ from rest_framework.permissions import BasePermission
 from organizations.constants import Role
 from organizations.models import Membership
 
-from .context import get_current_organization
+from .context import get_current_academy
 
 
 class IsOrganizationMember(BasePermission):
@@ -19,20 +19,20 @@ class IsOrganizationMember(BasePermission):
     message = "You are not a member of this academy."
 
     def has_permission(self, request, view):
-        academy = get_current_organization(request)
+        academy = get_current_academy(request)
         if academy is None or not getattr(request.user, "is_authenticated", False):
             return False
 
         if getattr(request.user, "is_api_key", False):
-            # A key belongs to one academy and can only ever act for that one,
-            # whatever host the request arrived on.
-            if request.user.academy_id != academy.id:
+            # A key belongs to one organization and can only ever act inside
+            # it, whatever host the request arrived on.
+            if request.user.organization_id != academy.organization_id:
                 return False
             request.membership = None
             return True
 
         membership = Membership.objects.filter(
-            academy=academy, user_id=request.user.id
+            organization=academy.organization, user_id=request.user.id
         ).first()
 
         if membership is None:
@@ -43,7 +43,7 @@ class IsOrganizationMember(BasePermission):
 
             if claim_pending_memberships(request.user):
                 membership = Membership.objects.filter(
-                    academy=academy, user_id=request.user.id
+                    organization=academy.organization, user_id=request.user.id
                 ).first()
 
         if membership is None:
@@ -132,7 +132,7 @@ class RequiresVertical(IsOrganizationMember):
         if not super().has_permission(request, view):
             return False
 
-        academy = get_current_organization(request)
+        academy = get_current_academy(request)
         if self.vertical in (academy.verticals or []):
             return True
 

@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy, get_current_organization
 from tenants.exceptions import OrganizationNotFound
 from tenants.permissions import (
     IsOrganizationMember,
@@ -42,7 +42,7 @@ class OrganizationSignupView(APIView):
         academy = serializer.save()
 
         Membership.objects.create(
-            academy=academy,
+            organization=academy.organization,
             user_id=request.user.id,
             email=request.user.email,
             role=Role.OWNER,
@@ -66,7 +66,7 @@ class MyOrganizationsView(generics.ListAPIView):
         # refused from is worse than showing none.
         return Membership.objects.filter(
             user_id=self.request.user.id, role__in=Role.CAN_SIGN_IN
-        ).select_related("academy")
+        ).select_related("organization").prefetch_related("organization__academies")
 
 
 class CurrentOrganizationView(APIView):
@@ -82,7 +82,7 @@ class CurrentOrganizationView(APIView):
         return [IsOrganizationMember()]
 
     def get(self, request):
-        academy = get_current_organization(request)
+        academy = get_current_academy(request)
         if academy is None:
             raise OrganizationNotFound()
         data = OrganizationSerializer(academy).data
@@ -90,7 +90,7 @@ class CurrentOrganizationView(APIView):
         return Response(data)
 
     def patch(self, request):
-        academy = get_current_organization(request)
+        academy = get_current_academy(request)
         if academy is None:
             raise OrganizationNotFound()
 
@@ -121,17 +121,19 @@ class TeamListCreateView(generics.ListCreateAPIView):
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
-                "academy": get_current_organization(self.request)}
+                "academy": get_current_academy(self.request)}
 
     def get_queryset(self):
         return Membership.objects.filter(
-            academy=get_current_organization(self.request)
+            organization=get_current_organization(self.request)
         ).prefetch_related("branches")
 
     def perform_create(self, serializer):
         """Invites by email. The row exists before the person does — user_id
         is filled in when they first sign in."""
-        serializer.save(academy=get_current_organization(self.request), user_id="")
+        serializer.save(
+            organization=get_current_organization(self.request), user_id=""
+        )
 
 
 class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -144,11 +146,11 @@ class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
-                "academy": get_current_organization(self.request)}
+                "academy": get_current_academy(self.request)}
 
     def get_queryset(self):
         return Membership.objects.filter(
-            academy=get_current_organization(self.request)
+            organization=get_current_organization(self.request)
         ).prefetch_related("branches")
 
     def perform_destroy(self, instance):
@@ -168,10 +170,10 @@ class BranchListCreateView(generics.ListCreateAPIView):
         return [IsOrganizationMember()]
 
     def get_queryset(self):
-        return Branch.objects.filter(academy=get_current_organization(self.request))
+        return Branch.objects.filter(academy=get_current_academy(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(academy=get_current_organization(self.request))
+        serializer.save(academy=get_current_academy(self.request))
 
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -181,7 +183,7 @@ class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [IsOrganizationMember()] if self.request.method == "GET" else [IsOrganizationOwner()]
 
     def get_queryset(self):
-        return Branch.objects.filter(academy=get_current_organization(self.request))
+        return Branch.objects.filter(academy=get_current_academy(self.request))
 
     def perform_destroy(self, instance):
         """Students and batches point at a branch with SET_NULL, so deleting
@@ -202,11 +204,15 @@ class APIKeyListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsOrganizationOwner]
 
     def get_queryset(self):
-        return APIKey.objects.filter(academy=get_current_organization(self.request))
+        return APIKey.objects.filter(
+            organization=get_current_organization(self.request)
+        )
 
     def create(self, request, *args, **kwargs):
-        academy = get_current_organization(request)
-        api_key, raw_key = APIKey.generate(academy, name=request.data.get("name", ""))
+        academy = get_current_academy(request)
+        api_key, raw_key = APIKey.generate(
+            academy.organization, name=request.data.get("name", "")
+        )
         data = APIKeySerializer(api_key).data
         data["key"] = raw_key  # only ever returned once
         return Response(data, status=status.HTTP_201_CREATED)
@@ -224,9 +230,9 @@ class APIKeyRevokeView(APIView):
     permission_classes = [IsOrganizationOwner]
 
     def post(self, request, pk):
-        academy = get_current_organization(request)
+        academy = get_current_academy(request)
         try:
-            api_key = APIKey.objects.get(pk=pk, academy=academy)
+            api_key = APIKey.objects.get(pk=pk, organization=academy.organization)
         except APIKey.DoesNotExist:
             return Response({"detail": "API key not found."}, status=status.HTTP_404_NOT_FOUND)
 

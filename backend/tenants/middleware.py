@@ -1,52 +1,70 @@
 from django.conf import settings
 
-from organizations.models import APIKey, Academy
+from organizations.models import Academy, APIKey, Organization
 
 
 class TenantResolutionMiddleware:
-    """Resolves the Academy a request belongs to, from (in order):
+    """Resolves the Organization a request belongs to, then the Academy inside it.
 
-    1. `X-API-Key` header — headless API access, scopes to the key's org.
-    2. `Host` header exact match against an Academy's verified custom_domain
-       — white-labeled frontend.
-    3. `Host` header subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`) — standard
-       Bravitar-hosted frontend.
+    The Organization comes from, in order:
 
-    Sets `request.tenant` (Academy | None) and `request.tenant_source`.
-    Never blocks the request — routes that require a tenant should check
-    `request.tenant` themselves (see tenants.permissions).
+    1. `X-API-Key` — headless access, scoped to the key's organization.
+    2. `Host` matching a verified custom_domain — white-labelled frontend.
+    3. `Host` subdomain (`<slug>.<DJANGO_BASE_DOMAIN>`).
+
+    The Academy then comes from `X-Academy` (slug or id), or the organization's
+    only academy. An organization with several academies and no header gets
+    none — picking one for the caller would silently show the wrong books.
+
+    Sets `request.organization`, `request.tenant` (the Academy) and
+    `request.tenant_source`. Never blocks; routes that need a tenant check
+    `request.tenant` themselves.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        request.tenant, request.tenant_source = self._resolve(request)
+        organization, source = self._resolve_organization(request)
+        request.organization = organization
+        request.tenant_source = source
+        request.tenant = self._resolve_academy(request, organization)
         return self.get_response(request)
 
-    def _resolve(self, request):
+    def _resolve_organization(self, request):
         api_key_header = request.headers.get("X-API-Key")
         if api_key_header:
             api_key = APIKey.resolve(api_key_header)
-            if api_key:
-                return api_key.academy, "api_key"
-            return None, None
+            return (api_key.organization, "api_key") if api_key else (None, None)
 
         host = request.get_host().split(":")[0].lower()
 
-        try:
-            org = Academy.objects.get(custom_domain=host, domain_verified=True)
-            return org, "custom_domain"
-        except Academy.DoesNotExist:
-            pass
+        organization = Organization.objects.filter(
+            custom_domain=host, domain_verified=True
+        ).first()
+        if organization:
+            return organization, "custom_domain"
 
         base_domain = settings.BASE_DOMAIN
         if base_domain and host.endswith(f".{base_domain}"):
             slug = host[: -len(f".{base_domain}")]
-            try:
-                org = Academy.objects.get(slug=slug)
-                return org, "subdomain"
-            except Academy.DoesNotExist:
-                pass
+            organization = Organization.objects.filter(slug=slug).first()
+            if organization:
+                return organization, "subdomain"
 
         return None, None
+
+    def _resolve_academy(self, request, organization):
+        if organization is None:
+            return None
+
+        academies = Academy.objects.filter(organization=organization)
+        wanted = request.headers.get("X-Academy")
+        if wanted:
+            by_slug = academies.filter(slug=wanted).first()
+            if by_slug:
+                return by_slug
+            return academies.filter(pk=wanted).first() if wanted.isdigit() else None
+
+        # One academy is the common case; more than one and the caller has to say.
+        return academies.first() if academies.count() == 1 else None

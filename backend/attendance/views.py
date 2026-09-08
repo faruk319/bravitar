@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from batches.models import Batch
 from organizations.models import Branch
 from students.models import Student
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import (
     IsOrganizationManager,
@@ -61,7 +61,7 @@ class AttendanceListView(OrganizationScopedMixin, generics.ListAPIView):
 def mark_register(request):
     """Marks a batch's register for a date. Re-marking updates the existing
     rows instead of failing on the one-mark-per-day constraint."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     serializer = MarkAttendanceSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
@@ -104,7 +104,7 @@ def mark_register(request):
 @permission_classes([IsOrganizationMember])
 def attendance_summary(request):
     """Attendance rate per student for a batch, over all marked days."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     records = AttendanceRecord.objects.filter(academy=academy).select_related("student")
     if batch := request.query_params.get("batch"):
         records = records.filter(batch_id=batch)
@@ -221,7 +221,7 @@ class CheckInDetailView(CheckInScopedMixin, generics.RetrieveDestroyAPIView):
 @api_view(["POST"])
 @permission_classes([IsOrganizationStaff, IsPerson])
 def check_out(request, pk):
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     check_in = CheckIn.objects.filter(academy=academy, pk=pk).first()
     if check_in is None:
         return Response({"detail": "No such visit."}, status=status.HTTP_404_NOT_FOUND)
@@ -236,7 +236,7 @@ def scan(request):
     """The door. Open to API keys — the caller is a turnstile, not a person.
     Takes a pass token only; a scanner that accepted a member id would be
     worth stealing."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     serializer = ScanSerializer(data=request.data, context={"academy": academy})
     serializer.is_valid(raise_exception=True)
 
@@ -263,7 +263,7 @@ def scan(request):
 @permission_classes([IsOrganizationStaff, IsPerson])
 def today(request):
     """Who is in, how busy it's been, and who was turned away."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     on = parse_date(request.query_params.get("date", "")) or timezone.localdate()
 
     visits = CheckIn.objects.filter(
@@ -293,7 +293,7 @@ def today(request):
 @permission_classes([IsOrganizationStaff, IsPerson])
 def admission(request, pk):
     """Can they come in? Answered without recording a visit."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     student = Student.objects.filter(academy=academy, pk=pk).first()
     if student is None:
         return Response({"detail": "No such member."}, status=status.HTTP_404_NOT_FOUND)
@@ -367,7 +367,7 @@ def device_punch(request):
     The device does the matching and keeps the template; we only map its user
     number to a member and run the same admission rule the door already uses.
     """
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     serializer = DevicePunchSerializer(
         data=request.data, context={"academy": academy}
     )

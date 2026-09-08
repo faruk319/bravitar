@@ -15,17 +15,28 @@ def validate_selectable_verticals(value, allowed_extra=frozenset()):
             f"Not available yet: {', '.join(sorted(unavailable))}."
         )
     return list(dict.fromkeys(value))
-from .models import APIKey, Branch, Membership, Academy
+from .models import Academy, APIKey, Branch, Membership, Organization
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
+    """An academy, plus the plan and domain that belong to its organization."""
+
+    plan = serializers.CharField(source="organization.plan", read_only=True)
+    custom_domain = serializers.CharField(
+        source="organization.custom_domain", read_only=True, default=None
+    )
+    domain_verified = serializers.BooleanField(
+        source="organization.domain_verified", read_only=True, default=False
+    )
+    organization_slug = serializers.CharField(source="organization.slug", read_only=True)
+
     class Meta:
         model = Academy
         fields = [
             "id", "name", "slug", "verticals", "plan",
-            "custom_domain", "domain_verified", "created_at",
+            "custom_domain", "domain_verified", "organization_slug", "created_at",
         ]
-        read_only_fields = ["id", "plan", "domain_verified", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
 
 class OrganizationSignupSerializer(serializers.ModelSerializer):
@@ -36,19 +47,50 @@ class OrganizationSignupSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "slug", "verticals"]
         read_only_fields = ["id"]
 
+    def validate_slug(self, value):
+        if Organization.objects.filter(slug=value).exists():
+            raise serializers.ValidationError("That web address is taken.")
+        return value
+
     def validate_verticals(self, value):
         return validate_selectable_verticals(value)
 
+    def create(self, validated_data):
+        """Signing up creates the organization and its first academy together.
+        The subdomain is the organization's; the academy carries the sports."""
+        organization = Organization.objects.create(
+            name=validated_data["name"], slug=validated_data["slug"]
+        )
+        return Academy.objects.create(organization=organization, **validated_data)
+
 
 class MembershipSerializer(serializers.ModelSerializer):
-    academy = OrganizationSerializer()
+    """What "Your academies" lists: an organization the caller belongs to, the
+    academies inside it, and their role."""
+
+    organization = OrganizationSerializer()
+    academies = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
-        fields = ["academy", "role", "created_at"]
+        fields = ["organization", "academies", "role", "created_at"]
+
+    def get_academies(self, obj):
+        return [
+            {"id": a.id, "name": a.name, "slug": a.slug, "verticals": a.verticals}
+            for a in obj.organization.academies.all()
+        ]
 
 
 class OrganizationSettingsSerializer(serializers.ModelSerializer):
+    plan = serializers.CharField(source="organization.plan", read_only=True)
+    custom_domain = serializers.CharField(
+        source="organization.custom_domain", read_only=True, default=None
+    )
+    domain_verified = serializers.BooleanField(
+        source="organization.domain_verified", read_only=True, default=False
+    )
+
     """What an owner can change about their academy after signup."""
 
     verticals = serializers.ListField(child=serializers.CharField(), allow_empty=False)
@@ -97,7 +139,9 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         academy = self.context["academy"]
-        existing = Membership.objects.filter(academy=academy, email__iexact=value)
+        existing = Membership.objects.filter(
+            organization=academy.organization, email__iexact=value
+        )
         if self.instance:
             existing = existing.exclude(pk=self.instance.pk)
         if existing.exists():
@@ -125,7 +169,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
 def other_owners(membership):
     return Membership.objects.filter(
-        academy=membership.academy, role=Role.OWNER
+        organization=membership.organization, role=Role.OWNER
     ).exclude(pk=membership.pk)
 
 

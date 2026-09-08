@@ -42,7 +42,7 @@ def allowed_branch_ids(request, academy):
         return None
 
     membership = Membership.objects.filter(
-        academy=academy, user_id=getattr(user, "id", None) or ""
+        organization=academy.organization, user_id=getattr(user, "id", None) or ""
     ).first()
     if membership is None:
         return None  # Not a member; the membership permission refuses them.

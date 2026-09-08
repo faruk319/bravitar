@@ -16,7 +16,7 @@ from organizations.constants import Role
 from organizations.models import Membership, Academy
 from students.models import Student
 
-from .base import TenantAPITestCase, make_user
+from .base import TenantAPITestCase, make_academy, make_user
 
 
 class MultiAcademyTestCase(TenantAPITestCase):
@@ -24,11 +24,9 @@ class MultiAcademyTestCase(TenantAPITestCase):
         super().setUp()
         # self.org (demo) already has self.owner. Give that same person a
         # second academy, in a different sport.
-        self.second = Academy.objects.create(
-            name="Second Academy", slug="second", verticals=["swimming"]
-        )
+        self.second = make_academy("Second Academy", "second", ["swimming"])
         Membership.objects.create(
-            academy=self.second, user_id="owner-1",
+            organization=self.second.organization, user_id="owner-1",
             email="owner@example.com", role=Role.OWNER,
         )
         self.second_manager = self.add_member(
@@ -48,7 +46,7 @@ class MultiAcademyTestCase(TenantAPITestCase):
 class OwnerAcademiesTests(MultiAcademyTestCase):
     def test_an_owner_sees_every_academy_they_own(self):
         response = self.client_for(self.owner).get("/api/organizations/mine/")
-        slugs = {row["academy"]["slug"] for row in response.data["results"]}
+        slugs = {a["slug"] for row in response.data["results"] for a in row["academies"]}
         self.assertEqual(slugs, {self.org.slug, "second"})
 
     def test_an_owner_can_open_and_edit_both(self):
@@ -94,7 +92,7 @@ class ManagerIsBoundToOneAcademyTests(MultiAcademyTestCase):
 
     def test_a_manager_only_lists_their_own_academy(self):
         response = self.client_for(self.manager).get("/api/organizations/mine/")
-        slugs = {row["academy"]["slug"] for row in response.data["results"]}
+        slugs = {a["slug"] for row in response.data["results"] for a in row["academies"]}
         self.assertEqual(slugs, {self.org.slug})
 
     def test_a_manager_cannot_open_the_other_academy(self):
@@ -136,7 +134,7 @@ class ManagerIsBoundToOneAcademyTests(MultiAcademyTestCase):
         """The same person can be manager here and nothing there."""
         self.assertFalse(
             Membership.objects.filter(
-                academy=self.second, user_id="manager-1"
+                organization=self.second.organization, user_id="manager-1"
             ).exists()
         )
 
@@ -195,7 +193,7 @@ class NewOwnerTests(MultiAcademyTestCase):
         self.assertEqual(response.status_code, 201)
 
         membership = Membership.objects.get(
-            academy__slug="brandnew", user_id="stranger-1"
+            organization__slug="brandnew", user_id="stranger-1"
         )
         self.assertEqual(membership.role, Role.OWNER)
 

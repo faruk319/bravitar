@@ -38,18 +38,18 @@ class CustomDomainResolutionTests(TenantAPITestCase):
     def test_unverified_custom_domain_does_not_resolve(self):
         """A domain someone merely typed in must not route to them until it is
         verified, or one academy could claim another's hostname."""
-        self.org.custom_domain = "gym.example.com"
-        self.org.domain_verified = False
-        self.org.save()
+        self.org.organization.custom_domain = "gym.example.com"
+        self.org.organization.domain_verified = False
+        self.org.organization.save()
 
         client = self.client_for(self.owner)
         client.defaults["HTTP_HOST"] = "gym.example.com"
         self.assertEqual(client.get("/api/organizations/current/").status_code, 403)
 
     def test_verified_custom_domain_resolves(self):
-        self.org.custom_domain = "gym.example.com"
-        self.org.domain_verified = True
-        self.org.save()
+        self.org.organization.custom_domain = "gym.example.com"
+        self.org.organization.domain_verified = True
+        self.org.organization.save()
 
         client = self.client_for(self.owner)
         client.defaults["HTTP_HOST"] = "gym.example.com"
@@ -60,7 +60,7 @@ class CustomDomainResolutionTests(TenantAPITestCase):
 
 class APIKeyResolutionTests(TenantAPITestCase):
     def test_api_key_scopes_the_request_to_its_own_organization(self):
-        _, raw_key = APIKey.generate(self.other_org, name="theirs")
+        _, raw_key = APIKey.generate(self.other_org.organization, name="theirs")
 
         # Host says irontemple, but the key belongs to bluewave — the key wins,
         # and the irontemple owner is therefore not a member of the result.
@@ -74,7 +74,7 @@ class APIKeyResolutionTests(TenantAPITestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_inactive_api_key_resolves_no_tenant(self):
-        api_key, raw_key = APIKey.generate(self.org, name="revoked")
+        api_key, raw_key = APIKey.generate(self.org.organization, name="revoked")
         api_key.is_active = False
         api_key.save()
 
@@ -83,8 +83,8 @@ class APIKeyResolutionTests(TenantAPITestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_raw_key_is_never_stored(self):
-        _, raw_key = APIKey.generate(self.org, name="k")
-        stored = APIKey.objects.get(academy=self.org)
+        _, raw_key = APIKey.generate(self.org.organization, name="k")
+        stored = APIKey.objects.get(organization=self.org.organization)
         self.assertNotEqual(stored.hashed_key, raw_key)
         self.assertNotIn(raw_key, stored.hashed_key)
         # Only a short prefix is kept, for identifying the key in a list.

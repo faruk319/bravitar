@@ -20,7 +20,7 @@ class APIKeyTests(TenantAPITestCase):
         self.assertEqual(response.status_code, 201)
         raw = response.data["key"]
 
-        stored = APIKey.objects.get(academy=self.org)
+        stored = APIKey.objects.get(organization=self.org.organization)
         self.assertNotEqual(stored.hashed_key, raw)
         self.assertTrue(raw.startswith(stored.prefix))
 
@@ -111,7 +111,7 @@ class APIKeyAccessTests(TenantAPITestCase):
 
     def setUp(self):
         super().setUp()
-        _, self.raw_key = APIKey.generate(self.org, name="their app")
+        _, self.raw_key = APIKey.generate(self.org.organization, name="their app")
         self.client = self.client_for(None)   # no session — only the key
 
     def get(self, path):
@@ -172,14 +172,14 @@ class APIKeyAccessTests(TenantAPITestCase):
         self.assertIn("Invalid or revoked", str(response.data["detail"]))
 
     def test_a_revoked_key_stops_authenticating(self):
-        APIKey.objects.filter(academy=self.org).update(is_active=False)
+        APIKey.objects.filter(organization=self.org.organization).update(is_active=False)
         response = self.get("/api/students/")
         self.assertEqual(response.status_code, 403)
 
     def test_a_key_records_when_it_was_last_used(self):
-        self.assertIsNone(APIKey.objects.get(academy=self.org).last_used_at)
+        self.assertIsNone(APIKey.objects.get(organization=self.org.organization).last_used_at)
         self.get("/api/students/")
-        self.assertIsNotNone(APIKey.objects.get(academy=self.org).last_used_at)
+        self.assertIsNotNone(APIKey.objects.get(organization=self.org.organization).last_used_at)
 
     def test_a_key_answers_for_its_own_academy_whatever_host_is_used(self):
         """Tenant resolution puts the key ahead of the Host header, so aiming

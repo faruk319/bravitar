@@ -7,12 +7,12 @@ from django.utils import timezone
 from .constants import Plan, Role
 
 
-class Academy(models.Model):
-    """A business inside an academy: a gym, a swim school, a dojo.
+class Organization(models.Model):
+    """The customer, and what a request resolves to.
 
-    The unit everything operational hangs off — members, batches, money — and
-    where the sports on offer are chosen. An academy with one academy is
-    the common case and never has to think about the distinction.
+    Owns academies. Everything addressable from outside is here — the
+    subdomain, a custom domain, the plan being paid for — because the business
+    buys those, not any one academy.
     """
 
     name = models.CharField(max_length=255)
@@ -21,6 +21,29 @@ class Academy(models.Model):
 
     custom_domain = models.CharField(max_length=255, unique=True, null=True, blank=True)
     domain_verified = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self):
+        return self.name
+
+
+class Academy(models.Model):
+    """A business inside an organization: a gym, a swim school, a dojo.
+
+    Where members, money and the sports on offer live. An organization with
+    one academy is the common case and never meets the distinction.
+    """
+
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="academies", null=True
+    )
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(unique=True)
     verticals = models.JSONField(default=list, blank=True)
 
     # Whether a membership only starts admitting the member once money has
@@ -90,7 +113,9 @@ class Membership(models.Model):
     invites in one academy all share an empty `user_id`.
     """
 
-    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="memberships")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="memberships", null=True
+    )
     user_id = models.CharField(
         max_length=64, blank=True, default="",
         help_text="Supabase user id. Empty until an invited person first signs in.",
@@ -109,19 +134,19 @@ class Membership(models.Model):
         ordering = ["email"]
         constraints = [
             models.UniqueConstraint(
-                fields=["academy", "user_id"],
+                fields=["organization", "user_id"],
                 condition=~models.Q(user_id=""),
                 name="one_membership_per_user_per_org",
             ),
             models.UniqueConstraint(
-                fields=["academy", "email"],
+                fields=["organization", "email"],
                 condition=~models.Q(email=""),
                 name="one_membership_per_email_per_org",
             ),
         ]
 
     def __str__(self):
-        return f"{self.email or self.user_id} ({self.role}) @ {self.academy.name}"
+        return f"{self.email or self.user_id} ({self.role}) @ {self.organization.name}"
 
     @property
     def is_pending(self):
@@ -137,7 +162,9 @@ def _hash_key(raw_key):
 
 
 class APIKey(models.Model):
-    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="api_keys")
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="api_keys", null=True
+    )
     name = models.CharField(max_length=255, blank=True)
     prefix = models.CharField(max_length=12, editable=False)
     hashed_key = models.CharField(max_length=64, unique=True, editable=False)
@@ -149,15 +176,15 @@ class APIKey(models.Model):
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
-        return f"{self.prefix}... ({self.academy.name})"
+        return f"{self.prefix}... ({self.organization.name})"
 
     @classmethod
-    def generate(cls, academy, name=""):
+    def generate(cls, organization, name=""):
         """Create a new key, returning (instance, raw_key). raw_key is only
         ever available here — only its hash is persisted."""
         raw_key = _generate_key()
         instance = cls.objects.create(
-            academy=academy,
+            organization=organization,
             name=name,
             prefix=raw_key[:12],
             hashed_key=_hash_key(raw_key),
@@ -167,7 +194,7 @@ class APIKey(models.Model):
     @classmethod
     def resolve(cls, raw_key):
         try:
-            api_key = cls.objects.select_related("academy").get(
+            api_key = cls.objects.select_related("organization").get(
                 hashed_key=_hash_key(raw_key), is_active=True
             )
         except cls.DoesNotExist:

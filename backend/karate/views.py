@@ -4,7 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from students.models import Student
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationStaff
 
@@ -89,7 +89,7 @@ def belt_standings(request):
     Current belt is the highest-position belt they have *passed* — derived,
     not stored, so correcting a grading result corrects the belt too.
     """
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
 
     belts = {b.id: b for b in Belt.objects.filter(academy=academy)}
 

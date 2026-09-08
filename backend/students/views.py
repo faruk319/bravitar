@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationManager, IsOrganizationStaff, IsPerson
 
@@ -153,7 +153,7 @@ class MemberDocumentFileView(MemberDocumentMixin, generics.GenericAPIView):
 @permission_classes([IsOrganizationManager, IsPerson])
 def verify_document(request, pk):
     """Mark a scan as checked against the person in front of you."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     document = MemberDocument.objects.filter(
         academy=academy, pk=pk
     ).first()

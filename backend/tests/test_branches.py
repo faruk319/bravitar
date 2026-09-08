@@ -61,7 +61,7 @@ class BranchDetailsTests(BranchAdminTestCase):
 
         from organizations.models import Membership
 
-        Membership.objects.get(academy=self.org, user_id="manager-1").branches.add(branch)
+        Membership.objects.get(organization=self.org.organization, user_id="manager-1").branches.add(branch)
         self.assertEqual(self.branch_row(branch)["team_count"], 1)
 
     def test_owners_are_not_counted_as_branch_staff(self):
@@ -70,7 +70,7 @@ class BranchDetailsTests(BranchAdminTestCase):
         from organizations.models import Membership
 
         branch = Branch.objects.create(academy=self.org, name="Bandra")
-        Membership.objects.get(academy=self.org, user_id="owner-1").branches.add(branch)
+        Membership.objects.get(organization=self.org.organization, user_id="owner-1").branches.add(branch)
         self.assertEqual(self.branch_row(branch)["team_count"], 0)
 
     def branch_row(self, branch):

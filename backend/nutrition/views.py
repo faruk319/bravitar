@@ -8,7 +8,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from exercises.permissions import HasFitnessVertical
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.permissions import IsOrganizationStaff, IsPerson
 
 from .constants import Meal
@@ -27,7 +27,7 @@ class NutritionScopedMixin:
 
     @property
     def academy(self):
-        return get_current_organization(self.request)
+        return get_current_academy(self.request)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "academy": self.academy}
@@ -111,7 +111,7 @@ class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
 @permission_classes([HasFitnessVertical, IsPerson])
 def daily_summary(request):
     """Totals for a day against the caller's targets, plus a per-meal split."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     day = _requested_date(request)
 
     entries = FoodLogEntry.objects.filter(

@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from exercises.permissions import HasFitnessVertical
-from tenants.context import get_current_organization
+from tenants.context import get_current_academy
 from tenants.permissions import IsPerson
 
 from .models import Routine, SetLog, WorkoutSession
@@ -24,7 +24,7 @@ class GymScopedMixin:
 
     @property
     def academy(self):
-        return get_current_organization(self.request)
+        return get_current_academy(self.request)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "academy": self.academy}
@@ -58,7 +58,7 @@ class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
 def muscle_map(request):
     """Per-muscle training volume over a window, for the balance / fatigue /
     strength views. Warm-ups are excluded — they aren't training volume."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     days = min(int(request.query_params.get("days", 30) or 30), 365)
     since = timezone.now() - timedelta(days=days)
 
@@ -79,7 +79,7 @@ def muscle_map(request):
 @permission_classes([HasFitnessVertical, IsPerson])
 def activity(request):
     """Sessions per day for a GitHub-style heatmap."""
-    academy = get_current_organization(request)
+    academy = get_current_academy(request)
     days = min(int(request.query_params.get("days", 365) or 365), 731)
 
     end = timezone.localdate()

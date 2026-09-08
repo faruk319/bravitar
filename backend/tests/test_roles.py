@@ -62,7 +62,7 @@ class SwitchedOffRoleTests(TenantAPITestCase):
         for role in SWITCHED_OFF:
             with self.subTest(role=role):
                 self.assertTrue(
-                    Membership.objects.filter(academy=self.org, role=role).exists()
+                    Membership.objects.filter(organization=self.org.organization, role=role).exists()
                 )
 
 

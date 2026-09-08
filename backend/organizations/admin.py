@@ -1,12 +1,18 @@
 from django.contrib import admin
 
-from .models import Academy, APIKey, Branch, Membership
+from .models import Academy, APIKey, Branch, Membership, Organization
+
+
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ["name", "slug", "plan", "domain_verified", "created_at"]
+    search_fields = ["name", "slug", "custom_domain"]
 
 
 @admin.register(Academy)
 class AcademyAdmin(admin.ModelAdmin):
-    list_display = ["name", "slug", "plan", "domain_verified", "created_at"]
-    search_fields = ["name", "slug", "custom_domain"]
+    list_display = ["name", "organization", "slug", "created_at"]
+    search_fields = ["name", "slug"]
 
 
 @admin.register(Branch)
@@ -16,9 +22,9 @@ class BranchAdmin(admin.ModelAdmin):
 
 @admin.register(Membership)
 class MembershipAdmin(admin.ModelAdmin):
-    list_display = ["email", "academy", "role"]
+    list_display = ["email", "organization", "role"]
 
 
 @admin.register(APIKey)
 class APIKeyAdmin(admin.ModelAdmin):
-    list_display = ["prefix", "academy", "is_active", "last_used_at"]
+    list_display = ["prefix", "organization", "is_active", "last_used_at"]
