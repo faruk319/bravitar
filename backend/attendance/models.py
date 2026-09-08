@@ -2,7 +2,7 @@ from django.db import models
 from django.utils import timezone
 
 from batches.models import Batch
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 from students.models import Student
 
 from .admission import Refusal
@@ -50,8 +50,8 @@ class AttendanceRecord(models.Model):
 
     BRANCH_FIELD = "batch__branch"
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="attendance_records"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="attendance_records"
     )
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name="attendance_records")
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="attendance_records")
@@ -84,8 +84,8 @@ class CheckIn(models.Model):
 
     BRANCH_FIELD = "branch"
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="checkins"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="checkins"
     )
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="checkins"
@@ -113,7 +113,7 @@ class CheckIn(models.Model):
     class Meta:
         ordering = ["-checked_in_at", "-id"]
         indexes = [
-            models.Index(fields=["organization", "-checked_in_at"]),
+            models.Index(fields=["academy", "-checked_in_at"]),
             models.Index(fields=["student", "-checked_in_at"]),
         ]
 
@@ -143,7 +143,7 @@ class CheckIn(models.Model):
 
         on = timezone.localdate(self.checked_in_at)
         batches = Batch.objects.filter(
-            organization_id=self.organization_id,
+            academy_id=self.academy_id,
             is_active=True,
             enrolments__student_id=self.student_id,
             enrolments__is_active=True,
@@ -154,7 +154,7 @@ class CheckIn(models.Model):
             if on.weekday() not in (batch.days_of_week or []):
                 continue
             record, created = AttendanceRecord.objects.get_or_create(
-                organization_id=self.organization_id,
+                academy_id=self.academy_id,
                 batch=batch,
                 student_id=self.student_id,
                 date=on,
@@ -179,8 +179,8 @@ class BiometricEnrolment(models.Model):
 
     BRANCH_FIELD = "student__branch"
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="biometric_enrolments"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="biometric_enrolments"
     )
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="biometric_enrolments"
@@ -193,7 +193,7 @@ class BiometricEnrolment(models.Model):
         ordering = ["device", "external_id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "device", "external_id"],
+                fields=["academy", "device", "external_id"],
                 name="one_member_per_reader_id",
             )
         ]

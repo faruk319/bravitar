@@ -3,7 +3,7 @@
 Authentication is forced rather than driven through a real Supabase token:
 the JWT path has its own tests, and everything else is about what a *known*
 identity is allowed to do. Tenancy still goes through the real middleware, so
-every request here resolves its organization from the Host header exactly as
+every request here resolves its academy from the Host header exactly as
 production does.
 """
 
@@ -12,7 +12,7 @@ from rest_framework.test import APIClient, APITestCase
 
 from accounts.authentication import SupabaseUser
 from organizations.constants import Role
-from organizations.models import Membership, Organization
+from organizations.models import Membership, Academy
 
 BASE_DOMAIN = "testserver"
 
@@ -35,10 +35,10 @@ class TenantAPITestCase(APITestCase):
         # A gym almost always wants both: the business side and the
         # training side. They are separate verticals so either can stand
         # alone, which test_verticals covers.
-        self.org = Organization.objects.create(
+        self.org = Academy.objects.create(
             name="Iron Temple", slug="irontemple", verticals=["gym", "fitness"]
         )
-        self.other_org = Organization.objects.create(
+        self.other_org = Academy.objects.create(
             name="Blue Wave", slug="bluewave", verticals=["swimming"]
         )
 
@@ -54,17 +54,17 @@ class TenantAPITestCase(APITestCase):
             self.other_org, "owner-2", "owner2@example.com", Role.OWNER
         )
 
-    def add_member(self, organization, user_id, email, role):
+    def add_member(self, academy, user_id, email, role):
         Membership.objects.create(
-            organization=organization, user_id=user_id, email=email, role=role
+            academy=academy, user_id=user_id, email=email, role=role
         )
         return make_user(user_id, email)
 
-    def client_for(self, user, organization=None):
-        """A client whose Host resolves to `organization` and who is signed in
-        as `user`. Defaults to the primary organization."""
-        organization = organization or self.org
-        client = APIClient(HTTP_HOST=f"{organization.slug}.{BASE_DOMAIN}")
+    def client_for(self, user, academy=None):
+        """A client whose Host resolves to `academy` and who is signed in
+        as `user`. Defaults to the primary academy."""
+        academy = academy or self.org
+        client = APIClient(HTTP_HOST=f"{academy.slug}.{BASE_DOMAIN}")
         if user is not None:
             client.force_authenticate(user=user)
         return client

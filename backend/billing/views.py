@@ -62,13 +62,13 @@ class PaymentListCreateView(BillingScopedMixin, generics.ListCreateAPIView):
     serializer_class = PaymentSerializer
 
     def get_queryset(self):
-        queryset = Payment.objects.filter(invoice__organization=self.organization)
+        queryset = Payment.objects.filter(invoice__academy=self.academy)
         if invoice := self.request.query_params.get("invoice"):
             queryset = queryset.filter(invoice_id=invoice)
         return queryset
 
     def perform_create(self, serializer):
-        # Payment has no organization column — it inherits scope from the
+        # Payment has no academy column — it inherits scope from the
         # invoice, which the serializer validated.
         serializer.save(recorded_by=self.request.user.id)
 
@@ -81,9 +81,9 @@ def billing_summary(request):
     Readable by anyone running the academy — it is an aggregate of invoices
     they can already list. Changing the books stays with managers.
     """
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     invoices = (
-        Invoice.objects.filter(organization=organization, is_cancelled=False)
+        Invoice.objects.filter(academy=academy, is_cancelled=False)
         .select_related("student")
         .prefetch_related("payments")
     )

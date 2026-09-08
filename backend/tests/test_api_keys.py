@@ -20,7 +20,7 @@ class APIKeyTests(TenantAPITestCase):
         self.assertEqual(response.status_code, 201)
         raw = response.data["key"]
 
-        stored = APIKey.objects.get(organization=self.org)
+        stored = APIKey.objects.get(academy=self.org)
         self.assertNotEqual(stored.hashed_key, raw)
         self.assertTrue(raw.startswith(stored.prefix))
 
@@ -172,14 +172,14 @@ class APIKeyAccessTests(TenantAPITestCase):
         self.assertIn("Invalid or revoked", str(response.data["detail"]))
 
     def test_a_revoked_key_stops_authenticating(self):
-        APIKey.objects.filter(organization=self.org).update(is_active=False)
+        APIKey.objects.filter(academy=self.org).update(is_active=False)
         response = self.get("/api/students/")
         self.assertEqual(response.status_code, 403)
 
     def test_a_key_records_when_it_was_last_used(self):
-        self.assertIsNone(APIKey.objects.get(organization=self.org).last_used_at)
+        self.assertIsNone(APIKey.objects.get(academy=self.org).last_used_at)
         self.get("/api/students/")
-        self.assertIsNotNone(APIKey.objects.get(organization=self.org).last_used_at)
+        self.assertIsNotNone(APIKey.objects.get(academy=self.org).last_used_at)
 
     def test_a_key_answers_for_its_own_academy_whatever_host_is_used(self):
         """Tenant resolution puts the key ahead of the Host header, so aiming
@@ -188,10 +188,10 @@ class APIKeyAccessTests(TenantAPITestCase):
         from students.models import Student
 
         Student.objects.create(
-            organization=self.org, full_name="Ours", joined_on="2026-01-01"
+            academy=self.org, full_name="Ours", joined_on="2026-01-01"
         )
         Student.objects.create(
-            organization=self.other_org, full_name="Theirs", joined_on="2026-01-01"
+            academy=self.other_org, full_name="Theirs", joined_on="2026-01-01"
         )
 
         aimed_elsewhere = self.client_for(None, self.other_org)

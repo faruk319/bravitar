@@ -28,7 +28,7 @@ class EnrolmentListCreateView(OrganizationScopedMixin, generics.ListCreateAPIVie
 
     def get_queryset(self):
         queryset = Enrolment.objects.filter(
-            batch__organization=self.organization
+            batch__academy=self.academy
         ).select_related("student", "batch")
         params = self.request.query_params
         if batch := params.get("batch"):
@@ -38,7 +38,7 @@ class EnrolmentListCreateView(OrganizationScopedMixin, generics.ListCreateAPIVie
         return queryset
 
     def perform_create(self, serializer):
-        # Enrolment has no organization column of its own — it inherits scope
+        # Enrolment has no academy column of its own — it inherits scope
         # from the batch, which the serializer has already validated.
         serializer.save()
 
@@ -48,5 +48,5 @@ class EnrolmentDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestro
 
     def get_queryset(self):
         return Enrolment.objects.filter(
-            batch__organization=self.organization
+            batch__academy=self.academy
         ).select_related("student", "batch")

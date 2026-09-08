@@ -10,13 +10,13 @@ class SwimSkillInline(admin.TabularInline):
 
 @admin.register(SwimLevel)
 class SwimLevelAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "position"]
+    list_display = ["name", "academy", "position"]
     inlines = [SwimSkillInline]
 
 
 @admin.register(Pool)
 class PoolAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "branch", "lane_count"]
+    list_display = ["name", "academy", "branch", "lane_count"]
 
 
 @admin.register(LaneBooking)

@@ -1,6 +1,6 @@
 from django.db import models
 
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 from students.models import Student
 
 from .constants import BoutResult, GradingResultChoice
@@ -11,7 +11,7 @@ class Belt(models.Model):
     highest position they have passed, so belts can be renamed or recoloured
     without rewriting anyone's history."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="belts")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="belts")
     name = models.CharField(max_length=100)
     position = models.PositiveSmallIntegerField(default=0)
     colour = models.CharField(max_length=9, blank=True)
@@ -19,7 +19,7 @@ class Belt(models.Model):
     class Meta:
         ordering = ["position", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["organization", "name"], name="unique_belt_name_per_org")
+            models.UniqueConstraint(fields=["academy", "name"], name="unique_belt_name_per_org")
         ]
 
     def __str__(self):
@@ -29,7 +29,7 @@ class Belt(models.Model):
 class Grading(models.Model):
     """A grading exam held on a date, testing for one belt."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="gradings")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="gradings")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="gradings", null=True, blank=True
     )
@@ -69,7 +69,7 @@ class Bout(models.Model):
     """One sparring match. The opponent is free text because most bouts are
     against visitors from other dojos, who aren't students here."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="bouts")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="bouts")
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="bouts")
 
     fought_on = models.DateField()

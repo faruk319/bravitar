@@ -25,8 +25,8 @@ class PaymentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         invoice = attrs.get("invoice") or getattr(self.instance, "invoice", None)
-        if invoice and invoice.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError({"invoice": "That invoice belongs to another organization."})
+        if invoice and invoice.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError({"invoice": "That invoice belongs to another academy."})
         if invoice and invoice.is_cancelled:
             raise serializers.ValidationError({"invoice": "This invoice was cancelled."})
 
@@ -60,8 +60,8 @@ class InvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name", "amount_paid", "balance", "status", "payments"]
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That student belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That student belongs to another academy.")
         return value
 
     def validate_amount(self, value):

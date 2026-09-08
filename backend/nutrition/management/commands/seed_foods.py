@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
         for name, kcal, protein, carbs, fat, fiber, serving_g, serving_label in SHARED_FOODS:
             _, was_created = Food.objects.update_or_create(
-                organization=None,
+                academy=None,
                 slug=slugify(name),
                 defaults={
                     "name": name,

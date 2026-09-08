@@ -14,7 +14,7 @@ class ExerciseSerializer(serializers.ModelSerializer):
             "primary_muscle", "secondary_muscles", "instructions",
             "is_custom",
         ]
-        # slug is derived from the name server-side, per organization.
+        # slug is derived from the name server-side, per academy.
         read_only_fields = ["id", "slug", "is_custom"]
 
     def validate_secondary_muscles(self, value):

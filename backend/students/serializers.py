@@ -35,13 +35,13 @@ class StudentSerializer(serializers.ModelSerializer):
             from organizations.models import Branch
 
             attrs["branch"] = Branch.objects.filter(
-                organization=self.context["organization"], is_primary=True
+                academy=self.context["academy"], is_primary=True
             ).first()
         return attrs
 
     def validate_branch(self, value):
-        if value and value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That branch belongs to another organization.")
+        if value and value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That branch belongs to another academy.")
         allowed = self.context.get("allowed_branches")
         if value and allowed is not None and value.id not in allowed:
             raise serializers.ValidationError("You don't work at that branch.")
@@ -89,8 +89,8 @@ class MemberDocumentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That member belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
         return value
 
     def validate_number_last4(self, value):

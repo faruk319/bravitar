@@ -25,7 +25,7 @@ class LaneBookingTests(SwimmingTestCase):
 
     def setUp(self):
         super().setUp()
-        self.pool = Pool.objects.create(organization=self.org, name="Main", lane_count=6)
+        self.pool = Pool.objects.create(academy=self.org, name="Main", lane_count=6)
 
     def book(self, start, end, lane=1, day=1):
         return self.client_for(self.owner).post(
@@ -64,13 +64,13 @@ class LaneBookingTests(SwimmingTestCase):
 
 class SwimProgressTests(SwimmingTestCase):
     def test_a_level_needs_every_skill_before_it_counts(self):
-        level = SwimLevel.objects.create(organization=self.org, name="Level 1", position=0)
+        level = SwimLevel.objects.create(academy=self.org, name="Level 1", position=0)
         skills = [
             SwimSkill.objects.create(level=level, name=f"Skill {i}", position=i)
             for i in range(3)
         ]
         student = Student.objects.create(
-            organization=self.org, full_name="Swimmer", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Swimmer", joined_on=date(2026, 1, 1)
         )
 
         for skill in skills[:2]:
@@ -105,10 +105,10 @@ class BeltDerivationTests(TenantAPITestCase):
         super().setUp()
         self.org.verticals = ["karate"]
         self.org.save()
-        self.white = Belt.objects.create(organization=self.org, name="White", position=0)
-        self.green = Belt.objects.create(organization=self.org, name="Green", position=3)
+        self.white = Belt.objects.create(academy=self.org, name="White", position=0)
+        self.green = Belt.objects.create(academy=self.org, name="Green", position=3)
         self.student = Student.objects.create(
-            organization=self.org, full_name="Karateka", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Karateka", joined_on=date(2026, 1, 1)
         )
 
     def standing(self):
@@ -119,7 +119,7 @@ class BeltDerivationTests(TenantAPITestCase):
 
     def grade(self, belt, result):
         grading = Grading.objects.create(
-            organization=self.org, belt=belt, held_on=date(2026, 1, 1)
+            academy=self.org, belt=belt, held_on=date(2026, 1, 1)
         )
         return GradingResult.objects.create(
             grading=grading, student=self.student, result=result
@@ -147,7 +147,7 @@ class BeltDerivationTests(TenantAPITestCase):
         self.grade(self.white, GradingResultChoice.PASS)
         for result in ["win", "win", "loss", "draw"]:
             Bout.objects.create(
-                organization=self.org, student=self.student,
+                academy=self.org, student=self.student,
                 fought_on=date(2026, 1, 1), result=result,
             )
         row = self.standing()

@@ -61,29 +61,29 @@ class AttendanceListView(OrganizationScopedMixin, generics.ListAPIView):
 def mark_register(request):
     """Marks a batch's register for a date. Re-marking updates the existing
     rows instead of failing on the one-mark-per-day constraint."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     serializer = MarkAttendanceSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
 
     try:
-        batch = Batch.objects.get(pk=data["batch"], organization=organization)
+        batch = Batch.objects.get(pk=data["batch"], academy=academy)
     except Batch.DoesNotExist:
         return Response({"detail": "Batch not found."}, status=status.HTTP_404_NOT_FOUND)
 
     allowed_students = set(
-        Student.objects.filter(organization=organization).values_list("id", flat=True)
+        Student.objects.filter(academy=academy).values_list("id", flat=True)
     )
 
     written = []
     for mark in data["marks"]:
         if mark["student"] not in allowed_students:
             return Response(
-                {"detail": f"Student {mark['student']} is not in this organization."},
+                {"detail": f"Student {mark['student']} is not in this academy."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         record, _ = AttendanceRecord.objects.update_or_create(
-            organization=organization,
+            academy=academy,
             batch=batch,
             student_id=mark["student"],
             date=data["date"],
@@ -104,8 +104,8 @@ def mark_register(request):
 @permission_classes([IsOrganizationMember])
 def attendance_summary(request):
     """Attendance rate per student for a batch, over all marked days."""
-    organization = get_current_organization(request)
-    records = AttendanceRecord.objects.filter(organization=organization).select_related("student")
+    academy = get_current_organization(request)
+    records = AttendanceRecord.objects.filter(academy=academy).select_related("student")
     if batch := request.query_params.get("batch"):
         records = records.filter(batch_id=batch)
 
@@ -136,7 +136,7 @@ def _open_visit(student, on):
     ).order_by("-checked_in_at").first()
 
 
-def record_check_in(organization, student, *, method, device="", branch=None, at=None):
+def record_check_in(academy, student, *, method, device="", branch=None, at=None):
     """The only path a check-in is created by. Returns (check_in, created);
     refused attempts are recorded too."""
     at = at or timezone.now()
@@ -146,7 +146,7 @@ def record_check_in(organization, student, *, method, device="", branch=None, at
 
     admission = admission_for(student)
     check_in = CheckIn.objects.create(
-        organization=organization,
+        academy=academy,
         student=student,
         branch=branch or student.branch,
         subscription=admission.subscription if admission.allowed else None,
@@ -193,7 +193,7 @@ class CheckInListCreateView(CheckInScopedMixin, generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
 
         check_in, created = record_check_in(
-            self.organization,
+            self.academy,
             serializer.validated_data["student"],
             method=serializer.validated_data.get("method", CheckInMethod.MANUAL),
             branch=serializer.validated_data.get("branch"),
@@ -221,8 +221,8 @@ class CheckInDetailView(CheckInScopedMixin, generics.RetrieveDestroyAPIView):
 @api_view(["POST"])
 @permission_classes([IsOrganizationStaff, IsPerson])
 def check_out(request, pk):
-    organization = get_current_organization(request)
-    check_in = CheckIn.objects.filter(organization=organization, pk=pk).first()
+    academy = get_current_organization(request)
+    check_in = CheckIn.objects.filter(academy=academy, pk=pk).first()
     if check_in is None:
         return Response({"detail": "No such visit."}, status=status.HTTP_404_NOT_FOUND)
     if check_in.checked_out_at is not None:
@@ -236,17 +236,17 @@ def scan(request):
     """The door. Open to API keys — the caller is a turnstile, not a person.
     Takes a pass token only; a scanner that accepted a member id would be
     worth stealing."""
-    organization = get_current_organization(request)
-    serializer = ScanSerializer(data=request.data, context={"organization": organization})
+    academy = get_current_organization(request)
+    serializer = ScanSerializer(data=request.data, context={"academy": academy})
     serializer.is_valid(raise_exception=True)
 
     student = serializer.context["student"]
     branch = None
     if branch_id := serializer.validated_data.get("branch"):
-        branch = Branch.objects.filter(organization=organization, pk=branch_id).first()
+        branch = Branch.objects.filter(academy=academy, pk=branch_id).first()
 
     check_in, created = record_check_in(
-        organization, student,
+        academy, student,
         method=CheckInMethod.QR,
         device=serializer.validated_data.get("device", ""),
         branch=branch,
@@ -263,11 +263,11 @@ def scan(request):
 @permission_classes([IsOrganizationStaff, IsPerson])
 def today(request):
     """Who is in, how busy it's been, and who was turned away."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     on = parse_date(request.query_params.get("date", "")) or timezone.localdate()
 
     visits = CheckIn.objects.filter(
-        organization=organization, checked_in_at__date=on
+        academy=academy, checked_in_at__date=on
     ).select_related("student", "subscription__tier")
 
     # An alias can't reuse a field name; `admitted=Count(...)` is refused.
@@ -293,8 +293,8 @@ def today(request):
 @permission_classes([IsOrganizationStaff, IsPerson])
 def admission(request, pk):
     """Can they come in? Answered without recording a visit."""
-    organization = get_current_organization(request)
-    student = Student.objects.filter(organization=organization, pk=pk).first()
+    academy = get_current_organization(request)
+    student = Student.objects.filter(academy=academy, pk=pk).first()
     if student is None:
         return Response({"detail": "No such member."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -367,14 +367,14 @@ def device_punch(request):
     The device does the matching and keeps the template; we only map its user
     number to a member and run the same admission rule the door already uses.
     """
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     serializer = DevicePunchSerializer(
-        data=request.data, context={"organization": organization}
+        data=request.data, context={"academy": academy}
     )
     serializer.is_valid(raise_exception=True)
 
     check_in, created = record_check_in(
-        organization,
+        academy,
         serializer.context["student"],
         method=CheckInMethod.BIOMETRIC,
         device=serializer.validated_data["device"],

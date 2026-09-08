@@ -129,7 +129,7 @@ class MemberDocumentListCreateView(MemberDocumentMixin, generics.ListCreateAPIVi
 
     def perform_create(self, serializer):
         serializer.save(
-            organization=self.organization,
+            academy=self.academy,
             uploaded_by=self.request.user.id or "",
         )
 
@@ -153,9 +153,9 @@ class MemberDocumentFileView(MemberDocumentMixin, generics.GenericAPIView):
 @permission_classes([IsOrganizationManager, IsPerson])
 def verify_document(request, pk):
     """Mark a scan as checked against the person in front of you."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     document = MemberDocument.objects.filter(
-        organization=organization, pk=pk
+        academy=academy, pk=pk
     ).first()
     if document is None:
         raise Http404

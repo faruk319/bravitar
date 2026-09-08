@@ -12,11 +12,11 @@ from .permissions import HasFitnessVertical
 from .serializers import ExerciseSerializer
 
 
-def _unique_slug(organization, name):
+def _unique_slug(academy, name):
     base = slugify(name)[:200] or "exercise"
     slug = base
     for suffix in range(2, 100):
-        if not Exercise.objects.filter(organization=organization, slug=slug).exists():
+        if not Exercise.objects.filter(academy=academy, slug=slug).exists():
             return slug
         slug = f"{base}-{suffix}"
     raise ValueError("Could not generate a unique slug")
@@ -31,8 +31,8 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         return [HasFitnessVertical()]
 
     def get_queryset(self):
-        organization = get_current_organization(self.request)
-        queryset = Exercise.objects.visible_to(organization).filter(is_active=True)
+        academy = get_current_organization(self.request)
+        queryset = Exercise.objects.visible_to(academy).filter(is_active=True)
 
         params = self.request.query_params
         if search := params.get("search"):
@@ -46,10 +46,10 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
         return queryset
 
     def perform_create(self, serializer):
-        organization = get_current_organization(self.request)
+        academy = get_current_organization(self.request)
         serializer.save(
-            organization=organization,
-            slug=_unique_slug(organization, serializer.validated_data["name"]),
+            academy=academy,
+            slug=_unique_slug(academy, serializer.validated_data["name"]),
         )
 
 
@@ -62,11 +62,11 @@ class ExerciseDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [HasFitnessVertical()]
 
     def get_queryset(self):
-        organization = get_current_organization(self.request)
+        academy = get_current_organization(self.request)
         if self.request.method in ("PUT", "PATCH", "DELETE"):
             # The shared library is read-only; only your own exercises are editable.
-            return Exercise.objects.filter(organization=organization)
-        return Exercise.objects.visible_to(organization)
+            return Exercise.objects.filter(academy=academy)
+        return Exercise.objects.visible_to(academy)
 
 
 @api_view(["GET"])

@@ -2,27 +2,27 @@ from decimal import Decimal
 
 from django.db import models
 
-from organizations.models import Organization
+from organizations.models import Academy
 
 from .constants import Meal
 
 
 class FoodQuerySet(models.QuerySet):
-    def visible_to(self, organization):
-        """The shared food library plus this organization's own entries."""
+    def visible_to(self, academy):
+        """The shared food library plus this academy's own entries."""
         return self.filter(
-            models.Q(organization__isnull=True) | models.Q(organization=organization)
+            models.Q(academy__isnull=True) | models.Q(academy=academy)
         )
 
 
 class Food(models.Model):
     """A food, with macros stored per 100 g so portions are a simple scale.
 
-    Same shape as Exercise: organization null means it's in the shared library.
+    Same shape as Exercise: academy null means it's in the shared library.
     """
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="foods",
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="foods",
         null=True, blank=True,
         help_text="Null means this is a shared library food.",
     )
@@ -53,11 +53,11 @@ class Food(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["slug"],
-                condition=models.Q(organization__isnull=True),
+                condition=models.Q(academy__isnull=True),
                 name="unique_shared_food_slug",
             ),
             models.UniqueConstraint(
-                fields=["organization", "slug"], name="unique_org_food_slug"
+                fields=["academy", "slug"], name="unique_org_food_slug"
             ),
         ]
 
@@ -66,14 +66,14 @@ class Food(models.Model):
 
     @property
     def is_custom(self):
-        return self.organization_id is not None
+        return self.academy_id is not None
 
 
 class NutritionPlan(models.Model):
     """One lifter's daily macro targets. One active plan per person per org."""
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="nutrition_plans"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="nutrition_plans"
     )
     user_id = models.CharField(max_length=64)
 
@@ -89,7 +89,7 @@ class NutritionPlan(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "user_id"], name="one_nutrition_plan_per_user"
+                fields=["academy", "user_id"], name="one_nutrition_plan_per_user"
             )
         ]
 
@@ -100,8 +100,8 @@ class NutritionPlan(models.Model):
 class FoodLogEntry(models.Model):
     """Something eaten, on a day, in a meal."""
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="food_log"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="food_log"
     )
     user_id = models.CharField(max_length=64)
 

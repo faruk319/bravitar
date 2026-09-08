@@ -20,16 +20,16 @@ class BodyLogScopedMixin:
     permission_classes = [HasFitnessVertical, IsPerson]
 
     @property
-    def organization(self):
+    def academy(self):
         return get_current_organization(self.request)
 
     def base_queryset(self, model):
         return model.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         )
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.organization, user_id=self.request.user.id)
+        serializer.save(academy=self.academy, user_id=self.request.user.id)
 
 
 class MeasurementListCreateView(BodyLogScopedMixin, generics.ListCreateAPIView):

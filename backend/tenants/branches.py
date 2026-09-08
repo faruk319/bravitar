@@ -22,11 +22,11 @@ from organizations.constants import Role
 from organizations.models import Branch, Membership
 
 
-def academy_has_branches(organization):
-    return Branch.objects.filter(organization=organization).exists()
+def academy_has_branches(academy):
+    return Branch.objects.filter(academy=academy).exists()
 
 
-def allowed_branch_ids(request, organization):
+def allowed_branch_ids(request, academy):
     """Branch ids this caller may work in, or None for "no restriction".
 
     None and an empty set mean opposite things: None is an owner or a
@@ -38,11 +38,11 @@ def allowed_branch_ids(request, organization):
     # assign branches to.
     if getattr(user, "is_api_key", False):
         return None
-    if not academy_has_branches(organization):
+    if not academy_has_branches(academy):
         return None
 
     membership = Membership.objects.filter(
-        organization=organization, user_id=getattr(user, "id", None) or ""
+        academy=academy, user_id=getattr(user, "id", None) or ""
     ).first()
     if membership is None:
         return None  # Not a member; the membership permission refuses them.

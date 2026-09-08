@@ -1,4 +1,4 @@
-"""A standard learn-to-swim ladder, seeded per organization and editable
+"""A standard learn-to-swim ladder, seeded per academy and editable
 afterwards. Levels are ordered; a level is reached only when every skill in
 it is signed off."""
 

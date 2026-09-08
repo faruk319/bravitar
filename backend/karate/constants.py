@@ -16,7 +16,7 @@ class BoutResult:
     VALUES = [value for value, _ in CHOICES]
 
 
-# A standard kyu ladder, seeded per organization and editable afterwards.
+# A standard kyu ladder, seeded per academy and editable afterwards.
 DEFAULT_BELTS = [
     ("White", "#f5f5f5"),
     ("Yellow", "#f5d020"),

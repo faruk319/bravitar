@@ -22,24 +22,24 @@ from .base import TenantAPITestCase
 class BranchTestCase(TenantAPITestCase):
     def setUp(self):
         super().setUp()
-        self.andheri = Branch.objects.create(organization=self.org, name="Andheri")
-        self.bandra = Branch.objects.create(organization=self.org, name="Bandra")
+        self.andheri = Branch.objects.create(academy=self.org, name="Andheri")
+        self.bandra = Branch.objects.create(academy=self.org, name="Bandra")
 
         self.here = Student.objects.create(
-            organization=self.org, branch=self.andheri,
+            academy=self.org, branch=self.andheri,
             full_name="Andheri Member", joined_on=date(2026, 1, 1),
         )
         self.there = Student.objects.create(
-            organization=self.org, branch=self.bandra,
+            academy=self.org, branch=self.bandra,
             full_name="Bandra Member", joined_on=date(2026, 1, 1),
         )
         self.floating = Student.objects.create(
-            organization=self.org, branch=None,
+            academy=self.org, branch=None,
             full_name="No Branch", joined_on=date(2026, 1, 1),
         )
 
         self.membership = Membership.objects.get(
-            organization=self.org, user_id="manager-1"
+            academy=self.org, user_id="manager-1"
         )
 
     def assign(self, *branches):
@@ -84,7 +84,7 @@ class SingleLocationAcademiesAreExemptTests(TenantAPITestCase):
 
     def test_a_manager_sees_everything_when_there_are_no_branches(self):
         Student.objects.create(
-            organization=self.org, full_name="Only Member", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Only Member", joined_on=date(2026, 1, 1)
         )
         response = self.client_for(self.manager).get("/api/students/")
         self.assertEqual(response.data["count"], 1)
@@ -171,7 +171,7 @@ class BranchFollowsTheMemberTests(BranchTestCase):
 
         for student, description in ((self.here, "ours"), (self.there, "theirs")):
             Invoice.objects.create(
-                organization=self.org, student=student, description=description,
+                academy=self.org, student=student, description=description,
                 amount=Decimal("1000.00"),
                 issued_on=date(2026, 1, 1), due_on=date(2026, 1, 1),
             )
@@ -189,7 +189,7 @@ class BranchFollowsTheMemberTests(BranchTestCase):
         self.org.verticals = ["gym"]
         self.org.save()
         tier = MembershipTier.objects.create(
-            organization=self.org, name="Monthly", period=BillingPeriod.MONTHLY,
+            academy=self.org, name="Monthly", period=BillingPeriod.MONTHLY,
             duration_days=30, price=Decimal("1500.00"),
         )
         for student in (self.here, self.there):
@@ -211,7 +211,7 @@ class BranchFollowsTheMemberTests(BranchTestCase):
         self.org.save()
         for student, branch in ((self.here, self.andheri), (self.there, self.bandra)):
             CheckIn.objects.create(
-                organization=self.org, student=student, branch=branch, admitted=True
+                academy=self.org, student=student, branch=branch, admitted=True
             )
 
         response = self.client_for(self.manager).get("/api/attendance/checkins/")
@@ -261,7 +261,7 @@ class OwnersAreNeverRestrictedTests(BranchTestCase):
     def test_assigning_an_owner_a_branch_changes_nothing(self):
 
         owner_membership = Membership.objects.get(
-            organization=self.org, user_id="owner-1"
+            academy=self.org, user_id="owner-1"
         )
         self.assertEqual(owner_membership.role, Role.OWNER)
         owner_membership.branches.set([self.andheri])
@@ -305,7 +305,7 @@ class AssigningBranchesTests(BranchTestCase):
         self.assertEqual(self.membership.branches.count(), 0)
 
     def test_a_branch_from_another_academy_is_refused(self):
-        theirs = Branch.objects.create(organization=self.other_org, name="Not Ours")
+        theirs = Branch.objects.create(academy=self.other_org, name="Not Ours")
         response = self.client_for(self.owner).patch(
             f"/api/organizations/current/team/{self.membership.id}/",
             {"branches": [theirs.id]}, format="json",

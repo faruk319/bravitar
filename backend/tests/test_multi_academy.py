@@ -13,7 +13,7 @@ and a swimming school in another.
 from datetime import date
 
 from organizations.constants import Role
-from organizations.models import Membership, Organization
+from organizations.models import Membership, Academy
 from students.models import Student
 
 from .base import TenantAPITestCase, make_user
@@ -24,11 +24,11 @@ class MultiAcademyTestCase(TenantAPITestCase):
         super().setUp()
         # self.org (demo) already has self.owner. Give that same person a
         # second academy, in a different sport.
-        self.second = Organization.objects.create(
+        self.second = Academy.objects.create(
             name="Second Academy", slug="second", verticals=["swimming"]
         )
         Membership.objects.create(
-            organization=self.second, user_id="owner-1",
+            academy=self.second, user_id="owner-1",
             email="owner@example.com", role=Role.OWNER,
         )
         self.second_manager = self.add_member(
@@ -48,12 +48,12 @@ class MultiAcademyTestCase(TenantAPITestCase):
 class OwnerAcademiesTests(MultiAcademyTestCase):
     def test_an_owner_sees_every_academy_they_own(self):
         response = self.client_for(self.owner).get("/api/organizations/mine/")
-        slugs = {row["organization"]["slug"] for row in response.data["results"]}
+        slugs = {row["academy"]["slug"] for row in response.data["results"]}
         self.assertEqual(slugs, {self.org.slug, "second"})
 
     def test_an_owner_can_open_and_edit_both(self):
-        for organization in (self.org, self.second):
-            client = self.client_for(self.owner, organization=organization)
+        for academy in (self.org, self.second):
+            client = self.client_for(self.owner, academy=academy)
             self.assertEqual(client.get("/api/organizations/current/").status_code, 200)
             self.assertEqual(
                 client.patch(
@@ -76,14 +76,14 @@ class OwnerAcademiesTests(MultiAcademyTestCase):
         self.assertEqual(self.org.verticals, ["gym", "fitness"])
         self.assertEqual(self.second.verticals, ["swimming"])
 
-        gym_only = self.client_for(self.owner, organization=self.second)
+        gym_only = self.client_for(self.owner, academy=self.second)
         self.assertEqual(gym_only.get("/api/gym-ops/tiers/").status_code, 403)
 
     def test_a_new_academy_starts_empty(self):
         Student.objects.create(
-            organization=self.org, full_name="Existing", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Existing", joined_on=date(2026, 1, 1)
         )
-        response = self.client_for(self.owner, organization=self.second).get(
+        response = self.client_for(self.owner, academy=self.second).get(
             "/api/students/"
         )
         self.assertEqual(response.data["count"], 0)
@@ -94,26 +94,26 @@ class ManagerIsBoundToOneAcademyTests(MultiAcademyTestCase):
 
     def test_a_manager_only_lists_their_own_academy(self):
         response = self.client_for(self.manager).get("/api/organizations/mine/")
-        slugs = {row["organization"]["slug"] for row in response.data["results"]}
+        slugs = {row["academy"]["slug"] for row in response.data["results"]}
         self.assertEqual(slugs, {self.org.slug})
 
     def test_a_manager_cannot_open_the_other_academy(self):
-        response = self.client_for(self.manager, organization=self.second).get(
+        response = self.client_for(self.manager, academy=self.second).get(
             "/api/organizations/current/"
         )
         self.assertIn(response.status_code, (403, 404))
 
     def test_a_manager_cannot_read_the_other_academys_members(self):
         Student.objects.create(
-            organization=self.second, full_name="Theirs", joined_on=date(2026, 1, 1)
+            academy=self.second, full_name="Theirs", joined_on=date(2026, 1, 1)
         )
-        response = self.client_for(self.manager, organization=self.second).get(
+        response = self.client_for(self.manager, academy=self.second).get(
             "/api/students/"
         )
         self.assertIn(response.status_code, (403, 404))
 
     def test_a_manager_cannot_write_into_the_other_academy(self):
-        response = self.client_for(self.manager, organization=self.second).post(
+        response = self.client_for(self.manager, academy=self.second).post(
             "/api/students/",
             {"full_name": "Sneaked In", "joined_on": "2026-01-01"},
             format="json",
@@ -121,13 +121,13 @@ class ManagerIsBoundToOneAcademyTests(MultiAcademyTestCase):
         self.assertIn(response.status_code, (403, 404))
 
     def test_a_manager_cannot_rename_the_other_academy(self):
-        response = self.client_for(self.manager, organization=self.second).patch(
+        response = self.client_for(self.manager, academy=self.second).patch(
             "/api/organizations/current/", {"name": "Mine now"}, format="json"
         )
         self.assertIn(response.status_code, (403, 404))
 
     def test_a_manager_cannot_see_the_other_academys_team(self):
-        response = self.client_for(self.manager, organization=self.second).get(
+        response = self.client_for(self.manager, academy=self.second).get(
             "/api/organizations/current/team/"
         )
         self.assertIn(response.status_code, (403, 404))
@@ -136,7 +136,7 @@ class ManagerIsBoundToOneAcademyTests(MultiAcademyTestCase):
         """The same person can be manager here and nothing there."""
         self.assertFalse(
             Membership.objects.filter(
-                organization=self.second, user_id="manager-1"
+                academy=self.second, user_id="manager-1"
             ).exists()
         )
 
@@ -147,21 +147,21 @@ class AcademiesDoNotLeakIntoEachOtherTests(MultiAcademyTestCase):
     def setUp(self):
         super().setUp()
         self.here = Student.objects.create(
-            organization=self.org, full_name="Ours", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Ours", joined_on=date(2026, 1, 1)
         )
         self.there = Student.objects.create(
-            organization=self.second, full_name="Theirs", joined_on=date(2026, 1, 1)
+            academy=self.second, full_name="Theirs", joined_on=date(2026, 1, 1)
         )
 
     def test_a_member_of_one_is_not_reachable_from_the_other(self):
-        response = self.client_for(self.owner, organization=self.second).get(
+        response = self.client_for(self.owner, academy=self.second).get(
             f"/api/students/{self.here.id}/"
         )
         self.assertEqual(response.status_code, 404)
 
     def test_each_academy_counts_only_its_own(self):
-        for organization, expected in ((self.org, "Ours"), (self.second, "Theirs")):
-            response = self.client_for(self.owner, organization=organization).get(
+        for academy, expected in ((self.org, "Ours"), (self.second, "Theirs")):
+            response = self.client_for(self.owner, academy=academy).get(
                 "/api/students/"
             )
             self.assertEqual(
@@ -172,13 +172,13 @@ class AcademiesDoNotLeakIntoEachOtherTests(MultiAcademyTestCase):
         self.client_for(self.owner).post(
             "/api/organizations/current/branches/", {"name": "Andheri"}, format="json"
         )
-        response = self.client_for(self.owner, organization=self.second).get(
+        response = self.client_for(self.owner, academy=self.second).get(
             "/api/organizations/current/branches/"
         )
         self.assertEqual(response.data["count"], 0)
 
     def test_a_team_member_of_one_is_not_on_the_others_team(self):
-        response = self.client_for(self.owner, organization=self.second).get(
+        response = self.client_for(self.owner, academy=self.second).get(
             "/api/organizations/current/team/"
         )
         emails = {row["email"] for row in response.data["results"]}
@@ -195,7 +195,7 @@ class NewOwnerTests(MultiAcademyTestCase):
         self.assertEqual(response.status_code, 201)
 
         membership = Membership.objects.get(
-            organization__slug="brandnew", user_id="stranger-1"
+            academy__slug="brandnew", user_id="stranger-1"
         )
         self.assertEqual(membership.role, Role.OWNER)
 

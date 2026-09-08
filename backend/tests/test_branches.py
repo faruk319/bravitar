@@ -44,9 +44,9 @@ class BranchDetailsTests(BranchAdminTestCase):
     def test_a_branch_with_members_cannot_be_deleted(self):
         """Students point at a branch with SET_NULL, so deleting one would
         quietly unfile everybody standing in it."""
-        branch = Branch.objects.create(organization=self.org, name="Bandra")
+        branch = Branch.objects.create(academy=self.org, name="Bandra")
         Student.objects.create(
-            organization=self.org, branch=branch,
+            academy=self.org, branch=branch,
             full_name="Somebody", joined_on=date(2026, 1, 1),
         )
         response = self.client_for(self.owner).delete(
@@ -56,12 +56,12 @@ class BranchDetailsTests(BranchAdminTestCase):
         self.assertTrue(Branch.objects.filter(pk=branch.id).exists())
 
     def test_a_branch_reports_who_works_there(self):
-        branch = Branch.objects.create(organization=self.org, name="Bandra")
+        branch = Branch.objects.create(academy=self.org, name="Bandra")
         self.assertEqual(self.branch_row(branch)["team_count"], 0)
 
         from organizations.models import Membership
 
-        Membership.objects.get(organization=self.org, user_id="manager-1").branches.add(branch)
+        Membership.objects.get(academy=self.org, user_id="manager-1").branches.add(branch)
         self.assertEqual(self.branch_row(branch)["team_count"], 1)
 
     def test_owners_are_not_counted_as_branch_staff(self):
@@ -69,8 +69,8 @@ class BranchDetailsTests(BranchAdminTestCase):
         limit that isn't there."""
         from organizations.models import Membership
 
-        branch = Branch.objects.create(organization=self.org, name="Bandra")
-        Membership.objects.get(organization=self.org, user_id="owner-1").branches.add(branch)
+        branch = Branch.objects.create(academy=self.org, name="Bandra")
+        Membership.objects.get(academy=self.org, user_id="owner-1").branches.add(branch)
         self.assertEqual(self.branch_row(branch)["team_count"], 0)
 
     def branch_row(self, branch):
@@ -99,7 +99,7 @@ class OnlyOwnersManageBranchesTests(BranchAdminTestCase):
 
     def test_another_academy_cannot_reach_our_branches(self):
         branch = self.create().data
-        response = self.client_for(self.other_owner, organization=self.other_org).patch(
+        response = self.client_for(self.other_owner, academy=self.other_org).patch(
             f"/api/organizations/current/branches/{branch['id']}/",
             {"name": "Theirs"}, format="json",
         )
@@ -151,7 +151,7 @@ class PrimaryBranchTests(BranchAdminTestCase):
 
     def test_the_primary_of_one_academy_does_not_reach_another(self):
         self.create(name="Andheri", is_primary=True)
-        Branch.objects.create(organization=self.other_org, name="Theirs", is_primary=True)
+        Branch.objects.create(academy=self.other_org, name="Theirs", is_primary=True)
 
         primaries = Branch.objects.filter(is_primary=True).count()
         self.assertEqual(primaries, 2)

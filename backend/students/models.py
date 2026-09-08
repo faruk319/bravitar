@@ -2,7 +2,7 @@ import uuid
 
 from django.db import models
 
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 
 from .constants import DocumentKind, StudentStatus
 
@@ -10,12 +10,12 @@ from .constants import DocumentKind, StudentStatus
 def member_photo_path(instance, filename):
     """Unguessable path; never served statically."""
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-    return f"member_photos/{instance.organization_id}/{uuid.uuid4().hex}.{extension}"
+    return f"member_photos/{instance.academy_id}/{uuid.uuid4().hex}.{extension}"
 
 
 def member_document_path(instance, filename):
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-    return f"member_documents/{instance.organization_id}/{uuid.uuid4().hex}.{extension}"
+    return f"member_documents/{instance.academy_id}/{uuid.uuid4().hex}.{extension}"
 
 
 class Student(models.Model):
@@ -29,7 +29,7 @@ class Student(models.Model):
 
     BRANCH_FIELD = "branch"
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="students")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="students")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="students", null=True, blank=True
     )
@@ -78,8 +78,8 @@ class MemberDocument(models.Model):
 
     BRANCH_FIELD = "student__branch"
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="member_documents"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="member_documents"
     )
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="documents"

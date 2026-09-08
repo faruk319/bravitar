@@ -1,6 +1,6 @@
 from django.db import models
 
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 from students.models import Student
 
 
@@ -10,7 +10,7 @@ class Batch(models.Model):
 
     BRANCH_FIELD = "branch"
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="batches")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="batches")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="batches", null=True, blank=True
     )

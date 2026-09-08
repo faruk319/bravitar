@@ -2,7 +2,7 @@ import uuid
 
 from django.db import models
 
-from organizations.models import Organization
+from organizations.models import Academy
 
 from .constants import Metric, Pose, Unit
 
@@ -10,8 +10,8 @@ from .constants import Metric, Pose, Unit
 class MeasurementEntry(models.Model):
     """One reading of one body metric on one day."""
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="measurements"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="measurements"
     )
     user_id = models.CharField(max_length=64)
 
@@ -27,7 +27,7 @@ class MeasurementEntry(models.Model):
         ordering = ["-measured_on"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "user_id", "metric", "measured_on"],
+                fields=["academy", "user_id", "metric", "measured_on"],
                 name="one_reading_per_metric_per_day",
             )
         ]
@@ -40,15 +40,15 @@ def progress_photo_path(instance, filename):
     """Unguessable path. These files are never served statically — only
     through a view that checks the requester owns them."""
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-    return f"progress_photos/{instance.organization_id}/{uuid.uuid4().hex}.{extension}"
+    return f"progress_photos/{instance.academy_id}/{uuid.uuid4().hex}.{extension}"
 
 
 class ProgressPhoto(models.Model):
     """A progress photo. Private to the member who uploaded it — trainers do
     not get access implicitly, since these are pictures of someone's body."""
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="progress_photos"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="progress_photos"
     )
     user_id = models.CharField(max_length=64)
 

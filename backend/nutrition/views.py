@@ -26,11 +26,11 @@ class NutritionScopedMixin:
     permission_classes = [HasFitnessVertical, IsPerson]
 
     @property
-    def organization(self):
+    def academy(self):
         return get_current_organization(self.request)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "organization": self.organization}
+        return {**super().get_serializer_context(), "academy": self.academy}
 
 
 class FoodListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
@@ -42,20 +42,20 @@ class FoodListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
         return [HasFitnessVertical()]
 
     def get_queryset(self):
-        queryset = Food.objects.visible_to(self.organization).filter(is_active=True)
+        queryset = Food.objects.visible_to(self.academy).filter(is_active=True)
         if search := self.request.query_params.get("search"):
             queryset = queryset.filter(name__icontains=search)
         return queryset
 
     def perform_create(self, serializer):
-        organization = self.organization
+        academy = self.academy
         base = slugify(serializer.validated_data["name"])[:200] or "food"
         slug = base
         for suffix in range(2, 100):
-            if not Food.objects.filter(organization=organization, slug=slug).exists():
+            if not Food.objects.filter(academy=academy, slug=slug).exists():
                 break
             slug = f"{base}-{suffix}"
-        serializer.save(organization=organization, slug=slug)
+        serializer.save(academy=academy, slug=slug)
 
 
 class NutritionPlanView(NutritionScopedMixin, generics.GenericAPIView):
@@ -66,7 +66,7 @@ class NutritionPlanView(NutritionScopedMixin, generics.GenericAPIView):
 
     def _plan(self):
         return NutritionPlan.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         ).first()
 
     def get(self, request):
@@ -77,7 +77,7 @@ class NutritionPlanView(NutritionScopedMixin, generics.GenericAPIView):
         plan = self._plan()
         serializer = self.get_serializer(plan, data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(organization=self.organization, user_id=request.user.id)
+        serializer.save(academy=self.academy, user_id=request.user.id)
         return Response(serializer.data)
 
 
@@ -87,7 +87,7 @@ class FoodLogListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
     def get_queryset(self):
         return (
             FoodLogEntry.objects.filter(
-                organization=self.organization,
+                academy=self.academy,
                 user_id=self.request.user.id,
                 consumed_on=_requested_date(self.request),
             )
@@ -95,7 +95,7 @@ class FoodLogListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
         )
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.organization, user_id=self.request.user.id)
+        serializer.save(academy=self.academy, user_id=self.request.user.id)
 
 
 class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
@@ -103,7 +103,7 @@ class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
 
     def get_queryset(self):
         return FoodLogEntry.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         ).select_related("food")
 
 
@@ -111,11 +111,11 @@ class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
 @permission_classes([HasFitnessVertical, IsPerson])
 def daily_summary(request):
     """Totals for a day against the caller's targets, plus a per-meal split."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     day = _requested_date(request)
 
     entries = FoodLogEntry.objects.filter(
-        organization=organization, user_id=request.user.id, consumed_on=day
+        academy=academy, user_id=request.user.id, consumed_on=day
     ).select_related("food")
 
     zero = Decimal("0.0")
@@ -129,7 +129,7 @@ def daily_summary(request):
             per_meal[entry.meal][key] += value
 
     plan = NutritionPlan.objects.filter(
-        organization=organization, user_id=request.user.id
+        academy=academy, user_id=request.user.id
     ).first()
 
     return Response(

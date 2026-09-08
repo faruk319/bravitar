@@ -1,6 +1,6 @@
 from django.db import models
 
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 from students.models import Student
 
 from .constants import EnquirySource, EnquiryStatus
@@ -15,7 +15,7 @@ class Enquiry(models.Model):
 
     BRANCH_FIELD = "branch"
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="enquiries")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="enquiries")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="enquiries", null=True, blank=True
     )

@@ -4,10 +4,10 @@ from .permissions import IsOrganizationMember, IsOrganizationStaff
 
 
 class OrganizationScopedMixin:
-    """Scopes a viewset to the current Organization.
+    """Scopes a viewset to the current Academy.
 
     Unlike the gym plugin's per-user views, the cross-vertical core is
-    academy data: any member of the organization can read it, and staff
+    academy data: any member of the academy can read it, and staff
     manage it. Branch filtering is opt-in via `?branch=<id>`.
     """
 
@@ -15,7 +15,7 @@ class OrganizationScopedMixin:
     staff_only_writes = True
 
     @property
-    def organization(self):
+    def academy(self):
         return get_current_organization(self.request)
 
     def get_permissions(self):
@@ -30,13 +30,13 @@ class OrganizationScopedMixin:
     @property
     def allowed_branches(self):
         """Branch ids this caller may work in, or None for no restriction."""
-        return allowed_branch_ids(self.request, self.organization)
+        return allowed_branch_ids(self.request, self.academy)
 
     def scoped(self, model):
         """Tenant first, then branch. `?branch=` is the caller narrowing what
         they already have; it can't widen it."""
         queryset = restrict(
-            model.objects.filter(organization=self.organization),
+            model.objects.filter(academy=self.academy),
             model,
             self.allowed_branches,
         )
@@ -48,11 +48,11 @@ class OrganizationScopedMixin:
     def get_serializer_context(self):
         return {
             **super().get_serializer_context(),
-            "organization": self.organization,
+            "academy": self.academy,
             # Serializers validate a write's target branch against this;
             # scoping the queryset only stops reads.
             "allowed_branches": self.allowed_branches,
         }
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.organization)
+        serializer.save(academy=self.academy)

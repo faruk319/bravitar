@@ -23,11 +23,11 @@ class GymScopedMixin:
     permission_classes = [HasFitnessVertical, IsPerson]
 
     @property
-    def organization(self):
+    def academy(self):
         return get_current_organization(self.request)
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "organization": self.organization}
+        return {**super().get_serializer_context(), "academy": self.academy}
 
 
 class RoutineListCreateView(GymScopedMixin, generics.ListCreateAPIView):
@@ -35,13 +35,13 @@ class RoutineListCreateView(GymScopedMixin, generics.ListCreateAPIView):
 
     def get_queryset(self):
         return (
-            Routine.objects.filter(organization=self.organization, user_id=self.request.user.id)
+            Routine.objects.filter(academy=self.academy, user_id=self.request.user.id)
             .prefetch_related("items__exercise")
             .filter(is_archived=False)
         )
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.organization, user_id=self.request.user.id)
+        serializer.save(academy=self.academy, user_id=self.request.user.id)
 
 
 class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
@@ -49,7 +49,7 @@ class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Routine.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         ).prefetch_related("items__exercise")
 
 
@@ -58,13 +58,13 @@ class RoutineDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
 def muscle_map(request):
     """Per-muscle training volume over a window, for the balance / fatigue /
     strength views. Warm-ups are excluded — they aren't training volume."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     days = min(int(request.query_params.get("days", 30) or 30), 365)
     since = timezone.now() - timedelta(days=days)
 
     working_sets = (
         SetLog.objects.filter(
-            session__organization=organization,
+            session__academy=academy,
             session__user_id=request.user.id,
             session__started_at__gte=since,
             is_warmup=False,
@@ -79,14 +79,14 @@ def muscle_map(request):
 @permission_classes([HasFitnessVertical, IsPerson])
 def activity(request):
     """Sessions per day for a GitHub-style heatmap."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     days = min(int(request.query_params.get("days", 365) or 365), 731)
 
     end = timezone.localdate()
     start = end - timedelta(days=days - 1)
 
     sessions = WorkoutSession.objects.filter(
-        organization=organization, user_id=request.user.id
+        academy=academy, user_id=request.user.id
     )
 
     return Response(
@@ -108,7 +108,7 @@ class RoutineGuideView(GymScopedMixin, generics.GenericAPIView):
     def get(self, request, pk):
         try:
             routine = Routine.objects.prefetch_related("items__exercise").get(
-                pk=pk, organization=self.organization, user_id=request.user.id
+                pk=pk, academy=self.academy, user_id=request.user.id
             )
         except Routine.DoesNotExist:
             return Response({"detail": "Routine not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -126,7 +126,7 @@ class RoutineGuideView(GymScopedMixin, generics.GenericAPIView):
             exercise=item.exercise,
             is_warmup=False,
             session__user_id=self.request.user.id,
-            session__organization=self.organization,
+            session__academy=self.academy,
         )
 
         last_session_id = (
@@ -163,11 +163,11 @@ class WorkoutSessionListCreateView(GymScopedMixin, generics.ListCreateAPIView):
 
     def get_queryset(self):
         return WorkoutSession.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         ).prefetch_related("sets__exercise")
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.organization, user_id=self.request.user.id)
+        serializer.save(academy=self.academy, user_id=self.request.user.id)
 
 
 class WorkoutSessionDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPIView):
@@ -175,7 +175,7 @@ class WorkoutSessionDetailView(GymScopedMixin, generics.RetrieveUpdateDestroyAPI
 
     def get_queryset(self):
         return WorkoutSession.objects.filter(
-            organization=self.organization, user_id=self.request.user.id
+            academy=self.academy, user_id=self.request.user.id
         ).prefetch_related("sets__exercise")
 
 
@@ -188,7 +188,7 @@ class SetLogCreateView(GymScopedMixin, generics.CreateAPIView):
         try:
             session = WorkoutSession.objects.get(
                 pk=kwargs["session_id"],
-                organization=self.organization,
+                academy=self.academy,
                 user_id=request.user.id,
             )
         except WorkoutSession.DoesNotExist:
@@ -206,7 +206,7 @@ class WorkoutSessionCompleteView(GymScopedMixin, generics.GenericAPIView):
     def post(self, request, pk):
         try:
             session = WorkoutSession.objects.get(
-                pk=pk, organization=self.organization, user_id=request.user.id
+                pk=pk, academy=self.academy, user_id=request.user.id
             )
         except WorkoutSession.DoesNotExist:
             return Response({"detail": "Session not found."}, status=status.HTTP_404_NOT_FOUND)

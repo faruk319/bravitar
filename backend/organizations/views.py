@@ -31,7 +31,7 @@ from .serializers import (
 
 class OrganizationSignupView(APIView):
     """An authenticated (but not-yet-onboarded) Supabase user creates an
-    Organization, selecting their vertical(s), and becomes its owner."""
+    Academy, selecting their vertical(s), and becomes its owner."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -39,17 +39,17 @@ class OrganizationSignupView(APIView):
     def post(self, request):
         serializer = OrganizationSignupSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        organization = serializer.save()
+        academy = serializer.save()
 
         Membership.objects.create(
-            organization=organization,
+            academy=academy,
             user_id=request.user.id,
             email=request.user.email,
             role=Role.OWNER,
             joined_at=timezone.now(),
         )
 
-        return Response(OrganizationSerializer(organization).data, status=status.HTTP_201_CREATED)
+        return Response(OrganizationSerializer(academy).data, status=status.HTTP_201_CREATED)
 
 
 class MyOrganizationsView(generics.ListAPIView):
@@ -66,11 +66,11 @@ class MyOrganizationsView(generics.ListAPIView):
         # refused from is worse than showing none.
         return Membership.objects.filter(
             user_id=self.request.user.id, role__in=Role.CAN_SIGN_IN
-        ).select_related("organization")
+        ).select_related("academy")
 
 
 class CurrentOrganizationView(APIView):
-    """The Organization resolved for this request by TenantResolutionMiddleware.
+    """The Academy resolved for this request by TenantResolutionMiddleware.
 
     The response carries the caller's own role, so the frontend can hide what
     they can't do — the backend still enforces it either way.
@@ -82,23 +82,23 @@ class CurrentOrganizationView(APIView):
         return [IsOrganizationMember()]
 
     def get(self, request):
-        organization = get_current_organization(request)
-        if organization is None:
+        academy = get_current_organization(request)
+        if academy is None:
             raise OrganizationNotFound()
-        data = OrganizationSerializer(organization).data
+        data = OrganizationSerializer(academy).data
         data["role"] = request.membership.role
         return Response(data)
 
     def patch(self, request):
-        organization = get_current_organization(request)
-        if organization is None:
+        academy = get_current_organization(request)
+        if academy is None:
             raise OrganizationNotFound()
 
-        serializer = OrganizationSettingsSerializer(organization, data=request.data, partial=True)
+        serializer = OrganizationSettingsSerializer(academy, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
-        data = OrganizationSerializer(organization).data
+        data = OrganizationSerializer(academy).data
         data["role"] = request.membership.role
         return Response(data)
 
@@ -121,17 +121,17 @@ class TeamListCreateView(generics.ListCreateAPIView):
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
-                "organization": get_current_organization(self.request)}
+                "academy": get_current_organization(self.request)}
 
     def get_queryset(self):
         return Membership.objects.filter(
-            organization=get_current_organization(self.request)
+            academy=get_current_organization(self.request)
         ).prefetch_related("branches")
 
     def perform_create(self, serializer):
         """Invites by email. The row exists before the person does — user_id
         is filled in when they first sign in."""
-        serializer.save(organization=get_current_organization(self.request), user_id="")
+        serializer.save(academy=get_current_organization(self.request), user_id="")
 
 
 class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -144,11 +144,11 @@ class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(),
-                "organization": get_current_organization(self.request)}
+                "academy": get_current_organization(self.request)}
 
     def get_queryset(self):
         return Membership.objects.filter(
-            organization=get_current_organization(self.request)
+            academy=get_current_organization(self.request)
         ).prefetch_related("branches")
 
     def perform_destroy(self, instance):
@@ -168,10 +168,10 @@ class BranchListCreateView(generics.ListCreateAPIView):
         return [IsOrganizationMember()]
 
     def get_queryset(self):
-        return Branch.objects.filter(organization=get_current_organization(self.request))
+        return Branch.objects.filter(academy=get_current_organization(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(organization=get_current_organization(self.request))
+        serializer.save(academy=get_current_organization(self.request))
 
 
 class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -181,7 +181,7 @@ class BranchDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [IsOrganizationMember()] if self.request.method == "GET" else [IsOrganizationOwner()]
 
     def get_queryset(self):
-        return Branch.objects.filter(organization=get_current_organization(self.request))
+        return Branch.objects.filter(academy=get_current_organization(self.request))
 
     def perform_destroy(self, instance):
         """Students and batches point at a branch with SET_NULL, so deleting
@@ -202,11 +202,11 @@ class APIKeyListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsOrganizationOwner]
 
     def get_queryset(self):
-        return APIKey.objects.filter(organization=get_current_organization(self.request))
+        return APIKey.objects.filter(academy=get_current_organization(self.request))
 
     def create(self, request, *args, **kwargs):
-        organization = get_current_organization(request)
-        api_key, raw_key = APIKey.generate(organization, name=request.data.get("name", ""))
+        academy = get_current_organization(request)
+        api_key, raw_key = APIKey.generate(academy, name=request.data.get("name", ""))
         data = APIKeySerializer(api_key).data
         data["key"] = raw_key  # only ever returned once
         return Response(data, status=status.HTTP_201_CREATED)
@@ -224,9 +224,9 @@ class APIKeyRevokeView(APIView):
     permission_classes = [IsOrganizationOwner]
 
     def post(self, request, pk):
-        organization = get_current_organization(request)
+        academy = get_current_organization(request)
         try:
-            api_key = APIKey.objects.get(pk=pk, organization=organization)
+            api_key = APIKey.objects.get(pk=pk, academy=academy)
         except APIKey.DoesNotExist:
             return Response({"detail": "API key not found."}, status=status.HTTP_404_NOT_FOUND)
 

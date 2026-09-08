@@ -1,14 +1,14 @@
 from django.db import models
 
 from batches.models import Batch
-from organizations.models import Branch, Organization
+from organizations.models import Academy, Branch
 from students.models import Student
 
 
 class Pool(models.Model):
     BRANCH_FIELD = "branch"
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="pools")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="pools")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="pools", null=True, blank=True
     )
@@ -30,8 +30,8 @@ class LaneBooking(models.Model):
     once — double-booking is the actual failure a swim school hits.
     """
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="lane_bookings"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="lane_bookings"
     )
     pool = models.ForeignKey(Pool, on_delete=models.CASCADE, related_name="bookings")
     lane_number = models.PositiveSmallIntegerField()
@@ -66,8 +66,8 @@ class LaneBooking(models.Model):
 class SwimLevel(models.Model):
     """A rung on the swim-school ladder, e.g. "Level 2 — Front Crawl"."""
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="swim_levels"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="swim_levels"
     )
     name = models.CharField(max_length=255)
     position = models.PositiveSmallIntegerField(default=0)

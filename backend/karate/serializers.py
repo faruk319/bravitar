@@ -20,8 +20,8 @@ class GradingResultSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name"]
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That student belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That student belongs to another academy.")
         return value
 
 
@@ -43,8 +43,8 @@ class GradingSerializer(serializers.ModelSerializer):
         return sum(1 for r in obj.results.all() if r.result == GradingResultChoice.PASS)
 
     def validate_belt(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That belt belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That belt belongs to another academy.")
         return value
 
 
@@ -61,12 +61,12 @@ class BoutSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name"]
 
     def validate(self, attrs):
-        organization = self.context["organization"]
+        academy = self.context["academy"]
         for field in ("student", "opponent_student"):
             person = attrs.get(field) or getattr(self.instance, field, None)
-            if person and person.organization_id != organization.id:
+            if person and person.academy_id != academy.id:
                 raise serializers.ValidationError(
-                    {field: "That student belongs to another organization."}
+                    {field: "That student belongs to another academy."}
                 )
 
         student = attrs.get("student") or getattr(self.instance, "student", None)

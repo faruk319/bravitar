@@ -16,4 +16,4 @@ class InvoiceAdmin(admin.ModelAdmin):
 
 @admin.register(FeePlan)
 class FeePlanAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "amount", "cycle", "is_active"]
+    list_display = ["name", "academy", "amount", "cycle", "is_active"]

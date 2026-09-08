@@ -40,11 +40,11 @@ class MembershipTierSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value):
-        """The (organization, name) uniqueness can't be validated by DRF —
-        organization isn't a serializer field, it comes from the tenant — so
+        """The (academy, name) uniqueness can't be validated by DRF —
+        academy isn't a serializer field, it comes from the tenant — so
         without this a duplicate name surfaces as a 500 from the database."""
         existing = MembershipTier.objects.filter(
-            organization=self.context["organization"], name__iexact=value.strip()
+            academy=self.context["academy"], name__iexact=value.strip()
         )
         if self.instance:
             existing = existing.exclude(pk=self.instance.pk)
@@ -90,13 +90,13 @@ class MemberSubscriptionSerializer(serializers.ModelSerializer):
         return obj.invoice.amount_paid if obj.invoice else None
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That member belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
         return value
 
     def validate_tier(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That tier belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That tier belongs to another academy.")
         return value
 
     def validate(self, attrs):

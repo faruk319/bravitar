@@ -53,7 +53,7 @@ class GradingResultListCreateView(KarateScopedMixin, generics.ListCreateAPIView)
 
     def get_queryset(self):
         queryset = GradingResult.objects.filter(
-            grading__organization=self.organization
+            grading__academy=self.academy
         ).select_related("student", "grading")
         if grading := self.request.query_params.get("grading"):
             queryset = queryset.filter(grading_id=grading)
@@ -89,13 +89,13 @@ def belt_standings(request):
     Current belt is the highest-position belt they have *passed* — derived,
     not stored, so correcting a grading result corrects the belt too.
     """
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
 
-    belts = {b.id: b for b in Belt.objects.filter(organization=organization)}
+    belts = {b.id: b for b in Belt.objects.filter(academy=academy)}
 
     best = {}
     for result in GradingResult.objects.filter(
-        grading__organization=organization, result=GradingResultChoice.PASS
+        grading__academy=academy, result=GradingResultChoice.PASS
     ).select_related("grading"):
         belt = belts.get(result.grading.belt_id)
         if belt is None:
@@ -106,7 +106,7 @@ def belt_standings(request):
 
     records = {
         row["student"]: row
-        for row in Bout.objects.filter(organization=organization)
+        for row in Bout.objects.filter(academy=academy)
         .values("student")
         .annotate(
             wins=Count("id", filter=Q(result=BoutResult.WIN)),
@@ -116,7 +116,7 @@ def belt_standings(request):
     }
 
     rows = []
-    for student in Student.objects.filter(organization=organization):
+    for student in Student.objects.filter(academy=academy):
         belt = best.get(student.id)
         record = records.get(student.id, {})
         wins, losses = record.get("wins", 0), record.get("losses", 0)

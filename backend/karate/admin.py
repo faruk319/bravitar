@@ -10,13 +10,13 @@ class GradingResultInline(admin.TabularInline):
 
 @admin.register(Grading)
 class GradingAdmin(admin.ModelAdmin):
-    list_display = ["belt", "held_on", "organization", "examiner"]
+    list_display = ["belt", "held_on", "academy", "examiner"]
     inlines = [GradingResultInline]
 
 
 @admin.register(Belt)
 class BeltAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "position"]
+    list_display = ["name", "academy", "position"]
 
 
 @admin.register(Bout)

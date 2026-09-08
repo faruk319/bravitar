@@ -13,7 +13,7 @@ class Command(BaseCommand):
 
         for name, category, equipment, primary, secondary in SHARED_EXERCISES:
             _, was_created = Exercise.objects.update_or_create(
-                organization=None,
+                academy=None,
                 slug=slugify(name),
                 defaults={
                     "name": name,

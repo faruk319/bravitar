@@ -35,7 +35,7 @@ class SubscriptionStatus:
         cancelled  called off                   -> nothing
 
     `pending` only exists for organizations that take payment before access
-    (Organization.membership_requires_payment). A gym that lets regulars pay
+    (Academy.membership_requires_payment). A gym that lets regulars pay
     later switches it off, and then a membership is live from its start date
     with the balance owing shown on the billing screen instead.
     """

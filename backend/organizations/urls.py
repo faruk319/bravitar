@@ -3,9 +3,9 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path("signup/", views.OrganizationSignupView.as_view(), name="organization-signup"),
+    path("signup/", views.OrganizationSignupView.as_view(), name="academy-signup"),
     path("mine/", views.MyOrganizationsView.as_view(), name="my-organizations"),
-    path("current/", views.CurrentOrganizationView.as_view(), name="current-organization"),
+    path("current/", views.CurrentOrganizationView.as_view(), name="current-academy"),
     path("current/team/", views.TeamListCreateView.as_view(), name="team-list-create"),
     path("current/team/<int:pk>/", views.TeamMemberDetailView.as_view(), name="team-member-detail"),
     path("current/branches/", views.BranchListCreateView.as_view(), name="branch-list-create"),

@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import models
 
 from exercises.models import Exercise
-from organizations.models import Organization
+from organizations.models import Academy
 
 from .constants import ProgressionRule
 
@@ -20,7 +20,7 @@ class Routine(models.Model):
     """A reusable workout plan — created by a trainer for a member, or by a
     member for themselves."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="routines")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="routines")
     user_id = models.CharField(max_length=64, help_text="Supabase user id of the owner.")
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -75,7 +75,7 @@ class RoutineExercise(models.Model):
 class WorkoutSession(models.Model):
     """One actual training session. May follow a routine, or be freestyle."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="sessions")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="sessions")
     user_id = models.CharField(max_length=64)
     routine = models.ForeignKey(
         Routine, on_delete=models.SET_NULL, related_name="sessions", null=True, blank=True
@@ -139,7 +139,7 @@ class SetLog(models.Model):
                 exercise=self.exercise,
                 is_warmup=False,
                 session__user_id=self.session.user_id,
-                session__organization=self.session.organization,
+                session__academy=self.session.academy,
             )
             .exclude(pk=self.pk)
             .aggregate(best=models.Max("estimated_1rm"))["best"]

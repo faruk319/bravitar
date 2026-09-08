@@ -12,7 +12,7 @@ from datetime import date
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from organizations.models import APIKey, Organization
+from organizations.models import APIKey, Academy
 from students.models import MemberDocument, Student
 
 from .base import TenantAPITestCase
@@ -41,7 +41,7 @@ class OnboardingTestCase(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         self.student = Student.objects.create(
-            organization=self.org, full_name="New Joiner", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="New Joiner", joined_on=date(2026, 1, 1)
         )
 
     def put_photo(self, actor=None, content=JPEG, name="face.jpg"):
@@ -112,7 +112,7 @@ class MemberPhotoTests(OnboardingTestCase):
         """A signed-in owner of a different academy, asking for our member's
         id. Must be a miss, not a picture."""
         self.put_photo()
-        response = self.client_for(self.other_owner, organization=self.other_org).get(
+        response = self.client_for(self.other_owner, academy=self.other_org).get(
             f"/api/students/{self.student.id}/photo/"
         )
         self.assertIn(response.status_code, (403, 404))
@@ -218,7 +218,7 @@ class DocumentPrivacyTests(OnboardingTestCase):
     def setUp(self):
         super().setUp()
         self.document = MemberDocument.objects.create(
-            organization=self.org, student=self.student, kind="aadhaar",
+            academy=self.org, student=self.student, kind="aadhaar",
             file=upload("aadhaar.jpg", JPEG), number_last4="4321",
         )
 
@@ -257,14 +257,14 @@ class DocumentPrivacyTests(OnboardingTestCase):
 
     def test_another_tenant_cannot_download_an_id_scan(self):
         self.assertClosed(
-            self.client_for(self.other_owner, organization=self.other_org).get(
+            self.client_for(self.other_owner, academy=self.other_org).get(
                 f"/api/students/documents/{self.document.id}/file/"
             )
         )
 
     def test_a_document_cannot_be_filed_against_another_tenants_member(self):
         outsider = Student.objects.create(
-            organization=self.other_org, full_name="Not Ours", joined_on=date(2026, 1, 1)
+            academy=self.other_org, full_name="Not Ours", joined_on=date(2026, 1, 1)
         )
         response = self.post_document(
             student=outsider.id, file=upload("x.jpg", JPEG)
@@ -296,7 +296,7 @@ class MemberDeletionTests(OnboardingTestCase):
         from billing.models import Invoice
 
         Invoice.objects.create(
-            organization=self.org, student=self.student, amount=Decimal("1500.00"),
+            academy=self.org, student=self.student, amount=Decimal("1500.00"),
             issued_on=date_type(2026, 1, 1), due_on=date_type(2026, 1, 1),
         )
 

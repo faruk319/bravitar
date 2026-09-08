@@ -74,7 +74,7 @@ class InvitationTests(TenantAPITestCase):
 class LastOwnerTests(TenantAPITestCase):
     def owner_membership(self):
         # By user id, not by role: after a promotion there are two owners.
-        return Membership.objects.get(organization=self.org, user_id=self.owner.id)
+        return Membership.objects.get(academy=self.org, user_id=self.owner.id)
 
     def test_cannot_demote_the_only_owner(self):
         membership = self.owner_membership()
@@ -95,7 +95,7 @@ class LastOwnerTests(TenantAPITestCase):
         self.assertTrue(Membership.objects.filter(pk=membership.pk).exists())
 
     def test_can_step_down_once_someone_else_owns_it(self):
-        other = Membership.objects.get(organization=self.org, user_id=self.manager.id)
+        other = Membership.objects.get(academy=self.org, user_id=self.manager.id)
         promote = self.client_for(self.owner).patch(
             f"/api/organizations/current/team/{other.id}/",
             {"role": Role.OWNER}, format="json",
@@ -107,4 +107,4 @@ class LastOwnerTests(TenantAPITestCase):
             {"role": Role.MANAGER}, format="json",
         )
         self.assertEqual(demote.status_code, 200)
-        self.assertEqual(Membership.objects.filter(organization=self.org, role=Role.OWNER).count(), 1)
+        self.assertEqual(Membership.objects.filter(academy=self.org, role=Role.OWNER).count(), 1)

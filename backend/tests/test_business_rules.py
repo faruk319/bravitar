@@ -15,10 +15,10 @@ class BillingTests(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         self.student = Student.objects.create(
-            organization=self.org, full_name="Payer", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Payer", joined_on=date(2026, 1, 1)
         )
         self.invoice = Invoice.objects.create(
-            organization=self.org, student=self.student, amount=Decimal("1000.00"),
+            academy=self.org, student=self.student, amount=Decimal("1000.00"),
             issued_on=date(2026, 1, 1), due_on=date(2999, 1, 1),
         )
 
@@ -50,7 +50,7 @@ class BillingTests(TenantAPITestCase):
 
     def test_overdue_is_derived_from_the_due_date(self):
         overdue = Invoice.objects.create(
-            organization=self.org, student=self.student, amount=Decimal("100.00"),
+            academy=self.org, student=self.student, amount=Decimal("100.00"),
             issued_on=date(2020, 1, 1), due_on=date(2020, 1, 10),
         )
         self.assertEqual(overdue.status, InvoiceStatus.OVERDUE)
@@ -68,7 +68,7 @@ class AttendanceTests(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         self.student = Student.objects.create(
-            organization=self.org, full_name="Attendee", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Attendee", joined_on=date(2026, 1, 1)
         )
         self.batch = self.client_for(self.owner).post(
             "/api/batches/", {"name": "Morning", "days_of_week": [0]}, format="json"
@@ -114,7 +114,7 @@ class BatchCapacityTests(TenantAPITestCase):
 
         first, second = [
             Student.objects.create(
-                organization=self.org, full_name=name, joined_on=date(2026, 1, 1)
+                academy=self.org, full_name=name, joined_on=date(2026, 1, 1)
             )
             for name in ("First", "Second")
         ]

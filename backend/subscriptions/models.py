@@ -5,21 +5,21 @@ from django.db import models
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from organizations.models import Organization
+from organizations.models import Academy
 from students.models import Student
 
 from .constants import BillingPeriod, SubscriptionStatus
 
 
 class MemberSubscriptionQuerySet(models.QuerySet):
-    """Status is derived from three places — the dates, the organization's
+    """Status is derived from three places — the dates, the academy's
     payment policy, and the invoice's payments — so reading it off a plain
     queryset costs three extra queries per row. These helpers load it in one
     go, and translate a status back into something the database can filter on.
     """
 
     def with_status(self):
-        return self.select_related("organization", "invoice").prefetch_related(
+        return self.select_related("academy", "invoice").prefetch_related(
             "invoice__payments"
         )
 
@@ -34,9 +34,9 @@ class MemberSubscriptionQuerySet(models.QuerySet):
             )
         ).order_by(*MemberSubscription._meta.ordering)
 
-    def awaiting_payment(self, organization):
+    def awaiting_payment(self, academy):
         """Live memberships that nobody has paid a rupee towards."""
-        if not organization.membership_requires_payment:
+        if not academy.membership_requires_payment:
             return self.none()
         return self._with_paid().filter(
             cancelled_on__isnull=True,
@@ -46,7 +46,7 @@ class MemberSubscriptionQuerySet(models.QuerySet):
             _paid__lte=0,
         )
 
-    def by_status(self, wanted, organization):
+    def by_status(self, wanted, academy):
         """Filter to one derived status, in SQL, so pagination still counts
         the right rows. Anything unrecognised leaves the queryset alone."""
         today = timezone.localdate()
@@ -56,7 +56,7 @@ class MemberSubscriptionQuerySet(models.QuerySet):
         if wanted == SubscriptionStatus.EXPIRED:
             return self.filter(cancelled_on__isnull=True, expires_on__lt=today)
         if wanted == SubscriptionStatus.PENDING:
-            return self.awaiting_payment(organization)
+            return self.awaiting_payment(academy)
 
         if wanted in (SubscriptionStatus.ACTIVE, SubscriptionStatus.UPCOMING):
             queryset = self.filter(cancelled_on__isnull=True, expires_on__gte=today)
@@ -65,7 +65,7 @@ class MemberSubscriptionQuerySet(models.QuerySet):
             else:
                 queryset = queryset.filter(started_on__gt=today)
             # Unpaid memberships read as "pending", not as either of these.
-            unpaid = self.awaiting_payment(organization).values("pk")
+            unpaid = self.awaiting_payment(academy).values("pk")
             return queryset.exclude(pk__in=unpaid)
         return self
 
@@ -78,8 +78,8 @@ class MembershipTier(models.Model):
     member buys; that one is who can sign in.
     """
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="membership_tiers"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="membership_tiers"
     )
     name = models.CharField(max_length=100)
     description = models.CharField(max_length=500, blank=True)
@@ -110,7 +110,7 @@ class MembershipTier(models.Model):
         ordering = ["position", "price", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "name"], name="unique_tier_name_per_org"
+                fields=["academy", "name"], name="unique_tier_name_per_org"
             )
         ]
 
@@ -133,8 +133,8 @@ class MemberSubscription(models.Model):
 
     BRANCH_FIELD = "student__branch"
 
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="subscriptions"
+    academy = models.ForeignKey(
+        Academy, on_delete=models.CASCADE, related_name="subscriptions"
     )
     student = models.ForeignKey(
         Student, on_delete=models.CASCADE, related_name="subscriptions"
@@ -164,7 +164,7 @@ class MemberSubscription(models.Model):
 
     class Meta:
         ordering = ["-expires_on", "-id"]
-        indexes = [models.Index(fields=["organization", "expires_on"])]
+        indexes = [models.Index(fields=["academy", "expires_on"])]
 
     def __str__(self):
         return f"{self.student.full_name} on {self.tier.name} to {self.expires_on}"
@@ -179,7 +179,7 @@ class MemberSubscription(models.Model):
         easy to say out loud — "not a rupee in yet" — instead of turning the
         front desk into a debt calculation.
         """
-        if not self.organization.membership_requires_payment:
+        if not self.academy.membership_requires_payment:
             return False
         if self.invoice is None or self.invoice.is_cancelled:
             # No bill to settle — either legacy data or a waived membership.
@@ -233,7 +233,7 @@ class MemberSubscription(models.Model):
             return self.invoice
 
         invoice = Invoice.objects.create(
-            organization=self.organization,
+            academy=self.academy,
             student=self.student,
             amount=self.price_paid,
             issued_on=self.started_on,

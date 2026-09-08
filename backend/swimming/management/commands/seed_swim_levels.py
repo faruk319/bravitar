@@ -1,26 +1,26 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from organizations.models import Organization
+from organizations.models import Academy
 from swimming.models import SwimLevel, SwimSkill
 from swimming.seed_data import SWIM_LADDER
 
 
 class Command(BaseCommand):
-    help = "Seeds the standard swim ladder for one organization. Safe to re-run."
+    help = "Seeds the standard swim ladder for one academy. Safe to re-run."
 
     def add_arguments(self, parser):
-        parser.add_argument("slug", help="Organization slug.")
+        parser.add_argument("slug", help="Academy slug.")
 
     def handle(self, *args, **options):
         try:
-            org = Organization.objects.get(slug=options["slug"])
-        except Organization.DoesNotExist:
-            raise CommandError(f"No organization with slug '{options['slug']}'.")
+            org = Academy.objects.get(slug=options["slug"])
+        except Academy.DoesNotExist:
+            raise CommandError(f"No academy with slug '{options['slug']}'.")
 
         levels = skills = 0
         for position, (name, description, skill_names) in enumerate(SWIM_LADDER):
             level, created = SwimLevel.objects.update_or_create(
-                organization=org, name=name,
+                academy=org, name=name,
                 defaults={"position": position, "description": description},
             )
             levels += 1 if created else 0

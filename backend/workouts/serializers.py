@@ -37,14 +37,14 @@ class RoutineSerializer(serializers.ModelSerializer):
     def validate_items(self, value):
         """Exercises must come from this org's visible library — otherwise a
         routine could reference another academy's custom exercise."""
-        organization = self.context["organization"]
+        academy = self.context["academy"]
         visible = set(
-            Exercise.objects.visible_to(organization).values_list("id", flat=True)
+            Exercise.objects.visible_to(academy).values_list("id", flat=True)
         )
         for item in value:
             if item["exercise"].id not in visible:
                 raise serializers.ValidationError(
-                    f"Exercise {item['exercise'].id} is not available to this organization."
+                    f"Exercise {item['exercise'].id} is not available to this academy."
                 )
         return value
 
@@ -91,9 +91,9 @@ class SetLogSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "estimated_1rm", "is_personal_record", "logged_at"]
 
     def validate_exercise_id(self, value):
-        organization = self.context["organization"]
-        if not Exercise.objects.visible_to(organization).filter(pk=value.pk).exists():
-            raise serializers.ValidationError("That exercise is not available to this organization.")
+        academy = self.context["academy"]
+        if not Exercise.objects.visible_to(academy).filter(pk=value.pk).exists():
+            raise serializers.ValidationError("That exercise is not available to this academy.")
         return value
 
 

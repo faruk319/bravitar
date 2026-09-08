@@ -5,13 +5,13 @@ from .models import Food, FoodLogEntry, NutritionPlan
 
 @admin.register(Food)
 class FoodAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "energy_kcal", "protein_g", "carbs_g", "fat_g"]
+    list_display = ["name", "academy", "energy_kcal", "protein_g", "carbs_g", "fat_g"]
     search_fields = ["name", "brand"]
 
 
 @admin.register(NutritionPlan)
 class NutritionPlanAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "user_id", "target_kcal"]
+    list_display = ["name", "academy", "user_id", "target_kcal"]
 
 
 @admin.register(FoodLogEntry)

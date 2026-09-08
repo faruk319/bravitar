@@ -18,7 +18,7 @@ def _get_jwks_client():
 class SupabaseUser:
     """Lightweight authenticated-user stand-in backed by a verified Supabase JWT.
 
-    Phase 1 will link this to an Organization/role; for now it just exposes
+    Phase 1 will link this to an Academy/role; for now it just exposes
     the claims needed to prove auth is wired up end-to-end.
     """
 
@@ -93,7 +93,7 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
 
 
 class APIKeyPrincipal:
-    """A machine acting for an organization, not a person.
+    """A machine acting for an academy, not a person.
 
     Distinct from SupabaseUser on purpose: an API key belongs to the academy,
     so it has no `id` to attribute personal records to. Anything keyed to a
@@ -109,8 +109,8 @@ class APIKeyPrincipal:
 
     def __init__(self, api_key):
         self.api_key = api_key
-        self.organization = api_key.organization
-        self.organization_id = api_key.organization_id
+        self.academy = api_key.academy
+        self.academy_id = api_key.academy_id
 
     @property
     def pk(self):
@@ -118,7 +118,7 @@ class APIKeyPrincipal:
         return f"apikey-{self.api_key.pk}"
 
     def __str__(self):
-        return f"API key {self.api_key.prefix}… ({self.organization.name})"
+        return f"API key {self.api_key.prefix}… ({self.academy.name})"
 
 
 class APIKeyAuthentication(authentication.BaseAuthentication):
@@ -126,7 +126,7 @@ class APIKeyAuthentication(authentication.BaseAuthentication):
 
     The middleware separately resolves the same key to a tenant; this is what
     makes the request *authenticated* rather than merely scoped. Without it a
-    key selected an organization and then failed the permission check, which
+    key selected an academy and then failed the permission check, which
     is what "headless access" was quietly doing before.
     """
 

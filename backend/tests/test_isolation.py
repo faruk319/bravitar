@@ -20,10 +20,10 @@ class ReadIsolationTests(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         self.mine = Student.objects.create(
-            organization=self.org, full_name="Our Student", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Our Student", joined_on=date(2026, 1, 1)
         )
         self.theirs = Student.objects.create(
-            organization=self.other_org, full_name="Their Student", joined_on=date(2026, 1, 1)
+            academy=self.other_org, full_name="Their Student", joined_on=date(2026, 1, 1)
         )
 
     def test_student_list_shows_only_this_organization(self):
@@ -44,13 +44,13 @@ class ReadIsolationTests(TenantAPITestCase):
         self.assertEqual(self.theirs.full_name, "Their Student")
 
     def test_enquiries_are_isolated(self):
-        Enquiry.objects.create(organization=self.other_org, name="Their Lead")
+        Enquiry.objects.create(academy=self.other_org, name="Their Lead")
         response = self.client_for(self.owner).get("/api/enquiries/")
         self.assertEqual(response.data["count"], 0)
 
     def test_invoices_are_isolated(self):
         Invoice.objects.create(
-            organization=self.other_org, student=self.theirs, amount=Decimal("100"),
+            academy=self.other_org, student=self.theirs, amount=Decimal("100"),
             issued_on=date(2026, 1, 1), due_on=date(2026, 1, 10),
         )
         response = self.client_for(self.owner).get("/api/billing/invoices/")
@@ -58,7 +58,7 @@ class ReadIsolationTests(TenantAPITestCase):
 
     def test_billing_summary_counts_only_this_organization(self):
         Invoice.objects.create(
-            organization=self.other_org, student=self.theirs, amount=Decimal("5000"),
+            academy=self.other_org, student=self.theirs, amount=Decimal("5000"),
             issued_on=date(2026, 1, 1), due_on=date(2026, 1, 10),
         )
         response = self.client_for(self.owner).get("/api/billing/summary/")
@@ -72,7 +72,7 @@ class WriteIsolationTests(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         self.their_student = Student.objects.create(
-            organization=self.other_org, full_name="Their Student", joined_on=date(2026, 1, 1)
+            academy=self.other_org, full_name="Their Student", joined_on=date(2026, 1, 1)
         )
 
     def test_cannot_invoice_another_organizations_student(self):
@@ -116,7 +116,7 @@ class WriteIsolationTests(TenantAPITestCase):
             name="Bench Press", slug="bench-press", primary_muscle="chest"
         )
         theirs = Exercise.objects.create(
-            organization=self.other_org, name="Their Move", slug="their-move",
+            academy=self.other_org, name="Their Move", slug="their-move",
             primary_muscle="chest",
         )
 
@@ -127,7 +127,7 @@ class WriteIsolationTests(TenantAPITestCase):
 
     def test_cannot_build_a_routine_from_another_organizations_exercise(self):
         theirs = Exercise.objects.create(
-            organization=self.other_org, name="Their Move", slug="their-move",
+            academy=self.other_org, name="Their Move", slug="their-move",
             primary_muscle="chest",
         )
         response = self.client_for(self.owner).post(

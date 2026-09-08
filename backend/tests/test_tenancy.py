@@ -1,4 +1,4 @@
-"""Tenant resolution: which organization a request belongs to.
+"""Tenant resolution: which academy a request belongs to.
 
 Everything else in the platform is scoped by the answer, so getting this
 wrong leaks one academy's data into another's screens.
@@ -84,7 +84,7 @@ class APIKeyResolutionTests(TenantAPITestCase):
 
     def test_raw_key_is_never_stored(self):
         _, raw_key = APIKey.generate(self.org, name="k")
-        stored = APIKey.objects.get(organization=self.org)
+        stored = APIKey.objects.get(academy=self.org)
         self.assertNotEqual(stored.hashed_key, raw_key)
         self.assertNotIn(raw_key, stored.hashed_key)
         # Only a short prefix is kept, for identifying the key in a list.

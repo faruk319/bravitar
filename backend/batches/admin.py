@@ -10,5 +10,5 @@ class EnrolmentInline(admin.TabularInline):
 
 @admin.register(Batch)
 class BatchAdmin(admin.ModelAdmin):
-    list_display = ["name", "organization", "branch", "coach_name", "is_active"]
+    list_display = ["name", "academy", "branch", "coach_name", "is_active"]
     inlines = [EnrolmentInline]

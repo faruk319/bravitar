@@ -15,12 +15,12 @@ def validate_selectable_verticals(value, allowed_extra=frozenset()):
             f"Not available yet: {', '.join(sorted(unavailable))}."
         )
     return list(dict.fromkeys(value))
-from .models import APIKey, Branch, Membership, Organization
+from .models import APIKey, Branch, Membership, Academy
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Organization
+        model = Academy
         fields = [
             "id", "name", "slug", "verticals", "plan",
             "custom_domain", "domain_verified", "created_at",
@@ -32,7 +32,7 @@ class OrganizationSignupSerializer(serializers.ModelSerializer):
     verticals = serializers.ListField(child=serializers.CharField(), allow_empty=False)
 
     class Meta:
-        model = Organization
+        model = Academy
         fields = ["id", "name", "slug", "verticals"]
         read_only_fields = ["id"]
 
@@ -41,11 +41,11 @@ class OrganizationSignupSerializer(serializers.ModelSerializer):
 
 
 class MembershipSerializer(serializers.ModelSerializer):
-    organization = OrganizationSerializer()
+    academy = OrganizationSerializer()
 
     class Meta:
         model = Membership
-        fields = ["organization", "role", "created_at"]
+        fields = ["academy", "role", "created_at"]
 
 
 class OrganizationSettingsSerializer(serializers.ModelSerializer):
@@ -54,7 +54,7 @@ class OrganizationSettingsSerializer(serializers.ModelSerializer):
     verticals = serializers.ListField(child=serializers.CharField(), allow_empty=False)
 
     class Meta:
-        model = Organization
+        model = Academy
         fields = [
             "id", "name", "slug", "verticals", "plan", "custom_domain",
             "domain_verified", "membership_requires_payment",
@@ -89,15 +89,15 @@ class TeamMemberSerializer(serializers.ModelSerializer):
         return [branch.name for branch in obj.branches.all()]
 
     def validate_branches(self, value):
-        organization = self.context["organization"]
-        stray = [b.name for b in value if b.organization_id != organization.id]
+        academy = self.context["academy"]
+        stray = [b.name for b in value if b.academy_id != academy.id]
         if stray:
             raise serializers.ValidationError("Those branches belong to another academy.")
         return value
 
     def validate_email(self, value):
-        organization = self.context["organization"]
-        existing = Membership.objects.filter(organization=organization, email__iexact=value)
+        academy = self.context["academy"]
+        existing = Membership.objects.filter(academy=academy, email__iexact=value)
         if self.instance:
             existing = existing.exclude(pk=self.instance.pk)
         if existing.exists():
@@ -112,7 +112,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        """An organization must keep at least one owner, or nobody can manage
+        """An academy must keep at least one owner, or nobody can manage
         it — including undoing whatever demotion caused it."""
         new_role = attrs.get("role")
         if self.instance and new_role and self.instance.role == Role.OWNER and new_role != Role.OWNER:
@@ -125,7 +125,7 @@ class TeamMemberSerializer(serializers.ModelSerializer):
 
 def other_owners(membership):
     return Membership.objects.filter(
-        organization=membership.organization, role=Role.OWNER
+        academy=membership.academy, role=Role.OWNER
     ).exclude(pk=membership.pk)
 
 

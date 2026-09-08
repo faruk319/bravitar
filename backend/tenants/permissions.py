@@ -7,7 +7,7 @@ from .context import get_current_organization
 
 
 class IsOrganizationMember(BasePermission):
-    """Request must be scoped to an Organization (via subdomain, custom
+    """Request must be scoped to an Academy (via subdomain, custom
     domain, or API key) and the authenticated user must belong to it.
 
     Belonging is not enough on its own: only roles in `Role.CAN_SIGN_IN` may
@@ -16,23 +16,23 @@ class IsOrganizationMember(BasePermission):
     in `Role`, and nobody's link to their academy is lost in the meantime.
     """
 
-    message = "You are not a member of this organization."
+    message = "You are not a member of this academy."
 
     def has_permission(self, request, view):
-        organization = get_current_organization(request)
-        if organization is None or not getattr(request.user, "is_authenticated", False):
+        academy = get_current_organization(request)
+        if academy is None or not getattr(request.user, "is_authenticated", False):
             return False
 
         if getattr(request.user, "is_api_key", False):
             # A key belongs to one academy and can only ever act for that one,
             # whatever host the request arrived on.
-            if request.user.organization_id != organization.id:
+            if request.user.academy_id != academy.id:
                 return False
             request.membership = None
             return True
 
         membership = Membership.objects.filter(
-            organization=organization, user_id=request.user.id
+            academy=academy, user_id=request.user.id
         ).first()
 
         if membership is None:
@@ -43,7 +43,7 @@ class IsOrganizationMember(BasePermission):
 
             if claim_pending_memberships(request.user):
                 membership = Membership.objects.filter(
-                    organization=organization, user_id=request.user.id
+                    academy=academy, user_id=request.user.id
                 ).first()
 
         if membership is None:
@@ -96,7 +96,7 @@ class IsOrganizationOwner(IsOrganizationMember):
     able to hand out access or mint more keys, which would make revoking the
     one you know about pointless."""
 
-    message = "Only the organization owner can do this."
+    message = "Only the academy owner can do this."
 
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
@@ -132,13 +132,13 @@ class RequiresVertical(IsOrganizationMember):
         if not super().has_permission(request, view):
             return False
 
-        organization = get_current_organization(request)
-        if self.vertical in (organization.verticals or []):
+        academy = get_current_organization(request)
+        if self.vertical in (academy.verticals or []):
             return True
 
         # A plain attribute, not a property: the base class sets `self.message`
         # when it denies, and a read-only property here would break that.
         self.message = (
-            f"This organization does not have the '{self.vertical}' module enabled."
+            f"This academy does not have the '{self.vertical}' module enabled."
         )
         return False

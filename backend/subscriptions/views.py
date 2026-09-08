@@ -35,7 +35,7 @@ class GymScopedMixin(OrganizationScopedMixin):
 
 def _tier_subscriptions():
     """Tier cards report how many members are current, and "current" now reads
-    the organization's payment policy and the invoice behind each membership."""
+    the academy's payment policy and the invoice behind each membership."""
     return Prefetch("subscriptions", queryset=MemberSubscription.objects.with_status())
 
 
@@ -77,7 +77,7 @@ class SubscriptionListCreateView(GymScopedMixin, generics.ListCreateAPIView):
         """Selling a membership bills for it, so Memberships and Fees &
         Billing are two views of the same money rather than two tallies that
         never meet."""
-        subscription = serializer.save(organization=self.organization)
+        subscription = serializer.save(academy=self.academy)
         subscription.raise_invoice()
 
     def get_queryset(self):
@@ -91,7 +91,7 @@ class SubscriptionListCreateView(GymScopedMixin, generics.ListCreateAPIView):
         if tier := params.get("tier"):
             queryset = queryset.filter(tier_id=tier)
         if wanted := params.get("status"):
-            queryset = queryset.by_status(wanted, self.organization)
+            queryset = queryset.by_status(wanted, self.academy)
         return queryset
 
 
@@ -121,12 +121,12 @@ def expiring_soon(request):
     This is the list the renewal reminders are built from — a member who
     quietly expires is a member who quietly stops coming.
     """
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
     days = min(int(request.query_params.get("days", SubscriptionStatus.EXPIRING_WINDOW_DAYS)), 60)
     today = timezone.localdate()
 
     subscriptions = (
-        MemberSubscription.objects.filter(organization=organization, cancelled_on__isnull=True)
+        MemberSubscription.objects.filter(academy=academy, cancelled_on__isnull=True)
         .filter(
             Q(expires_on__gte=today - timedelta(days=30), expires_on__lte=today + timedelta(days=days))
         )
@@ -161,10 +161,10 @@ def expiring_soon(request):
 def membership_overview(request):
     """How the membership base looks right now: who is current, who lapsed,
     and what each tier is carrying."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
 
     subscriptions = list(
-        MemberSubscription.objects.filter(organization=organization)
+        MemberSubscription.objects.filter(academy=academy)
         .select_related("tier")
         .with_status()
     )

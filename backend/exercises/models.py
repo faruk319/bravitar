@@ -1,24 +1,24 @@
 from django.db import models
 
-from organizations.models import Organization
+from organizations.models import Academy
 
 from .constants import Category, Equipment, Muscle
 
 
 class ExerciseQuerySet(models.QuerySet):
-    def visible_to(self, organization):
-        """The shared library plus this organization's own custom exercises."""
+    def visible_to(self, academy):
+        """The shared library plus this academy's own custom exercises."""
         return self.filter(
-            models.Q(organization__isnull=True) | models.Q(organization=organization)
+            models.Q(academy__isnull=True) | models.Q(academy=academy)
         )
 
 
 class Exercise(models.Model):
-    """An exercise, either from the shared library (organization is null) or
+    """An exercise, either from the shared library (academy is null) or
     added by one academy for its own use."""
 
-    organization = models.ForeignKey(
-        Organization,
+    academy = models.ForeignKey(
+        Academy,
         on_delete=models.CASCADE,
         related_name="exercises",
         null=True,
@@ -44,14 +44,14 @@ class Exercise(models.Model):
         ordering = ["name"]
         constraints = [
             # Postgres treats NULLs as distinct, so the shared library needs
-            # its own constraint rather than relying on (organization, slug).
+            # its own constraint rather than relying on (academy, slug).
             models.UniqueConstraint(
                 fields=["slug"],
-                condition=models.Q(organization__isnull=True),
+                condition=models.Q(academy__isnull=True),
                 name="unique_shared_exercise_slug",
             ),
             models.UniqueConstraint(
-                fields=["organization", "slug"],
+                fields=["academy", "slug"],
                 name="unique_org_exercise_slug",
             ),
         ]
@@ -61,4 +61,4 @@ class Exercise(models.Model):
 
     @property
     def is_custom(self):
-        return self.organization_id is not None
+        return self.academy_id is not None

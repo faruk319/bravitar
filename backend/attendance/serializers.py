@@ -62,13 +62,13 @@ class CheckInSerializer(serializers.ModelSerializer):
         ]
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That member belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
         return value
 
     def validate_branch(self, value):
-        if value and value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That branch belongs to another organization.")
+        if value and value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That branch belongs to another academy.")
         return value
 
 
@@ -80,9 +80,9 @@ class ScanSerializer(serializers.Serializer):
     branch = serializers.IntegerField(required=False, allow_null=True)
 
     def validate_token(self, value):
-        organization = self.context["organization"]
+        academy = self.context["academy"]
         student = Student.objects.filter(
-            organization=organization, qr_token=value
+            academy=academy, qr_token=value
         ).first()
         if student is None:
             # Same answer for malformed, foreign and reissued tokens — the door
@@ -110,13 +110,13 @@ class BiometricEnrolmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name", "created_at"]
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That member belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That member belongs to another academy.")
         return value
 
     def validate(self, attrs):
         taken = BiometricEnrolment.objects.filter(
-            organization=self.context["organization"],
+            academy=self.context["academy"],
             device=attrs["device"], external_id=attrs["external_id"],
         ).exclude(pk=getattr(self.instance, "pk", None)).first()
         if taken:
@@ -138,7 +138,7 @@ class DevicePunchSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         enrolment = BiometricEnrolment.objects.filter(
-            organization=self.context["organization"],
+            academy=self.context["academy"],
             device=attrs["device"], external_id=attrs["external_id"],
         ).select_related("student").first()
         if enrolment is None:

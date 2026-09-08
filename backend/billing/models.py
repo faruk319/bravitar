@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
-from organizations.models import Organization
+from organizations.models import Academy
 from students.models import Student
 
 from .constants import BillingCycle, InvoiceStatus, PaymentMethod
@@ -12,7 +12,7 @@ from .constants import BillingCycle, InvoiceStatus, PaymentMethod
 class FeePlan(models.Model):
     """A named fee, e.g. "Monthly gym membership — 1500"."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="fee_plans")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="fee_plans")
     name = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     cycle = models.CharField(max_length=20, choices=BillingCycle.CHOICES, default=BillingCycle.MONTHLY)
@@ -29,7 +29,7 @@ class FeePlan(models.Model):
 class Invoice(models.Model):
     BRANCH_FIELD = "student__branch"
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invoices")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="invoices")
     student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="invoices")
     fee_plan = models.ForeignKey(
         FeePlan, on_delete=models.SET_NULL, related_name="invoices", null=True, blank=True

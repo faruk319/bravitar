@@ -62,7 +62,7 @@ class SwitchedOffRoleTests(TenantAPITestCase):
         for role in SWITCHED_OFF:
             with self.subTest(role=role):
                 self.assertTrue(
-                    Membership.objects.filter(organization=self.org, role=role).exists()
+                    Membership.objects.filter(academy=self.org, role=role).exists()
                 )
 
 
@@ -85,7 +85,7 @@ class ManagerBoundaryTests(TenantAPITestCase):
 
     def test_a_manager_handles_the_money(self):
         student = Student.objects.create(
-            organization=self.org, full_name="Payer", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Payer", joined_on=date(2026, 1, 1)
         )
         response = self.client_for(self.manager).post(
             "/api/billing/invoices/",
@@ -134,7 +134,7 @@ class OutsiderTests(TenantAPITestCase):
             "/api/students/", {"full_name": "New", "joined_on": "2026-01-01"}, format="json"
         )
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(Student.objects.filter(organization=self.org).count(), 0)
+        self.assertEqual(Student.objects.filter(academy=self.org).count(), 0)
 
 
 class VerticalAvailabilityTests(TenantAPITestCase):

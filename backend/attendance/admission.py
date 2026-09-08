@@ -56,7 +56,7 @@ def admission_for(student):
         return Admission(False, Refusal.NOT_ENROLLED)
 
     verdicts = []
-    for vertical in student.organization.verticals or []:
+    for vertical in student.academy.verticals or []:
         rule = _RULES.get(vertical)
         if rule is None:
             continue

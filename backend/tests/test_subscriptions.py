@@ -23,12 +23,12 @@ class GymTestCase(TenantAPITestCase):
         self.org.save()
         self.today = timezone.localdate()
         self.student = Student.objects.create(
-            organization=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
         )
 
     def make_tier(self, **overrides):
         fields = {
-            "organization": self.org, "name": "Monthly",
+            "academy": self.org, "name": "Monthly",
             "period": BillingPeriod.MONTHLY, "duration_days": 30,
             "price": Decimal("1500.00"),
         }
@@ -147,7 +147,7 @@ class SubscriptionDateTests(GymTestCase):
 class SubscriptionStatusTests(GymTestCase):
     def make(self, starts_in, ends_in, cancelled=False):
         return MemberSubscription.objects.create(
-            organization=self.org, student=self.student, tier=self.make_tier(
+            academy=self.org, student=self.student, tier=self.make_tier(
                 name=f"Tier {starts_in}/{ends_in}"
             ),
             started_on=self.today + timedelta(days=starts_in),
@@ -206,11 +206,11 @@ class OverlapTests(GymTestCase):
 class ExpiryAlertTests(GymTestCase):
     def make_for(self, name, ends_in):
         student = Student.objects.create(
-            organization=self.org, full_name=name, joined_on=date(2026, 1, 1),
+            academy=self.org, full_name=name, joined_on=date(2026, 1, 1),
             phone="9800000000",
         )
         MemberSubscription.objects.create(
-            organization=self.org, student=student,
+            academy=self.org, student=student,
             tier=self.make_tier(name=f"Tier {name}"),
             started_on=self.today - timedelta(days=30),
             expires_on=self.today + timedelta(days=ends_in),
@@ -258,10 +258,10 @@ class OverviewTests(GymTestCase):
         monthly = self.make_tier(name="Monthly", price=Decimal("1500"))
         for name in ("A", "B"):
             student = Student.objects.create(
-                organization=self.org, full_name=name, joined_on=date(2026, 1, 1)
+                academy=self.org, full_name=name, joined_on=date(2026, 1, 1)
             )
             MemberSubscription.objects.create(
-                organization=self.org, student=student, tier=monthly,
+                academy=self.org, student=student, tier=monthly,
                 started_on=self.today - timedelta(days=5),
                 expires_on=self.today + timedelta(days=25),
                 price_paid=monthly.price,
@@ -275,10 +275,10 @@ class OverviewTests(GymTestCase):
     def test_lapsed_members_are_not_counted_as_value(self):
         tier = self.make_tier(price=Decimal("1500"))
         student = Student.objects.create(
-            organization=self.org, full_name="Gone", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Gone", joined_on=date(2026, 1, 1)
         )
         MemberSubscription.objects.create(
-            organization=self.org, student=student, tier=tier,
+            academy=self.org, student=student, tier=tier,
             started_on=self.today - timedelta(days=60),
             expires_on=self.today - timedelta(days=30),
             price_paid=tier.price,
@@ -329,7 +329,7 @@ class MembershipBillingTests(GymTestCase):
         response = self.subscribe()
         self.assertEqual(response.status_code, 201)
 
-        invoice = Invoice.objects.get(organization=self.org, student=self.student)
+        invoice = Invoice.objects.get(academy=self.org, student=self.student)
         self.assertEqual(invoice.amount, Decimal("1500.00"))
         self.assertEqual(invoice.subscription.id, response.data["id"])
 
@@ -432,7 +432,7 @@ class MembershipBillingTests(GymTestCase):
         subscription.raise_invoice()
 
         self.assertEqual(
-            Invoice.objects.filter(organization=self.org, student=self.student).count(), 1
+            Invoice.objects.filter(academy=self.org, student=self.student).count(), 1
         )
 
 
@@ -515,7 +515,7 @@ class MembershipStateTests(GymTestCase):
         card = self.client_for(self.manager).get("/api/gym-ops/tiers/").data["results"][0]
         self.assertEqual(card["active_members"], 0)
 
-        created = MemberSubscription.objects.get(organization=self.org)
+        created = MemberSubscription.objects.get(academy=self.org)
         self.pay(created.id, "1500.00")
         card = self.client_for(self.manager).get("/api/gym-ops/tiers/").data["results"][0]
         self.assertEqual(card["active_members"], 1)
@@ -538,7 +538,7 @@ class MembershipStatusFilterTests(GymTestCase):
         )
         self.unpaid = self.subscribe(
             student=Student.objects.create(
-                organization=self.org, full_name="Owes Money", joined_on=self.today
+                academy=self.org, full_name="Owes Money", joined_on=self.today
             )
         )
 

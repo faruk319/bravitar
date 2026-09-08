@@ -16,7 +16,7 @@ class PaginationShapeTests(TenantAPITestCase):
     def setUp(self):
         super().setUp()
         Student.objects.bulk_create([
-            Student(organization=self.org, full_name=f"Student {i:03}",
+            Student(academy=self.org, full_name=f"Student {i:03}",
                     joined_on=date(2026, 1, 1))
             for i in range(210)
         ])
@@ -50,7 +50,7 @@ class PaginationShapeTests(TenantAPITestCase):
 
     def test_pagination_respects_the_tenant_filter(self):
         Student.objects.create(
-            organization=self.other_org, full_name="Theirs", joined_on=date(2026, 1, 1)
+            academy=self.other_org, full_name="Theirs", joined_on=date(2026, 1, 1)
         )
         response = self.client_for(self.owner).get("/api/students/")
         self.assertEqual(response.data["count"], 210)
@@ -75,7 +75,7 @@ class MembershipStatusPaginationTests(TenantAPITestCase):
         self.org.save()
         for status in ("pending", "active", "expired", "cancelled"):
             queryset = MemberSubscription.objects.filter(
-                organization=self.org
+                academy=self.org
             ).by_status(status, self.org)
             self.assertTrue(
                 queryset.ordered,
@@ -98,7 +98,7 @@ class MemberListPaginationTests(TenantAPITestCase):
         names = [f"Member {i:02d}" for i in range(25)]
         for name in names:
             Student.objects.create(
-                organization=self.org, full_name=name, joined_on=date(2026, 1, 1)
+                academy=self.org, full_name=name, joined_on=date(2026, 1, 1)
             )
 
         seen = []

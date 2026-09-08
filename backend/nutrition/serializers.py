@@ -13,7 +13,7 @@ class FoodSerializer(serializers.ModelSerializer):
             "energy_kcal", "protein_g", "carbs_g", "fat_g", "fiber_g",
             "serving_size_g", "serving_label",
         ]
-        # slug is derived from the name server-side, per organization.
+        # slug is derived from the name server-side, per academy.
         read_only_fields = ["id", "slug", "is_custom"]
 
 
@@ -47,9 +47,9 @@ class FoodLogEntrySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "energy_kcal", "protein_g", "carbs_g", "fat_g"]
 
     def validate_food_id(self, value):
-        organization = self.context["organization"]
-        if not Food.objects.visible_to(organization).filter(pk=value.pk).exists():
-            raise serializers.ValidationError("That food is not available to this organization.")
+        academy = self.context["academy"]
+        if not Food.objects.visible_to(academy).filter(pk=value.pk).exists():
+            raise serializers.ValidationError("That food is not available to this academy.")
         return value
 
     def validate_amount_g(self, value):

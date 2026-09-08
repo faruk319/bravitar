@@ -25,18 +25,18 @@ class LaneBookingSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "pool_name", "batch_name"]
 
     def validate(self, attrs):
-        organization = self.context["organization"]
+        academy = self.context["academy"]
         merged = {**{f: getattr(self.instance, f, None) for f in
                      ("pool", "lane_number", "day_of_week", "start_time", "end_time", "batch")},
                   **attrs}
 
         pool = merged["pool"]
-        if pool.organization_id != organization.id:
-            raise serializers.ValidationError({"pool": "That pool belongs to another organization."})
+        if pool.academy_id != academy.id:
+            raise serializers.ValidationError({"pool": "That pool belongs to another academy."})
 
         batch = merged.get("batch")
-        if batch and batch.organization_id != organization.id:
-            raise serializers.ValidationError({"batch": "That batch belongs to another organization."})
+        if batch and batch.academy_id != academy.id:
+            raise serializers.ValidationError({"batch": "That batch belongs to another academy."})
 
         if not 0 <= merged["day_of_week"] <= 6:
             raise serializers.ValidationError({"day_of_week": "Must be 0 (Mon) to 6 (Sun)."})
@@ -54,7 +54,7 @@ class LaneBookingSerializer(serializers.ModelSerializer):
             start_time=merged["start_time"], end_time=merged["end_time"],
         )
         existing = LaneBooking.objects.filter(
-            organization=organization, pool=pool,
+            academy=academy, pool=pool,
             lane_number=merged["lane_number"], day_of_week=merged["day_of_week"],
         ).select_related("batch")
         clashes = candidate.clashes_with(list(existing))
@@ -99,11 +99,11 @@ class SkillAssessmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name", "skill_name", "assessed_by"]
 
     def validate_student(self, value):
-        if value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That student belongs to another organization.")
+        if value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That student belongs to another academy.")
         return value
 
     def validate_skill(self, value):
-        if value.level.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That skill belongs to another organization.")
+        if value.level.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That skill belongs to another academy.")
         return value

@@ -42,10 +42,10 @@ class EnquiryDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestroyA
 def convert_enquiry(request, pk):
     """Turns an enquiry into a student. Idempotent: converting twice returns
     the student already created rather than making a duplicate."""
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
 
     try:
-        enquiry = Enquiry.objects.select_for_update().get(pk=pk, organization=organization)
+        enquiry = Enquiry.objects.select_for_update().get(pk=pk, academy=academy)
     except Enquiry.DoesNotExist:
         return Response({"detail": "Enquiry not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -59,7 +59,7 @@ def convert_enquiry(request, pk):
         )
 
     student = Student.objects.create(
-        organization=organization,
+        academy=academy,
         branch=enquiry.branch,
         full_name=enquiry.name,
         phone=enquiry.phone,
@@ -81,8 +81,8 @@ def convert_enquiry(request, pk):
 def enquiry_funnel(request):
     """Counts by stage and source, plus the conversion rate — the number an
     owner actually wants from this module."""
-    organization = get_current_organization(request)
-    enquiries = Enquiry.objects.filter(organization=organization)
+    academy = get_current_organization(request)
+    enquiries = Enquiry.objects.filter(academy=academy)
 
     by_status = {value: 0 for value, _ in EnquiryStatus.CHOICES}
     by_source = {value: 0 for value, _ in EnquirySource.CHOICES}

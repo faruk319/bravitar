@@ -13,7 +13,7 @@ from decimal import Decimal
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from organizations.models import APIKey, Organization
+from organizations.models import APIKey, Academy
 from students.models import Student
 from subscriptions.constants import BillingPeriod
 from subscriptions.models import MembershipTier
@@ -28,10 +28,10 @@ class CheckInTestCase(TenantAPITestCase):
         self.org.save()
         self.today = timezone.localdate()
         self.student = Student.objects.create(
-            organization=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
         )
         self.tier = MembershipTier.objects.create(
-            organization=self.org, name="Monthly", period=BillingPeriod.MONTHLY,
+            academy=self.org, name="Monthly", period=BillingPeriod.MONTHLY,
             duration_days=30, price=Decimal("1500.00"),
         )
 
@@ -198,7 +198,7 @@ class VisitTests(CheckInTestCase):
     def test_today_reports_who_is_in(self):
         self.paid_up()
         other = Student.objects.create(
-            organization=self.org, full_name="Also Here", joined_on=self.today
+            academy=self.org, full_name="Also Here", joined_on=self.today
         )
         self.paid_up(student=other)
 
@@ -233,11 +233,11 @@ class PassTests(CheckInTestCase):
             "/api/attendance/checkins/scan/", {"token": str(uuid.uuid4())}, format="json"
         )
         self.assertEqual(response.status_code, 400)
-        self.assertNotIn("organization", str(response.data).lower())
+        self.assertNotIn("academy", str(response.data).lower())
 
-    def test_another_academys_pass_does_not_open_our_door(self):
+    def test_another_organizations_pass_does_not_open_our_door(self):
         outsider = Student.objects.create(
-            organization=self.other_org, full_name="Theirs", joined_on=self.today
+            academy=self.other_org, full_name="Theirs", joined_on=self.today
         )
         response = self.client_for(self.manager).post(
             "/api/attendance/checkins/scan/", {"token": str(outsider.qr_token)}, format="json"
@@ -262,7 +262,7 @@ class PassTests(CheckInTestCase):
 
     def test_a_pass_belonging_to_another_academy_cannot_be_read(self):
         outsider = Student.objects.create(
-            organization=self.other_org, full_name="Theirs", joined_on=self.today
+            academy=self.other_org, full_name="Theirs", joined_on=self.today
         )
         response = self.client_for(self.manager).get(f"/api/attendance/checkins/pass/{outsider.id}/")
         self.assertIn(response.status_code, (403, 404))
@@ -311,7 +311,7 @@ class DoorAccessTests(CheckInTestCase):
     def test_another_academy_cannot_read_our_visits(self):
         self.paid_up()
         self.check_in()
-        response = self.client_for(self.other_owner, organization=self.other_org).get(
+        response = self.client_for(self.other_owner, academy=self.other_org).get(
             "/api/attendance/checkins/"
         )
         self.assertNotEqual(response.status_code, 200) if response.status_code != 200 \
@@ -326,9 +326,9 @@ class DoorAccessTests(CheckInTestCase):
 
 class CrossTenantCheckInTests(CheckInTestCase):
     def test_a_member_of_another_academy_cannot_be_checked_in(self):
-        other = Organization.objects.create(name="Rival", slug="rival", verticals=["gym"])
+        other = Academy.objects.create(name="Rival", slug="rival", verticals=["gym"])
         outsider = Student.objects.create(
-            organization=other, full_name="Not Ours", joined_on=self.today
+            academy=other, full_name="Not Ours", joined_on=self.today
         )
         response = self.client_for(self.manager).post(
             "/api/attendance/checkins/", {"student": outsider.id}, format="json"
@@ -386,7 +386,7 @@ class CheckInFeedsTheRegisterTests(CheckInTestCase):
         from batches.models import Batch, Enrolment
 
         self.batch = Batch.objects.create(
-            organization=self.org, name="Morning",
+            academy=self.org, name="Morning",
             days_of_week=list(range(7)), is_active=True,
         )
         Enrolment.objects.create(
@@ -418,7 +418,7 @@ class CheckInFeedsTheRegisterTests(CheckInTestCase):
         from attendance.models import AttendanceRecord
 
         AttendanceRecord.objects.create(
-            organization=self.org, batch=self.batch, student=self.student,
+            academy=self.org, batch=self.batch, student=self.student,
             date=self.today, status="excused", marked_by="coach",
         )
         self.paid_up()
@@ -431,7 +431,7 @@ class CheckInFeedsTheRegisterTests(CheckInTestCase):
 
         tomorrow = (self.today.weekday() + 1) % 7
         other = Batch.objects.create(
-            organization=self.org, name="Tomorrow only",
+            academy=self.org, name="Tomorrow only",
             days_of_week=[tomorrow], is_active=True,
         )
         Enrolment.objects.create(
@@ -514,7 +514,7 @@ class BiometricTests(CheckInTestCase):
         from batches.models import Batch, Enrolment
 
         batch = Batch.objects.create(
-            organization=self.org, name="Morning",
+            academy=self.org, name="Morning",
             days_of_week=list(range(7)), is_active=True,
         )
         Enrolment.objects.create(
@@ -566,7 +566,7 @@ class BiometricTests(CheckInTestCase):
 
     def test_one_reader_id_maps_to_one_member(self):
         other = Student.objects.create(
-            organization=self.org, full_name="Someone Else", joined_on=self.today
+            academy=self.org, full_name="Someone Else", joined_on=self.today
         )
         self.enrol()
         clash = self.enrol(student=other)
@@ -576,7 +576,7 @@ class BiometricTests(CheckInTestCase):
 
     def test_the_same_id_on_a_different_reader_is_fine(self):
         other = Student.objects.create(
-            organization=self.org, full_name="Someone Else", joined_on=self.today
+            academy=self.org, full_name="Someone Else", joined_on=self.today
         )
         self.enrol()
         self.assertEqual(
@@ -585,7 +585,7 @@ class BiometricTests(CheckInTestCase):
 
     def test_a_member_of_another_academy_cannot_be_enrolled(self):
         outsider = Student.objects.create(
-            organization=self.other_org, full_name="Theirs", joined_on=self.today
+            academy=self.other_org, full_name="Theirs", joined_on=self.today
         )
         self.assertEqual(self.enrol(student=outsider).status_code, 400)
 

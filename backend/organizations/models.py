@@ -7,14 +7,21 @@ from django.utils import timezone
 from .constants import Plan, Role
 
 
-class Organization(models.Model):
+class Academy(models.Model):
+    """A business inside an academy: a gym, a swim school, a dojo.
+
+    The unit everything operational hangs off — members, batches, money — and
+    where the sports on offer are chosen. An academy with one academy is
+    the common case and never has to think about the distinction.
+    """
+
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
-    verticals = models.JSONField(default=list, blank=True)
     plan = models.CharField(max_length=20, choices=Plan.CHOICES, default=Plan.FREE)
 
     custom_domain = models.CharField(max_length=255, unique=True, null=True, blank=True)
     domain_verified = models.BooleanField(default=False)
+    verticals = models.JSONField(default=list, blank=True)
 
     # Whether a membership only starts admitting the member once money has
     # arrived. On (the default) a fresh unpaid membership reads "pending"
@@ -34,7 +41,7 @@ class Branch(models.Model):
     """One location of an academy. Also the unit of access — who may work
     where is assigned per branch."""
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="branches")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="branches")
     name = models.CharField(max_length=255)
     address = models.CharField(max_length=500, blank=True)
     phone = models.CharField(max_length=32, blank=True)
@@ -48,7 +55,7 @@ class Branch(models.Model):
         ordering = ["name", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization"],
+                fields=["academy"],
                 condition=models.Q(is_primary=True),
                 name="one_primary_branch_per_org",
             )
@@ -60,7 +67,7 @@ class Branch(models.Model):
         with transaction.atomic():
             if self.is_primary:
                 others = Branch.objects.filter(
-                    organization_id=self.organization_id, is_primary=True
+                    academy_id=self.academy_id, is_primary=True
                 )
                 if self.pk:
                     others = others.exclude(pk=self.pk)
@@ -68,11 +75,11 @@ class Branch(models.Model):
             super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.organization.name} — {self.name}"
+        return f"{self.academy.name} — {self.name}"
 
 
 class Membership(models.Model):
-    """Links a Supabase-authenticated user to an Organization with a role.
+    """Links a Supabase-authenticated user to an Academy with a role.
 
     Users live in Supabase Auth, not Django's auth_user table, so we key on
     the Supabase user id (a UUID string) rather than a Django FK.
@@ -80,10 +87,10 @@ class Membership(models.Model):
     A membership can exist before its person does: an owner invites by email,
     and `user_id` stays empty until that person first signs in and claims it.
     That's why the two uniqueness rules are conditional — several pending
-    invites in one organization all share an empty `user_id`.
+    invites in one academy all share an empty `user_id`.
     """
 
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="memberships")
     user_id = models.CharField(
         max_length=64, blank=True, default="",
         help_text="Supabase user id. Empty until an invited person first signs in.",
@@ -102,19 +109,19 @@ class Membership(models.Model):
         ordering = ["email"]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "user_id"],
+                fields=["academy", "user_id"],
                 condition=~models.Q(user_id=""),
                 name="one_membership_per_user_per_org",
             ),
             models.UniqueConstraint(
-                fields=["organization", "email"],
+                fields=["academy", "email"],
                 condition=~models.Q(email=""),
                 name="one_membership_per_email_per_org",
             ),
         ]
 
     def __str__(self):
-        return f"{self.email or self.user_id} ({self.role}) @ {self.organization.name}"
+        return f"{self.email or self.user_id} ({self.role}) @ {self.academy.name}"
 
     @property
     def is_pending(self):
@@ -130,7 +137,7 @@ def _hash_key(raw_key):
 
 
 class APIKey(models.Model):
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="api_keys")
+    academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="api_keys")
     name = models.CharField(max_length=255, blank=True)
     prefix = models.CharField(max_length=12, editable=False)
     hashed_key = models.CharField(max_length=64, unique=True, editable=False)
@@ -142,15 +149,15 @@ class APIKey(models.Model):
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
-        return f"{self.prefix}... ({self.organization.name})"
+        return f"{self.prefix}... ({self.academy.name})"
 
     @classmethod
-    def generate(cls, organization, name=""):
+    def generate(cls, academy, name=""):
         """Create a new key, returning (instance, raw_key). raw_key is only
         ever available here — only its hash is persisted."""
         raw_key = _generate_key()
         instance = cls.objects.create(
-            organization=organization,
+            academy=academy,
             name=name,
             prefix=raw_key[:12],
             hashed_key=_hash_key(raw_key),
@@ -160,7 +167,7 @@ class APIKey(models.Model):
     @classmethod
     def resolve(cls, raw_key):
         try:
-            api_key = cls.objects.select_related("organization").get(
+            api_key = cls.objects.select_related("academy").get(
                 hashed_key=_hash_key(raw_key), is_active=True
             )
         except cls.DoesNotExist:

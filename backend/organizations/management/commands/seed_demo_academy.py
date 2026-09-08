@@ -1,7 +1,7 @@
 """Builds a realistic academy so the cross-vertical core can be clicked through.
 
-Idempotent by slug: re-running wipes and rebuilds the demo organization's
-Phase 4 data, leaving every other organization untouched.
+Idempotent by slug: re-running wipes and rebuilds the demo academy's
+Phase 4 data, leaving every other academy untouched.
 """
 
 import random
@@ -19,7 +19,7 @@ from billing.models import FeePlan, Invoice, Payment
 from enquiries.constants import EnquirySource, EnquiryStatus
 from enquiries.models import Enquiry
 from organizations.constants import Role
-from organizations.models import Branch, Membership, Organization
+from organizations.models import Branch, Membership, Academy
 from students.constants import StudentStatus
 from students.models import Student
 
@@ -49,7 +49,7 @@ class Command(BaseCommand):
         slug = options["slug"]
         today = timezone.localdate()
 
-        org, _ = Organization.objects.get_or_create(
+        org, _ = Academy.objects.get_or_create(
             slug=slug,
             defaults={
                 "name": "Demo Sports Academy",
@@ -58,29 +58,29 @@ class Command(BaseCommand):
         )
 
         # Rebuild only this org's Phase 4 data so re-running stays clean.
-        AttendanceRecord.objects.filter(organization=org).delete()
-        Payment.objects.filter(invoice__organization=org).delete()
-        Invoice.objects.filter(organization=org).delete()
-        FeePlan.objects.filter(organization=org).delete()
-        Enrolment.objects.filter(batch__organization=org).delete()
-        Batch.objects.filter(organization=org).delete()
-        Enquiry.objects.filter(organization=org).delete()
-        Student.objects.filter(organization=org).delete()
-        Branch.objects.filter(organization=org).delete()
+        AttendanceRecord.objects.filter(academy=org).delete()
+        Payment.objects.filter(invoice__academy=org).delete()
+        Invoice.objects.filter(academy=org).delete()
+        FeePlan.objects.filter(academy=org).delete()
+        Enrolment.objects.filter(batch__academy=org).delete()
+        Batch.objects.filter(academy=org).delete()
+        Enquiry.objects.filter(academy=org).delete()
+        Student.objects.filter(academy=org).delete()
+        Branch.objects.filter(academy=org).delete()
 
         branches = [
-            Branch.objects.create(organization=org, name="Andheri Branch",
+            Branch.objects.create(academy=org, name="Andheri Branch",
                                   address="Andheri West, Mumbai", is_primary=True),
-            Branch.objects.create(organization=org, name="Bandra Branch",
+            Branch.objects.create(academy=org, name="Bandra Branch",
                                   address="Bandra East, Mumbai"),
         ]
 
         plans = {
-            "gym": FeePlan.objects.create(organization=org, name="Gym — Monthly",
+            "gym": FeePlan.objects.create(academy=org, name="Gym — Monthly",
                                           amount=Decimal("1500.00"), cycle=BillingCycle.MONTHLY),
-            "swim": FeePlan.objects.create(organization=org, name="Swimming — Quarterly",
+            "swim": FeePlan.objects.create(academy=org, name="Swimming — Quarterly",
                                            amount=Decimal("4500.00"), cycle=BillingCycle.QUARTERLY),
-            "karate": FeePlan.objects.create(organization=org, name="Karate — Monthly",
+            "karate": FeePlan.objects.create(academy=org, name="Karate — Monthly",
                                              amount=Decimal("1200.00"), cycle=BillingCycle.MONTHLY),
         }
 
@@ -95,7 +95,7 @@ class Command(BaseCommand):
         for name, days, start, end, cap, branch, plan_key in batch_specs:
             batches.append((
                 Batch.objects.create(
-                    organization=org, branch=branch, name=name, days_of_week=days,
+                    academy=org, branch=branch, name=name, days_of_week=days,
                     start_time=start, end_time=end, capacity=cap,
                     coach_name=random.choice(["Coach Ramesh", "Coach Fatima", "Coach Dev"]),
                 ),
@@ -106,7 +106,7 @@ class Command(BaseCommand):
         for i in range(options["students"]):
             joined = today - timedelta(days=random.randint(10, 400))
             students.append(Student.objects.create(
-                organization=org,
+                academy=org,
                 branch=random.choice(branches),
                 full_name=f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
                 phone=f"98{random.randint(10000000, 99999999)}",
@@ -147,7 +147,7 @@ class Command(BaseCommand):
                     weights=[76, 14, 7, 3],
                 )[0]
                 AttendanceRecord.objects.update_or_create(
-                    organization=org, batch=batch, student=enrolment.student, date=day,
+                    academy=org, batch=batch, student=enrolment.student, date=day,
                     defaults={"status": status, "marked_by": "seed"},
                 )
                 marks += 1
@@ -163,7 +163,7 @@ class Command(BaseCommand):
                 if issued < student.joined_on:
                     continue
                 invoice = Invoice.objects.create(
-                    organization=org, student=student, fee_plan=plan,
+                    academy=org, student=student, fee_plan=plan,
                     description=f"{plan.name} — {issued:%B %Y}",
                     amount=plan.amount, issued_on=issued,
                     due_on=issued + timedelta(days=10),
@@ -193,7 +193,7 @@ class Command(BaseCommand):
             status = random.choices(
                 EnquiryStatus.VALUES, weights=[22, 20, 14, 10, 24, 10])[0]
             enquiry = Enquiry.objects.create(
-                organization=org, branch=random.choice(branches),
+                academy=org, branch=random.choice(branches),
                 name=f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}",
                 phone=f"97{random.randint(10000000, 99999999)}",
                 source=random.choice(EnquirySource.VALUES),
@@ -209,7 +209,7 @@ class Command(BaseCommand):
 
             if status == EnquiryStatus.CONVERTED:
                 student = Student.objects.create(
-                    organization=org, branch=enquiry.branch, full_name=enquiry.name,
+                    academy=org, branch=enquiry.branch, full_name=enquiry.name,
                     phone=enquiry.phone, status=StudentStatus.ACTIVE,
                     joined_on=created + timedelta(days=5),
                 )
@@ -217,12 +217,12 @@ class Command(BaseCommand):
                 enquiry.save(update_fields=["converted_student"])
             enquiry_count += 1
 
-        owner = Membership.objects.filter(organization=org, role=Role.OWNER).first()
+        owner = Membership.objects.filter(academy=org, role=Role.OWNER).first()
 
         self.stdout.write(self.style.SUCCESS(
             f"Demo academy '{org.name}' ({org.slug}) rebuilt:\n"
             f"  branches   {len(branches)}\n"
-            f"  students   {Student.objects.filter(organization=org).count()}\n"
+            f"  students   {Student.objects.filter(academy=org).count()}\n"
             f"  batches    {len(batches)}\n"
             f"  enrolments {len(enrolments)}\n"
             f"  attendance {marks}\n"

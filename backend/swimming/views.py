@@ -62,14 +62,14 @@ class SkillAssessmentListCreateView(SwimmingScopedMixin, generics.ListCreateAPIV
 
     def get_queryset(self):
         queryset = SkillAssessment.objects.filter(
-            skill__level__organization=self.organization
+            skill__level__academy=self.academy
         ).select_related("student", "skill")
         if student := self.request.query_params.get("student"):
             queryset = queryset.filter(student_id=student)
         return queryset
 
     def perform_create(self, serializer):
-        # No organization column of its own — scope comes from the skill's
+        # No academy column of its own — scope comes from the skill's
         # level and the student, both already validated.
         serializer.save(assessed_by=self.request.user.id)
 
@@ -78,7 +78,7 @@ class SkillAssessmentDetailView(SwimmingScopedMixin, generics.RetrieveDestroyAPI
     serializer_class = SkillAssessmentSerializer
 
     def get_queryset(self):
-        return SkillAssessment.objects.filter(skill__level__organization=self.organization)
+        return SkillAssessment.objects.filter(skill__level__academy=self.academy)
 
 
 @api_view(["GET"])
@@ -89,20 +89,20 @@ def swimmer_progress(request):
     A level counts as reached only when every skill in it is signed off, so
     partial progress never reads as a completed level.
     """
-    organization = get_current_organization(request)
+    academy = get_current_organization(request)
 
     levels = list(
-        SwimLevel.objects.filter(organization=organization).prefetch_related("skills")
+        SwimLevel.objects.filter(academy=academy).prefetch_related("skills")
     )
     skills_by_level = {level.id: [s.id for s in level.skills.all()] for level in levels}
 
     achieved = {}
     for assessment in SkillAssessment.objects.filter(
-        skill__level__organization=organization
+        skill__level__academy=academy
     ).select_related("student"):
         achieved.setdefault(assessment.student_id, set()).add(assessment.skill_id)
 
-    students = Student.objects.filter(organization=organization)
+    students = Student.objects.filter(academy=academy)
     if student_id := request.query_params.get("student"):
         students = students.filter(pk=student_id)
 

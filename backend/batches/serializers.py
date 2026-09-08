@@ -24,8 +24,8 @@ class BatchSerializer(serializers.ModelSerializer):
         return value
 
     def validate_branch(self, value):
-        if value and value.organization_id != self.context["organization"].id:
-            raise serializers.ValidationError("That branch belongs to another organization.")
+        if value and value.academy_id != self.context["academy"].id:
+            raise serializers.ValidationError("That branch belongs to another academy.")
         allowed = self.context.get("allowed_branches")
         if value and allowed is not None and value.id not in allowed:
             raise serializers.ValidationError("You don't work at that branch.")
@@ -45,14 +45,14 @@ class EnrolmentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "student_name", "batch_name"]
 
     def validate(self, attrs):
-        organization = self.context["organization"]
+        academy = self.context["academy"]
         batch = attrs.get("batch") or getattr(self.instance, "batch", None)
         student = attrs.get("student") or getattr(self.instance, "student", None)
 
-        if batch and batch.organization_id != organization.id:
-            raise serializers.ValidationError({"batch": "That batch belongs to another organization."})
-        if student and student.organization_id != organization.id:
-            raise serializers.ValidationError({"student": "That student belongs to another organization."})
+        if batch and batch.academy_id != academy.id:
+            raise serializers.ValidationError({"batch": "That batch belongs to another academy."})
+        if student and student.academy_id != academy.id:
+            raise serializers.ValidationError({"student": "That student belongs to another academy."})
 
         if batch and batch.capacity is not None:
             active = batch.enrolments.filter(is_active=True)

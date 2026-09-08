@@ -1,7 +1,7 @@
 """Vertical gating — what makes the plugin system real rather than a UI filter.
 
 A gym-only academy must be refused by the swimming and karate APIs even
-though the endpoints exist and it is a perfectly valid organization.
+though the endpoints exist and it is a perfectly valid academy.
 """
 
 from .base import TenantAPITestCase

@@ -8,7 +8,7 @@ what it will do — not something that happens silently on deploy.
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from organizations.models import Organization
+from organizations.models import Academy
 from subscriptions.models import MemberSubscription
 
 
@@ -16,7 +16,7 @@ class Command(BaseCommand):
     help = "Creates invoices for memberships that don't have one yet."
 
     def add_arguments(self, parser):
-        parser.add_argument("--slug", help="Limit to one organization.")
+        parser.add_argument("--slug", help="Limit to one academy.")
         parser.add_argument(
             "--dry-run", action="store_true",
             help="Show what would be billed without writing anything.",
@@ -26,15 +26,15 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         missing = MemberSubscription.objects.filter(
             invoice__isnull=True
-        ).select_related("student", "tier", "organization")
+        ).select_related("student", "tier", "academy")
 
         if options["slug"]:
             try:
-                org = Organization.objects.get(slug=options["slug"])
-            except Organization.DoesNotExist:
-                self.stderr.write(f"No organization with slug '{options['slug']}'.")
+                org = Academy.objects.get(slug=options["slug"])
+            except Academy.DoesNotExist:
+                self.stderr.write(f"No academy with slug '{options['slug']}'.")
                 return
-            missing = missing.filter(organization=org)
+            missing = missing.filter(academy=org)
 
         total = 0
         for subscription in missing:

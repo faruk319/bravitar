@@ -218,5 +218,5 @@ CORS_ALLOW_CREDENTIALS = False
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET", "")
 
-# Tenant resolution: <org-slug>.<BASE_DOMAIN> routes to that Organization.
+# Tenant resolution: <org-slug>.<BASE_DOMAIN> routes to that Academy.
 BASE_DOMAIN = os.environ.get("DJANGO_BASE_DOMAIN", "")

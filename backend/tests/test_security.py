@@ -141,7 +141,7 @@ class WritePermissionsAreAFloorTests(TenantAPITestCase):
         self.org.verticals = ["gym", "fitness"]
         self.org.save()
         self.student = Student.objects.create(
-            organization=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
+            academy=self.org, full_name="Walk In", joined_on=date(2026, 1, 1)
         )
         _, self.raw_key = APIKey.generate(self.org, name="their app")
 
