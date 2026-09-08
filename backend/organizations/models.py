@@ -63,6 +63,9 @@ class Membership(models.Model):
     )
     email = models.EmailField()
     role = models.CharField(max_length=20, choices=Role.CHOICES)
+    # Which locations this person works in. Empty means none — access is
+    # granted, never assumed. Owners ignore this and see every branch.
+    branches = models.ManyToManyField(Branch, blank=True, related_name="team")
     created_at = models.DateTimeField(auto_now_add=True)
     joined_at = models.DateTimeField(
         null=True, blank=True, help_text="When the invitation was claimed."

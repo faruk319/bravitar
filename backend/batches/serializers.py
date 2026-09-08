@@ -26,6 +26,9 @@ class BatchSerializer(serializers.ModelSerializer):
     def validate_branch(self, value):
         if value and value.organization_id != self.context["organization"].id:
             raise serializers.ValidationError("That branch belongs to another organization.")
+        allowed = self.context.get("allowed_branches")
+        if value and allowed is not None and value.id not in allowed:
+            raise serializers.ValidationError("You don't work at that branch.")
         return value
 
 

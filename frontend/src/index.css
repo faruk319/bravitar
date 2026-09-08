@@ -490,3 +490,6 @@ dialog.confirm {
 dialog.confirm::backdrop { background: rgba(20, 20, 25, 0.45); }
 dialog.confirm h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
 dialog.confirm p { margin: 0 0 0.9rem; }
+
+.branch-picks { display: flex; flex-direction: column; gap: 0.15rem; }
+.branch-picks .checkbox { font-size: 0.85rem; }

@@ -1,3 +1,4 @@
+from .branches import allowed_branch_ids, restrict
 from .context import get_current_organization
 from .permissions import IsOrganizationMember, IsOrganizationStaff
 
@@ -26,15 +27,32 @@ class OrganizationScopedMixin:
             permissions.append(IsOrganizationStaff())
         return permissions
 
+    @property
+    def allowed_branches(self):
+        """Branch ids this caller may work in, or None for no restriction."""
+        return allowed_branch_ids(self.request, self.organization)
+
     def scoped(self, model):
-        queryset = model.objects.filter(organization=self.organization)
+        """Tenant first, then branch. `?branch=` is the caller narrowing what
+        they already have; it can't widen it."""
+        queryset = restrict(
+            model.objects.filter(organization=self.organization),
+            model,
+            self.allowed_branches,
+        )
         branch = self.request.query_params.get("branch")
         if branch and hasattr(model, "branch"):
             queryset = queryset.filter(branch_id=branch)
         return queryset
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "organization": self.organization}
+        return {
+            **super().get_serializer_context(),
+            "organization": self.organization,
+            # Serializers validate a write's target branch against this;
+            # scoping the queryset only stops reads.
+            "allowed_branches": self.allowed_branches,
+        }
 
     def perform_create(self, serializer):
         serializer.save(organization=self.organization)

@@ -51,9 +51,16 @@ export default function RootPage() {
               ))}
             </ul>
             {!creating && (
-              <button type="button" className="link" onClick={() => setCreating(true)}>
-                + Create another academy
-              </button>
+              <>
+                <button type="button" className="link" onClick={() => setCreating(true)}>
+                  + Create another academy
+                </button>
+                <p className="muted small">
+                  For a separate business or a franchise — its members, plans and
+                  money stay entirely apart. Another location of the same academy
+                  is a <strong>branch</strong>, added under Settings.
+                </p>
+              </>
             )}
           </div>
         )}

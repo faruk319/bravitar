@@ -27,6 +27,8 @@ class FeePlan(models.Model):
 
 
 class Invoice(models.Model):
+    BRANCH_FIELD = "student__branch"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invoices")
     student = models.ForeignKey(Student, on_delete=models.PROTECT, related_name="invoices")
     fee_plan = models.ForeignKey(

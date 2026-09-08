@@ -48,6 +48,8 @@ class AttendanceRecord(models.Model):
     exists when someone actually walked in.
     """
 
+    BRANCH_FIELD = "batch__branch"
+
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="attendance_records"
     )
@@ -79,6 +81,8 @@ class CheckIn(models.Model):
     Refusals are rows too — a gym turning people away needs to see that it is.
     Who gets in is decided in `admission.py`.
     """
+
+    BRANCH_FIELD = "branch"
 
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="checkins"
@@ -172,6 +176,8 @@ class BiometricEnrolment(models.Model):
     matching — storing them here would be a liability with no feature behind
     it. All we keep is who `external_id` is.
     """
+
+    BRANCH_FIELD = "student__branch"
 
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="biometric_enrolments"

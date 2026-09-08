@@ -13,6 +13,8 @@ class Enquiry(models.Model):
     never followed up because nobody wrote it down.
     """
 
+    BRANCH_FIELD = "branch"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="enquiries")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="enquiries", null=True, blank=True

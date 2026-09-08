@@ -27,6 +27,8 @@ class Student(models.Model):
     two when the student does sign in.
     """
 
+    BRANCH_FIELD = "branch"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="students")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="students", null=True, blank=True
@@ -73,6 +75,8 @@ class MemberDocument(models.Model):
     The full number is deliberately not storable — only the last four digits,
     which is all anyone needs to match a scan to a person.
     """
+
+    BRANCH_FIELD = "student__branch"
 
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="member_documents"

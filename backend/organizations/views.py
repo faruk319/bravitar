@@ -124,7 +124,9 @@ class TeamListCreateView(generics.ListCreateAPIView):
                 "organization": get_current_organization(self.request)}
 
     def get_queryset(self):
-        return Membership.objects.filter(organization=get_current_organization(self.request))
+        return Membership.objects.filter(
+            organization=get_current_organization(self.request)
+        ).prefetch_related("branches")
 
     def perform_create(self, serializer):
         """Invites by email. The row exists before the person does — user_id
@@ -145,7 +147,9 @@ class TeamMemberDetailView(generics.RetrieveUpdateDestroyAPIView):
                 "organization": get_current_organization(self.request)}
 
     def get_queryset(self):
-        return Membership.objects.filter(organization=get_current_organization(self.request))
+        return Membership.objects.filter(
+            organization=get_current_organization(self.request)
+        ).prefetch_related("branches")
 
     def perform_destroy(self, instance):
         if instance.role == Role.OWNER and other_owners(instance).count() == 0:

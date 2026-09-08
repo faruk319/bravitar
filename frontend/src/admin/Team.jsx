@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import ConfirmAction from '../components/ConfirmAction'
+import { useBranches } from '../academy/useBranches'
 import { apiFetch, apiFetchAll } from '../lib/api'
 
 // Members aren't sign-in-able yet — they're tracked under Members as
@@ -19,6 +20,7 @@ const labelFor = (role) =>
 const isAssignable = (role) => ROLES.some((r) => r.value === role)
 
 export default function Team({ role }) {
+  const branches = useBranches()
   const [team, setTeam] = useState(null)
   const [email, setEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('staff')
@@ -53,6 +55,19 @@ export default function Team({ role }) {
       setError(err.message)
     }
     setBusy(false)
+  }
+
+  async function setBranches(member, branchIds) {
+    setError(null)
+    try {
+      await apiFetch(`/organizations/current/team/${member.id}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({ branches: branchIds }),
+      })
+      setRefresh((n) => n + 1)
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   async function changeRole(member, nextRole) {
@@ -114,7 +129,7 @@ export default function Team({ role }) {
         ) : (
           <table className="data-table">
             <thead>
-              <tr><th>Email</th><th>Role</th><th>Status</th>{isOwner && <th />}</tr>
+              <tr><th>Email</th><th>Role</th>{branches.length > 0 && <th>Branches</th>}<th>Status</th>{isOwner && <th />}</tr>
             </thead>
             <tbody>
               {team.map((member) => (
@@ -137,6 +152,38 @@ export default function Team({ role }) {
                       labelFor(member.role)
                     )}
                   </td>
+                  {branches.length > 0 && (
+                    <td>
+                      {member.role === 'owner' ? (
+                        <span className="muted small">Every branch</span>
+                      ) : isOwner ? (
+                        <div className="branch-picks">
+                          {branches.map((b) => {
+                            const on = member.branches.includes(b.id)
+                            return (
+                              <label key={b.id} className="checkbox">
+                                <input
+                                  type="checkbox" checked={on}
+                                  onChange={() => setBranches(
+                                    member,
+                                    on
+                                      ? member.branches.filter((id) => id !== b.id)
+                                      : [...member.branches, b.id],
+                                  )}
+                                />
+                                {b.name}
+                              </label>
+                            )
+                          })}
+                          {member.branches.length === 0 && (
+                            <span className="pill pending">no access yet</span>
+                          )}
+                        </div>
+                      ) : (
+                        member.branch_names.join(', ') || '—'
+                      )}
+                    </td>
+                  )}
                   <td>
                     <span className={member.is_pending ? 'pill trial' : 'pill active'}>
                       {member.is_pending ? 'invited' : 'joined'}

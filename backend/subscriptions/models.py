@@ -131,6 +131,8 @@ class MemberSubscription(models.Model):
     many classes they may book, and when to remind them to renew.
     """
 
+    BRANCH_FIELD = "student__branch"
+
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="subscriptions"
     )

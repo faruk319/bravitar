@@ -6,6 +6,8 @@ from students.models import Student
 
 
 class Pool(models.Model):
+    BRANCH_FIELD = "branch"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="pools")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="pools", null=True, blank=True

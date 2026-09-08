@@ -75,11 +75,25 @@ class TeamMemberSerializer(serializers.ModelSerializer):
     """A person on the academy's team, invited or already signed in."""
 
     is_pending = serializers.BooleanField(read_only=True)
+    branch_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Membership
-        fields = ["id", "email", "role", "is_pending", "created_at", "joined_at"]
-        read_only_fields = ["id", "is_pending", "created_at", "joined_at"]
+        fields = [
+            "id", "email", "role", "is_pending", "created_at", "joined_at",
+            "branches", "branch_names",
+        ]
+        read_only_fields = ["id", "is_pending", "created_at", "joined_at", "branch_names"]
+
+    def get_branch_names(self, obj):
+        return [branch.name for branch in obj.branches.all()]
+
+    def validate_branches(self, value):
+        organization = self.context["organization"]
+        stray = [b.name for b in value if b.organization_id != organization.id]
+        if stray:
+            raise serializers.ValidationError("Those branches belong to another academy.")
+        return value
 
     def validate_email(self, value):
         organization = self.context["organization"]

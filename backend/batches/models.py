@@ -8,6 +8,8 @@ class Batch(models.Model):
     """A recurring class or training group. Generic across verticals — a swim
     lane, a karate belt group and a gym slot are all batches."""
 
+    BRANCH_FIELD = "branch"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="batches")
     branch = models.ForeignKey(
         Branch, on_delete=models.SET_NULL, related_name="batches", null=True, blank=True
@@ -41,6 +43,8 @@ class Batch(models.Model):
 class Enrolment(models.Model):
     """Links a student to a batch. Kept as its own row rather than a
     many-to-many so leaving a batch is recorded, not erased."""
+
+    BRANCH_FIELD = "batch__branch"
 
     batch = models.ForeignKey(Batch, on_delete=models.CASCADE, related_name="enrolments")
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="enrolments")
