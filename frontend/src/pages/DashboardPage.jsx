@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import ApiKeys from '../admin/ApiKeys'
+import Branches from '../admin/Branches'
 import Settings from '../admin/Settings'
 import Team from '../admin/Team'
 import { useAuth } from '../auth/AuthContext'
@@ -51,7 +52,9 @@ export default function DashboardPage() {
   // not what it teaches. Staff can see the team; only an owner sees settings.
   // The backend enforces this regardless of what the sidebar shows.
   const adminItems = [
-    ...(['owner', 'manager', 'staff'].includes(org.role) ? [{ key: 'team', label: 'Team' }] : []),
+    ...(['owner', 'manager', 'staff'].includes(org.role)
+      ? [{ key: 'team', label: 'Team' }, { key: 'branches', label: 'Branches' }]
+      : []),
     ...(org.role === 'owner'
       ? [{ key: 'settings', label: 'Settings' }, { key: 'apikeys', label: 'API Keys' }]
       : []),
@@ -106,6 +109,8 @@ export default function DashboardPage() {
         {activeAdmin ? (
           activeAdmin.key === 'team' ? (
             <Team role={org.role} />
+          ) : activeAdmin.key === 'branches' ? (
+            <Branches role={org.role} />
           ) : activeAdmin.key === 'apikeys' ? (
             <ApiKeys org={org} />
           ) : (

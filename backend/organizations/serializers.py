@@ -130,22 +130,30 @@ def other_owners(membership):
 
 
 class BranchSerializer(serializers.ModelSerializer):
+    team_count = serializers.SerializerMethodField()
     student_count = serializers.SerializerMethodField()
     batch_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Branch
         fields = [
-            "id", "name", "address", "is_primary", "created_at",
-            "student_count", "batch_count",
+            "id", "name", "address", "phone", "email", "is_primary", "created_at",
+            "student_count", "batch_count", "team_count",
         ]
-        read_only_fields = ["id", "created_at", "student_count", "batch_count"]
+        read_only_fields = [
+            "id", "created_at", "student_count", "batch_count", "team_count",
+        ]
 
     def get_student_count(self, obj):
         return obj.students.count()
 
     def get_batch_count(self, obj):
         return obj.batches.count()
+
+    def get_team_count(self, obj):
+        """How many people may work here. Owners aren't counted — they are
+        never branch-restricted, so counting them would read as a limit."""
+        return obj.team.exclude(role=Role.OWNER).count()
 
 
 class APIKeySerializer(serializers.ModelSerializer):

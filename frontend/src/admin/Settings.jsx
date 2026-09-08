@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 
-import ConfirmAction from '../components/ConfirmAction'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import PluginSettings from './PluginSettings'
 import { SELECTABLE_VERTICALS, VERTICALS } from '../lib/verticals'
@@ -9,12 +8,19 @@ export default function Settings({ org, role, onOrgChange }) {
   const [name, setName] = useState(org.name)
   const [verticals, setVerticals] = useState(org.verticals)
   const [branches, setBranches] = useState(null)
-  const [newBranch, setNewBranch] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
 
   const isOwner = role === 'owner'
+
+  // useState only reads its initial value once, so anything else that updates
+  // the org — the gym's payment toggle, say — left this form holding the old
+  // module list, and the next "Save changes" wrote that stale list back.
+  useEffect(() => {
+    setName(org.name)
+    setVerticals(org.verticals)
+  }, [org])
 
   // What this academy can pick from: everything shipped, plus anything it is
   // already on, so a withdrawn vertical stays visible and switchable-off.
@@ -56,30 +62,13 @@ export default function Settings({ org, role, onOrgChange }) {
     )
   }
 
-  async function addBranch(event) {
-    event.preventDefault()
-    setError(null)
-    try {
-      await apiFetch('/organizations/current/branches/', {
-        method: 'POST',
-        body: JSON.stringify({ name: newBranch }),
-      })
-      setNewBranch('')
-      setRefresh((n) => n + 1)
-    } catch (err) {
-      setError(err.message)
-    }
-  }
-
-  async function removeBranch(branch) {
-    await apiFetch(`/organizations/current/branches/${branch.id}/`, { method: 'DELETE' })
-    setRefresh((n) => n + 1)
-  }
-
   return (
     <>
       <h1>Settings</h1>
-      <p className="muted">Your academy's name, the modules it uses, and its branches.</p>
+      <p className="muted">
+        Your academy&apos;s name and the modules it uses. Locations live under
+        Branches.
+      </p>
 
       {error && <p className="error">{error}</p>}
 
@@ -131,52 +120,6 @@ export default function Settings({ org, role, onOrgChange }) {
           </div>
         )}
       </form>
-
-      <div className="card wide">
-        <h2>Branches</h2>
-        {branches === null ? (
-          <p className="muted">Loading…</p>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr><th>Name</th><th>Members</th><th>Batches</th><th>Primary</th>{isOwner && <th />}</tr>
-            </thead>
-            <tbody>
-              {branches.map((branch) => (
-                <tr key={branch.id}>
-                  <td>{branch.name}</td>
-                  <td>{branch.student_count}</td>
-                  <td>{branch.batch_count}</td>
-                  <td>{branch.is_primary ? 'Yes' : '—'}</td>
-                  {isOwner && (
-                    <td>
-                      <ConfirmAction
-                        label="Delete"
-                        heading={`Delete ${branch.name}?`}
-                        detail={branch.student_count > 0
-                          ? `${branch.student_count} members and ${branch.batch_count} batches are on this branch. They stay, but stop belonging anywhere.`
-                          : "This can't be undone."}
-                        confirmLabel="Yes, delete it"
-                        onConfirm={() => removeBranch(branch)}
-                      />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {isOwner && (
-          <form className="set-entry" onSubmit={addBranch}>
-            <label>
-              New branch
-              <input required value={newBranch} onChange={(e) => setNewBranch(e.target.value)} />
-            </label>
-            <button type="submit">Add branch</button>
-          </form>
-        )}
-      </div>
 
       <PluginSettings
         org={org}

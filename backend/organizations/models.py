@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from .constants import Plan, Role
@@ -31,14 +31,41 @@ class Organization(models.Model):
 
 
 class Branch(models.Model):
+    """One location of an academy. Also the unit of access — who may work
+    where is assigned per branch."""
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="branches")
     name = models.CharField(max_length=255)
     address = models.CharField(max_length=500, blank=True)
+    phone = models.CharField(max_length=32, blank=True)
+    email = models.EmailField(blank=True)
+    # The branch a new member lands in when nobody picks one. At most one per
+    # academy; setting a new one clears the old.
     is_primary = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization"],
+                condition=models.Q(is_primary=True),
+                name="one_primary_branch_per_org",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        # Clear the old primary first: the unique constraint rejects the write
+        # before any after-the-fact tidying could run.
+        with transaction.atomic():
+            if self.is_primary:
+                others = Branch.objects.filter(
+                    organization_id=self.organization_id, is_primary=True
+                )
+                if self.pk:
+                    others = others.exclude(pk=self.pk)
+                others.update(is_primary=False)
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.organization.name} — {self.name}"

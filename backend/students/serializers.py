@@ -28,6 +28,17 @@ class StudentSerializer(serializers.ModelSerializer):
         
         return getattr(obj, "document_total", None) or obj.documents.count()
 
+    def validate(self, attrs):
+        """A member with no branch named lands in the primary one, so a
+        multi-branch academy doesn't collect unfiled people."""
+        if self.instance is None and not attrs.get("branch"):
+            from organizations.models import Branch
+
+            attrs["branch"] = Branch.objects.filter(
+                organization=self.context["organization"], is_primary=True
+            ).first()
+        return attrs
+
     def validate_branch(self, value):
         if value and value.organization_id != self.context["organization"].id:
             raise serializers.ValidationError("That branch belongs to another organization.")

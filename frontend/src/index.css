@@ -493,3 +493,5 @@ dialog.confirm p { margin: 0 0 0.9rem; }
 
 .branch-picks { display: flex; flex-direction: column; gap: 0.15rem; }
 .branch-picks .checkbox { font-size: 0.85rem; }
+
+.pill.spaced { margin-left: 0.4rem; }
