@@ -7,6 +7,17 @@ import { apiFetch, apiFetchAll, apiPage } from '../lib/api'
 const money = (v) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
 const today = () => new Date().toISOString().slice(0, 10)
 
+// In the order a membership passes through them. On the screen rather than in
+// a help page because "why is she pending?" is what the desk actually asks.
+const LIFECYCLE = [
+  ['pending', 'Signed up, nothing paid yet — cannot train'],
+  ['upcoming', 'Paid, but the start date has not arrived'],
+  ['active', 'Running — can train'],
+  ['expiring', 'Ends within 5 days — time to sell the renewal'],
+  ['expired', 'The dates ran out'],
+  ['cancelled', 'Called off'],
+]
+
 function SignUpMember({ tiers, onDone, onCancel }) {
   const [student, setStudent] = useState(null)
   const [tierId, setTierId] = useState('')
@@ -133,8 +144,8 @@ export default function Memberships({ role }) {
       <h1>Memberships</h1>
       <p className="muted">
         Who is on a plan and until when. Starting a membership raises its
-        invoice; taking the payment is what turns it from <strong>pending</strong>
-        into <strong>active</strong>.
+        invoice; taking the payment is what turns it from{' '}
+        <strong>pending</strong> into <strong>active</strong>.
       </p>
 
       <div className="stat-row">
