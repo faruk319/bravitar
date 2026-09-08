@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from students.models import Student
 
-from .models import AttendanceRecord, CheckIn
+from .models import AttendanceRecord, BiometricEnrolment, CheckIn
 
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
@@ -99,3 +99,51 @@ class MemberPassSerializer(serializers.ModelSerializer):
         model = Student
         fields = ["id", "full_name", "qr_token"]
         read_only_fields = fields
+
+
+class BiometricEnrolmentSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.full_name", read_only=True)
+
+    class Meta:
+        model = BiometricEnrolment
+        fields = ["id", "student", "student_name", "device", "external_id", "created_at"]
+        read_only_fields = ["id", "student_name", "created_at"]
+
+    def validate_student(self, value):
+        if value.organization_id != self.context["organization"].id:
+            raise serializers.ValidationError("That member belongs to another organization.")
+        return value
+
+    def validate(self, attrs):
+        taken = BiometricEnrolment.objects.filter(
+            organization=self.context["organization"],
+            device=attrs["device"], external_id=attrs["external_id"],
+        ).exclude(pk=getattr(self.instance, "pk", None)).first()
+        if taken:
+            raise serializers.ValidationError(
+                {"external_id": (
+                    f"{taken.device} #{taken.external_id} is already "
+                    f"{taken.student.full_name}."
+                )}
+            )
+        return attrs
+
+
+class DevicePunchSerializer(serializers.Serializer):
+    """What a biometric reader pushes: its own user number, and when."""
+
+    device = serializers.CharField(max_length=64)
+    external_id = serializers.CharField(max_length=64)
+    at = serializers.DateTimeField(required=False)
+
+    def validate(self, attrs):
+        enrolment = BiometricEnrolment.objects.filter(
+            organization=self.context["organization"],
+            device=attrs["device"], external_id=attrs["external_id"],
+        ).select_related("student").first()
+        if enrolment is None:
+            # Same answer for an unknown device and an unenrolled id — a reader
+            # is not a way to probe who exists.
+            raise serializers.ValidationError("That reader id isn't enrolled.")
+        self.context["student"] = enrolment.student
+        return attrs

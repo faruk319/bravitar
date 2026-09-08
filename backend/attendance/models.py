@@ -163,3 +163,34 @@ class CheckIn(models.Model):
             if created:
                 marked.append(record)
         return marked
+
+
+class BiometricEnrolment(models.Model):
+    """Maps a reader's own user number to a member.
+
+    Fingerprint and face templates stay on the device, which does its own
+    matching — storing them here would be a liability with no feature behind
+    it. All we keep is who `external_id` is.
+    """
+
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="biometric_enrolments"
+    )
+    student = models.ForeignKey(
+        Student, on_delete=models.CASCADE, related_name="biometric_enrolments"
+    )
+    device = models.CharField(max_length=64)
+    external_id = models.CharField(max_length=64, help_text="The reader's own user number.")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["device", "external_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "device", "external_id"],
+                name="one_member_per_reader_id",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.device}#{self.external_id} = {self.student.full_name}"

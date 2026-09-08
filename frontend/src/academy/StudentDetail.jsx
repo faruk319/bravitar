@@ -7,6 +7,7 @@ import DocumentsCard from './profile/DocumentsCard'
 import MembershipCard from './profile/MembershipCard'
 import PassCard from './profile/PassCard'
 import PhotoCard from './profile/PhotoCard'
+import ReadersCard from './profile/ReadersCard'
 
 const STATUSES = [
   ['active', 'Active'], ['trial', 'Trial'], ['paused', 'Paused'], ['left', 'Left'],
@@ -211,6 +212,8 @@ export default function StudentDetail({
         )}
 
         <PassCard student={current} canManage={canEdit} />
+
+        {isManager && <ReadersCard student={current} canManage={canEdit} />}
 
         <BatchesCard student={current} canManage={canEdit} />
 

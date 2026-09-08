@@ -462,3 +462,161 @@ class CheckInFeedsTheRegisterTests(CheckInTestCase):
         self.check_in()
         self.check_in()
         self.assertEqual(self.records().count(), 1)
+
+
+class BiometricTests(CheckInTestCase):
+    """A reader matches locally and pushes who it matched. We map its user
+    number to a member and run the same admission rule as every other door."""
+
+    def enrol(self, device="reader-1", external_id="47", student=None, actor=None):
+        return self.client_for(actor or self.manager).post(
+            "/api/attendance/checkins/enrolments/",
+            {
+                "student": (student or self.student).id,
+                "device": device,
+                "external_id": external_id,
+            },
+            format="json",
+        )
+
+    def punch(self, device="reader-1", external_id="47", client=None, **extra):
+        return (client or self.client_for(self.manager)).post(
+            "/api/attendance/checkins/device/",
+            {"device": device, "external_id": external_id, **extra},
+            format="json",
+        )
+
+    def reader_client(self):
+        _, raw = APIKey.generate(self.org, name="reader-1")
+        client = APIClient(HTTP_HOST=f"{self.org.slug}.{BASE_DOMAIN}")
+        client.credentials(HTTP_X_API_KEY=raw)
+        return client
+
+    def test_a_punch_checks_the_member_in(self):
+        self.paid_up()
+        self.enrol()
+
+        response = self.punch()
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.data["admitted"])
+        self.assertEqual(response.data["method"], "biometric")
+        self.assertEqual(response.data["device"], "reader-1")
+
+    def test_a_reader_uses_the_same_admission_rule(self):
+        self.subscribe()  # signed up, never paid
+        self.enrol()
+
+        response = self.punch()
+        self.assertFalse(response.data["admitted"])
+        self.assertEqual(response.data["refused_reason"], "awaiting_payment")
+
+    def test_a_punch_marks_the_register(self):
+        from batches.models import Batch, Enrolment
+
+        batch = Batch.objects.create(
+            organization=self.org, name="Morning",
+            days_of_week=list(range(7)), is_active=True,
+        )
+        Enrolment.objects.create(
+            batch=batch, student=self.student, enrolled_on=self.today, is_active=True,
+        )
+        self.paid_up()
+        self.enrol()
+        self.punch()
+
+        from attendance.models import AttendanceRecord
+
+        self.assertEqual(
+            AttendanceRecord.objects.get(student=self.student, date=self.today).status,
+            "present",
+        )
+
+    def test_an_unenrolled_id_is_refused(self):
+        self.assertEqual(self.punch().status_code, 400)
+
+    def test_an_unknown_reader_says_no_more_than_an_unknown_id(self):
+        """A reader must not be a way to probe who exists."""
+        self.enrol()
+        unknown_device = self.punch(device="not-a-reader")
+        unknown_id = self.punch(external_id="9999")
+        self.assertEqual(unknown_device.data, unknown_id.data)
+
+    def test_a_reader_key_can_punch(self):
+        self.paid_up()
+        self.enrol()
+        response = self.punch(client=self.reader_client())
+        self.assertEqual(response.status_code, 201)
+
+    def test_a_reader_key_cannot_read_the_mappings(self):
+        """A reader pushes punches; it does not get to ask who anybody is."""
+        self.enrol()
+        response = self.reader_client().get("/api/attendance/checkins/enrolments/")
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_a_reader_key_cannot_enrol_anyone(self):
+        response = self.enrol_as_key()
+        self.assertIn(response.status_code, (401, 403))
+
+    def enrol_as_key(self):
+        return self.reader_client().post(
+            "/api/attendance/checkins/enrolments/",
+            {"student": self.student.id, "device": "reader-1", "external_id": "47"},
+            format="json",
+        )
+
+    def test_one_reader_id_maps_to_one_member(self):
+        other = Student.objects.create(
+            organization=self.org, full_name="Someone Else", joined_on=self.today
+        )
+        self.enrol()
+        clash = self.enrol(student=other)
+
+        self.assertEqual(clash.status_code, 400)
+        self.assertIn("already", str(clash.data).lower())
+
+    def test_the_same_id_on_a_different_reader_is_fine(self):
+        other = Student.objects.create(
+            organization=self.org, full_name="Someone Else", joined_on=self.today
+        )
+        self.enrol()
+        self.assertEqual(
+            self.enrol(device="reader-2", student=other).status_code, 201
+        )
+
+    def test_a_member_of_another_academy_cannot_be_enrolled(self):
+        outsider = Student.objects.create(
+            organization=self.other_org, full_name="Theirs", joined_on=self.today
+        )
+        self.assertEqual(self.enrol(student=outsider).status_code, 400)
+
+    def test_removing_an_enrolment_stops_the_reader_working(self):
+        self.paid_up()
+        created = self.enrol()
+        self.client_for(self.manager).delete(
+            f"/api/attendance/checkins/enrolments/{created.data['id']}/"
+        )
+        self.assertEqual(self.punch().status_code, 400)
+
+    def test_a_buffered_punch_from_yesterday_is_its_own_visit(self):
+        """Readers hold punches while offline and flush them later. Those must
+        not fold into today's open visit."""
+        from django.utils import timezone as tz
+
+        self.paid_up()
+        self.enrol()
+
+        yesterday = tz.now() - timedelta(days=1)
+        first = self.punch(at=yesterday.isoformat())
+        second = self.punch()
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertNotEqual(first.data["id"], second.data["id"])
+
+    def test_punching_twice_in_a_day_is_one_visit(self):
+        self.paid_up()
+        self.enrol()
+        first = self.punch()
+        second = self.punch()
+        self.assertEqual(first.data["id"], second.data["id"])
+        self.assertTrue(second.data["already_inside"])

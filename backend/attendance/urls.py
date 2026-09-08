@@ -12,6 +12,17 @@ urlpatterns = [
     # who comes in is registered per vertical in admission.py.
     path("checkins/", views.CheckInListCreateView.as_view(), name="checkin-list-create"),
     path("checkins/scan/", views.scan, name="checkin-scan"),
+    path("checkins/device/", views.device_punch, name="checkin-device-punch"),
+    path(
+        "checkins/enrolments/",
+        views.EnrolmentListCreateView.as_view(),
+        name="biometric-enrolment-list-create",
+    ),
+    path(
+        "checkins/enrolments/<int:pk>/",
+        views.EnrolmentDetailView.as_view(),
+        name="biometric-enrolment-detail",
+    ),
     path("checkins/today/", views.today, name="checkin-today"),
     path("checkins/admission/<int:pk>/", views.admission, name="checkin-admission"),
     path("checkins/pass/<int:pk>/", views.MemberPassView.as_view(), name="member-pass"),

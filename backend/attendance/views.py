@@ -22,10 +22,18 @@ from tenants.permissions import (
 )
 
 from .admission import admission_for
-from .models import AttendanceRecord, AttendanceStatus, CheckIn, CheckInMethod
+from .models import (
+    AttendanceRecord,
+    AttendanceStatus,
+    BiometricEnrolment,
+    CheckIn,
+    CheckInMethod,
+)
 from .serializers import (
     AttendanceRecordSerializer,
+    BiometricEnrolmentSerializer,
     CheckInSerializer,
+    DevicePunchSerializer,
     MarkAttendanceSerializer,
     MemberPassSerializer,
     ScanSerializer,
@@ -119,17 +127,20 @@ def attendance_summary(request):
     return Response({"students": rows})
 
 
-def _open_visit(student):
-    """An open visit. Scanning twice on the way in is one visit, not two."""
+def _open_visit(student, on):
+    """An open visit from the same day. Scanning twice on the way in is one
+    visit; a reader flushing yesterday's buffer is not."""
     return CheckIn.objects.filter(
-        student=student, admitted=True, checked_out_at__isnull=True
+        student=student, admitted=True, checked_out_at__isnull=True,
+        checked_in_at__date=on,
     ).order_by("-checked_in_at").first()
 
 
-def record_check_in(organization, student, *, method, device="", branch=None):
+def record_check_in(organization, student, *, method, device="", branch=None, at=None):
     """The only path a check-in is created by. Returns (check_in, created);
     refused attempts are recorded too."""
-    existing = _open_visit(student)
+    at = at or timezone.now()
+    existing = _open_visit(student, timezone.localdate(at))
     if existing is not None:
         return existing, False
 
@@ -139,6 +150,7 @@ def record_check_in(organization, student, *, method, device="", branch=None):
         student=student,
         branch=branch or student.branch,
         subscription=admission.subscription if admission.allowed else None,
+        checked_in_at=at,
         method=method,
         admitted=admission.allowed,
         refused_reason="" if admission.allowed else admission.reason,
@@ -345,3 +357,55 @@ class MemberPassImageView(MemberPassView):
 
     def post(self, request, pk):
         raise Http404
+
+
+@api_view(["POST"])
+@permission_classes([IsOrganizationMember])
+def device_punch(request):
+    """A biometric reader reporting a match.
+
+    The device does the matching and keeps the template; we only map its user
+    number to a member and run the same admission rule the door already uses.
+    """
+    organization = get_current_organization(request)
+    serializer = DevicePunchSerializer(
+        data=request.data, context={"organization": organization}
+    )
+    serializer.is_valid(raise_exception=True)
+
+    check_in, created = record_check_in(
+        organization,
+        serializer.context["student"],
+        method=CheckInMethod.BIOMETRIC,
+        device=serializer.validated_data["device"],
+        at=serializer.validated_data.get("at"),
+    )
+
+    data = CheckInSerializer(check_in).data
+    data["already_inside"] = not created
+    return Response(
+        data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    )
+
+
+class EnrolmentScopedMixin(OrganizationScopedMixin):
+    """Which reader id is whom. A door credential, so managers only, and never
+    an API key — a reader pushes punches, it does not hand out mappings."""
+
+    serializer_class = BiometricEnrolmentSerializer
+    permission_classes = [IsOrganizationManager, IsPerson]
+
+    def get_queryset(self):
+        return self.scoped(BiometricEnrolment).select_related("student")
+
+
+class EnrolmentListCreateView(EnrolmentScopedMixin, generics.ListCreateAPIView):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if student := self.request.query_params.get("student"):
+            queryset = queryset.filter(student_id=student)
+        return queryset
+
+
+class EnrolmentDetailView(EnrolmentScopedMixin, generics.RetrieveDestroyAPIView):
+    pass
