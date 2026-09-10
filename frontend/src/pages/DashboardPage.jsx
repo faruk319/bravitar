@@ -8,8 +8,9 @@ import { useAuth } from '../auth/AuthContext'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
 import AcademyPicker from '../components/AcademyPicker'
-import MemberApp from '../member/MemberApp'
+import WrongDoor from '../components/WrongDoor'
 import { currentAcademy } from '../lib/academy'
+import { memberPortalUrl } from '../lib/portal'
 import { rootUrl } from '../lib/tenant'
 import { moduleGroups, modulesForVerticals, verticalLabel } from '../lib/verticals'
 
@@ -22,7 +23,7 @@ export default function DashboardPage() {
   const { user, signOut } = useAuth()
   const [org, setOrg] = useState(null)
   const [branches, setBranches] = useState([])
-  const [members, setMembers] = useState(null)
+  const [isMember, setIsMember] = useState(false)
   const [error, setError] = useState(null)
   // Which module is open lives in the URL hash, so a refresh lands where you
   // were and back/forward work. No router needed — the app is one page.
@@ -49,9 +50,8 @@ export default function DashboardPage() {
     setOpenGroup(null)
   }
 
-  // A member has no Membership, so the staff call is the wrong question for
-  // them. Asked first because staff are the common case: only a member pays
-  // for the second request, and they get their own app rather than an error.
+  // A member has no Membership, so this call is the wrong question for them.
+  // They are sent to their own door rather than let in through this one.
   useEffect(() => {
     apiFetch('/organizations/current/')
       .then((data) => {
@@ -60,12 +60,22 @@ export default function DashboardPage() {
       })
       .catch((err) =>
         apiFetch('/member/')
-          .then((mine) => setMembers(mine.members))
+          .then(() => setIsMember(true))
           .catch(() => setError(err.message)),
       )
   }, [])
 
-  if (members) return <MemberApp members={members} onSignOut={signOut} />
+  if (isMember) {
+    return (
+      <WrongDoor
+        heading="This is the staff sign in"
+        detail="That account is a member here, not somebody who runs the academy."
+        href={memberPortalUrl()}
+        linkLabel="Go to member sign in"
+        onSignOut={signOut}
+      />
+    )
+  }
 
   if (error) {
     return (

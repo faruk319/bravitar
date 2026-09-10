@@ -1,8 +1,13 @@
 import { useState } from 'react'
 
+import { memberPortalUrl, staffPortalUrl } from '../lib/portal'
 import { supabase } from '../lib/supabase'
 
-export default function LoginPage() {
+/** One screen, two doors. Which one you are at decides who it is for and
+ *  where the other one is — nobody is left guessing why their password
+ *  "doesn't work" when it is simply the wrong entrance. */
+export default function LoginPage({ portal = 'staff' }) {
+  const member = portal === 'member'
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -28,7 +33,8 @@ export default function LoginPage() {
       <form className="card" onSubmit={handleSubmit}>
         <h1>Bravitar</h1>
         <p className="muted">
-          {mode === 'signin' ? 'Sign in to your account' : 'Create your account'}
+          {member ? 'Member sign in' : 'Staff sign in'}
+          {mode === 'signup' && ' — create your account'}
         </p>
 
         <label>
@@ -70,6 +76,13 @@ export default function LoginPage() {
         >
           {mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
         </button>
+
+        <p className="muted small">
+          {member ? 'Run this academy? ' : 'Are you a member? '}
+          <a href={member ? staffPortalUrl() : memberPortalUrl()}>
+            {member ? 'Staff sign in' : 'Member sign in'}
+          </a>
+        </p>
       </form>
     </div>
   )

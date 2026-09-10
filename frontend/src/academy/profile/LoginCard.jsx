@@ -3,6 +3,7 @@ import { useState } from 'react'
 import ConfirmAction from '../../components/ConfirmAction'
 import InfoDot from '../../components/InfoDot'
 import { apiFetch } from '../../lib/api'
+import { memberPortalUrl } from '../../lib/portal'
 
 /**
  * Whether this member can sign in and see their own record.
@@ -75,7 +76,8 @@ export default function LoginCard({ student, canManage, onChanged }) {
           )}
           {state.invited && !state.signed_in && (
             <span className="muted small">
-              They sign in at this address with {student.email}
+              They sign up at <a href={memberPortalUrl()}>the member sign in</a>{' '}
+              with {student.email}
             </span>
           )}
         </div>
