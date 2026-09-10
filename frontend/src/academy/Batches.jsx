@@ -332,6 +332,11 @@ export default function Batches({ role }) {
                       </div>
                     </div>
                     <div className="row-actions">
+                      {(batch.days_of_week ?? []).length === 0 && (
+                        <span className="pill pending" title="It offers no sessions until it has days">
+                          no days set
+                        </span>
+                      )}
                       <span className={full ? 'pill left' : 'pill active'}>
                         {batch.enrolled_count}/{batch.capacity ?? '∞'}{full ? ' full' : ''}
                       </span>

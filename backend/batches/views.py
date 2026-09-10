@@ -179,7 +179,9 @@ def sessions(request):
     for batch in batches:
         for offset in range((end - start).days + 1):
             day = start + timedelta(days=offset)
-            if batch.days_of_week and day.weekday() not in batch.days_of_week:
+            # No days set is not "every day" — nobody has said when it runs,
+            # so it offers nothing. Same reading the register takes.
+            if day.weekday() not in batch.days_of_week:
                 continue
             taken = counts.get((batch.id, day, BookingStatus.BOOKED), 0)
             rows.append({

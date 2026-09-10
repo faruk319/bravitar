@@ -94,6 +94,14 @@ class BookingAPlaceTests(BookingTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("doesn't run", str(response.data))
 
+    def test_a_batch_with_no_days_set_cannot_be_booked(self):
+        """No days set means nobody has said when it runs — not every day."""
+        self.batch.days_of_week = []
+        self.batch.save()
+        response = self.book(self.paid_member("Aarav"))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("which days", str(response.data))
+
     def test_a_past_day_is_refused(self):
         response = self.book(self.paid_member("Aarav"), day=self.today - timedelta(days=1))
         self.assertEqual(response.status_code, 400)
@@ -259,6 +267,13 @@ class SessionsCalendarTests(BookingTestCase):
         row = self.sessions(**{"from": str(self.day), "to": str(self.day)})["sessions"][0]
         self.assertEqual(row["places_left"], 0)
         self.assertEqual(row["waiting"], 1)
+
+    def test_a_batch_with_no_days_set_offers_no_sessions(self):
+        """It would otherwise appear bookable every single day."""
+        self.batch.days_of_week = []
+        self.batch.save()
+        data = self.sessions(**{"from": str(self.today), "to": str(self.today + timedelta(days=6))})
+        self.assertEqual(data["sessions"], [])
 
     def test_a_batch_that_changes_its_days_leaves_no_phantom_sessions(self):
         """Sessions are worked out from the pattern, not stored."""

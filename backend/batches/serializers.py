@@ -110,7 +110,12 @@ class ClassBookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"session_date": "That day has already been and gone."}
             )
-        if batch.days_of_week and day.weekday() not in batch.days_of_week:
+        if not batch.days_of_week:
+            raise serializers.ValidationError(
+                {"batch": f"Nobody has said which days {batch.name} runs. "
+                          "Set those first."}
+            )
+        if day.weekday() not in batch.days_of_week:
             raise serializers.ValidationError(
                 {"session_date": f"{batch.name} doesn't run that day."}
             )
