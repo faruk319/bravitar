@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthContext'
 import { apiFetch, apiFetchAll } from '../lib/api'
 import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
 import AcademyPicker from '../components/AcademyPicker'
+import MemberApp from '../member/MemberApp'
 import { currentAcademy } from '../lib/academy'
 import { rootUrl } from '../lib/tenant'
 import { moduleGroups, modulesForVerticals, verticalLabel } from '../lib/verticals'
@@ -21,6 +22,7 @@ export default function DashboardPage() {
   const { user, signOut } = useAuth()
   const [org, setOrg] = useState(null)
   const [branches, setBranches] = useState([])
+  const [members, setMembers] = useState(null)
   const [error, setError] = useState(null)
   // Which module is open lives in the URL hash, so a refresh lands where you
   // were and back/forward work. No router needed — the app is one page.
@@ -47,14 +49,23 @@ export default function DashboardPage() {
     setOpenGroup(null)
   }
 
+  // A member has no Membership, so the staff call is the wrong question for
+  // them. Asked first because staff are the common case: only a member pays
+  // for the second request, and they get their own app rather than an error.
   useEffect(() => {
     apiFetch('/organizations/current/')
       .then((data) => {
         setOrg(data)
         return apiFetchAll('/organizations/current/branches/').then(setBranches).catch(() => {})
       })
-      .catch((err) => setError(err.message))
+      .catch((err) =>
+        apiFetch('/member/')
+          .then((mine) => setMembers(mine.members))
+          .catch(() => setError(err.message)),
+      )
   }, [])
+
+  if (members) return <MemberApp members={members} onSignOut={signOut} />
 
   if (error) {
     return (

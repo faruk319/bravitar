@@ -115,6 +115,19 @@ class InvitingAMemberTests(MemberAppTestCase):
         self.assertEqual(student.full_name, "Aarav")
         self.assertEqual(student.subscriptions.count(), 1)
 
+    def test_a_record_cannot_be_handed_to_an_account_by_editing_it(self):
+        """user_id says whose record this is. If editing a member could set
+        it, anyone who can edit members could point one at their own login."""
+        student = self.enrolled("Aarav", email="aarav@example.com")
+        self.client_for(self.manager).patch(
+            f"/api/students/{student.id}/",
+            {"user_id": "attacker-1", "invited_at": "2026-01-01T00:00:00Z"},
+            format="json",
+        )
+        student.refresh_from_db()
+        self.assertEqual(student.user_id, "")
+        self.assertIsNone(student.invited_at)
+
     def test_staff_cannot_invite(self):
         """Handing out logins is a manager's call."""
         student = self.enrolled("Aarav", email="aarav@example.com")

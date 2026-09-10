@@ -5,6 +5,7 @@ import ConfirmAction from '../components/ConfirmAction'
 import CollectPayment from './CollectPayment'
 import BatchesCard from './profile/BatchesCard'
 import DocumentsCard from './profile/DocumentsCard'
+import LoginCard from './profile/LoginCard'
 import MembershipCard from './profile/MembershipCard'
 import PassCard from './profile/PassCard'
 import PhotoCard from './profile/PhotoCard'
@@ -222,6 +223,14 @@ export default function StudentDetail({
 
         {gymOn && isManager && (
           <TrainerCard student={current} canManage={mayEdit} />
+        )}
+
+        {isManager && (
+          <LoginCard
+            student={current}
+            canManage={mayEdit}
+            onChanged={reloadStudent}
+          />
         )}
 
         <PassCard student={current} canManage={mayEdit} />

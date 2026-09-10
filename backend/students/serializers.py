@@ -16,12 +16,16 @@ class StudentSerializer(serializers.ModelSerializer):
         fields = [
             "id", "full_name", "phone", "email", "date_of_birth",
             "guardian_name", "guardian_phone", "status", "joined_on",
-            "notes", "branch", "branch_name", "user_id",
+            "notes", "branch", "branch_name", "user_id", "invited_at",
             "has_photo", "document_count", "can_edit",
         ]
 
+        # Who this record belongs to is not an editable field. It is set by
+        # claiming an invitation, so writing it here would let anyone who can
+        # edit a member hand that member's record to any account they name.
         read_only_fields = [
             "id", "branch_name", "has_photo", "document_count", "can_edit",
+            "user_id", "invited_at",
         ]
 
     def get_has_photo(self, obj):

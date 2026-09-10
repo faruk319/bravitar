@@ -554,6 +554,15 @@ dialog.confirm p { margin: 0 0 0.9rem; }
   padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 999px;
   font-size: 0.85rem;
 }
+/* The member app: one column, no sidebar — they have one record to look at. */
+.member-shell { max-width: 60rem; margin: 0 auto; }
+.member-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 1rem 2rem; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.member-shell .content { padding: 1.5rem 2rem; }
+
 .booking-chip.away { opacity: 0.55; }
 .pill.skipped { background: var(--border); color: var(--muted); }
 .pill.booked { background: #dcf3dc; color: #1d6b1d; }
