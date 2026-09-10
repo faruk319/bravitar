@@ -150,12 +150,30 @@ button.link {
 .nav-item:hover { background: var(--bg); }
 .nav-item.active { background: var(--accent); color: white; }
 
+/* One group per vertical, one open at a time. */
+.nav-group { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.nav-group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  background: none; color: var(--muted); text-align: left;
+  padding: 0.45rem 0.6rem; border-radius: 6px;
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.nav-group-head:hover { background: var(--bg); color: var(--text); }
+.nav-group-head.on { color: var(--text); font-weight: 600; }
+.nav-chevron { font-size: 0.65rem; opacity: 0.7; }
+.nav-group + .nav-group { margin-top: 0.35rem; }
+.nav-group .nav-item { padding-left: 1.1rem; }
+
 .sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 0.3rem; }
 .sidebar-footer a { color: var(--accent); }
 
 .content { padding: 2rem; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.75rem; margin-top: 1.25rem; }
+.module-group + .module-group { margin-top: 1.75rem; }
+.module-group .tiles { margin-top: 0.5rem; }
 
 .tile {
   background: var(--surface);

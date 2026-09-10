@@ -10,7 +10,7 @@ import { MODULE_COMPONENTS } from '../lib/moduleRegistry'
 import AcademyPicker from '../components/AcademyPicker'
 import { currentAcademy } from '../lib/academy'
 import { rootUrl } from '../lib/tenant'
-import { modulesForVerticals, verticalLabel } from '../lib/verticals'
+import { moduleGroups, modulesForVerticals, verticalLabel } from '../lib/verticals'
 
 /**
  * Served on <slug>.<base domain>. The organization comes from the backend's
@@ -25,16 +25,26 @@ export default function DashboardPage() {
   // Which module is open lives in the URL hash, so a refresh lands where you
   // were and back/forward work. No router needed — the app is one page.
   const [active, setActive] = useState(() => window.location.hash.slice(1) || null)
+  // Null means "whichever group holds the open module" — only set when the
+  // user opens a group without picking anything in it yet.
+  const [openGroup, setOpenGroup] = useState(null)
 
   useEffect(() => {
-    const onHash = () => setActive(window.location.hash.slice(1) || null)
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    const sync = () => setActive(window.location.hash.slice(1) || null)
+    // popstate too: going home pushes a plain path, not a hash.
+    window.addEventListener('hashchange', sync)
+    window.addEventListener('popstate', sync)
+    return () => {
+      window.removeEventListener('hashchange', sync)
+      window.removeEventListener('popstate', sync)
+    }
   }, [])
 
   const show = (key) => {
-    window.location.hash = key ?? ''
+    if (key) window.location.hash = key
+    else window.history.pushState(null, '', window.location.pathname)
     setActive(key ?? null)
+    setOpenGroup(null)
   }
 
   useEffect(() => {
@@ -83,9 +93,15 @@ export default function DashboardPage() {
     )
   }
 
+  const groups = moduleGroups(org.verticals)
   const modules = modulesForVerticals(org.verticals)
   const activeModule = modules.find((m) => m.key === active)
   const ModuleComponent = activeModule ? MODULE_COMPONENTS[activeModule.key] : null
+
+  // One group open at a time. It follows the open module unless the user has
+  // just reached past it into another group.
+  const groupOf = (key) => groups.find((g) => g.modules.some((m) => m.key === key))?.key
+  const expandedGroup = openGroup ?? groupOf(active) ?? groups[0].key
 
   // Admin lives outside the vertical modules: it's about the academy itself,
   // not what it teaches. Staff can see the team; only an owner sees settings.
@@ -109,16 +125,33 @@ export default function DashboardPage() {
         </button>
 
         <nav>
-          {modules.map((module) => (
-            <button
-              key={module.key}
-              type="button"
-              className={module.key === active ? 'nav-item active' : 'nav-item'}
-              onClick={() => show(module.key)}
-            >
-              {module.label}
-            </button>
-          ))}
+          {groups.map((group) => {
+            const open = group.key === expandedGroup
+            const holdsActive = groupOf(active) === group.key
+            return (
+              <div key={group.key} className="nav-group">
+                <button
+                  type="button"
+                  className={holdsActive ? 'nav-group-head on' : 'nav-group-head'}
+                  onClick={() => setOpenGroup(open ? '' : group.key)}
+                  aria-expanded={open}
+                >
+                  {group.label}
+                  <span className="nav-chevron">{open ? '▾' : '▸'}</span>
+                </button>
+                {open && group.modules.map((module) => (
+                  <button
+                    key={module.key}
+                    type="button"
+                    className={module.key === active ? 'nav-item active' : 'nav-item'}
+                    onClick={() => show(module.key)}
+                  >
+                    {module.label}
+                  </button>
+                ))}
+              </div>
+            )
+          })}
         </nav>
 
         {adminItems.length > 0 && (
@@ -177,18 +210,23 @@ export default function DashboardPage() {
             <p className="muted">
               {org.plan} plan · {branches.length} branch{branches.length === 1 ? '' : 'es'}
             </p>
-            <div className="tiles">
-              {modules.map((module) => (
-                <button
-                  key={module.key}
-                  type="button"
-                  className="tile"
-                  onClick={() => show(module.key)}
-                >
-                  {module.label}
-                </button>
-              ))}
-            </div>
+            {groups.map((group) => (
+              <section key={group.key} className="module-group">
+                <span className="nav-heading">{group.label}</span>
+                <div className="tiles">
+                  {group.modules.map((module) => (
+                    <button
+                      key={module.key}
+                      type="button"
+                      className="tile"
+                      onClick={() => show(module.key)}
+                    >
+                      {module.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ))}
           </>
         )}
       </main>

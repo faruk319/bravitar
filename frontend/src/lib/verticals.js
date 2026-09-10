@@ -89,10 +89,21 @@ export function verticalLabel(value) {
   return VERTICALS.find((v) => v.value === value)?.label ?? value
 }
 
-/** Modules to show for an organization, based on the verticals it selected. */
+/**
+ * Modules grouped the way they are actually thought about: the cross-vertical
+ * core first, then one group per sport. An academy running four verticals has
+ * twenty modules, which is a list nobody reads — the sidebar opens one group
+ * at a time off the back of this.
+ */
+export function moduleGroups(verticals = []) {
+  const plugins = verticals
+    .map((value) => VERTICALS.find((v) => v.value === value))
+    .filter((v) => v?.modules?.length)
+    .map((v) => ({ key: v.value, label: v.label, modules: v.modules }))
+  return [{ key: 'core', label: 'Everyday', modules: CORE_MODULES }, ...plugins]
+}
+
+/** The same modules flat, for lookups and the dashboard tiles. */
 export function modulesForVerticals(verticals = []) {
-  const pluginModules = verticals.flatMap(
-    (value) => VERTICALS.find((v) => v.value === value)?.modules ?? [],
-  )
-  return [...CORE_MODULES, ...pluginModules]
+  return moduleGroups(verticals).flatMap((group) => group.modules)
 }
