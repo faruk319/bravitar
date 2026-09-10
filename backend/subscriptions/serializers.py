@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from students.models import Student
@@ -85,7 +87,11 @@ class MemberSubscriptionSerializer(serializers.ModelSerializer):
         return obj.invoice.status if obj.invoice else None
 
     def get_amount_due(self, obj):
-        return obj.invoice.balance if obj.invoice else None
+        """What is still owed. A cancelled invoice keeps its balance as
+        history, but nobody owes it."""
+        if obj.invoice is None or obj.invoice.is_cancelled:
+            return None if obj.invoice is None else Decimal("0.00")
+        return obj.invoice.balance
 
     def get_amount_paid(self, obj):
         return obj.invoice.amount_paid if obj.invoice else None

@@ -193,7 +193,7 @@ export default function MembershipCard({ student, canManage, requiresPayment }) 
                 <td>
                   {s.invoice_status === 'paid'
                     ? <span className="pill paid">paid</span>
-                    : s.amount_due != null
+                    : Number(s.amount_due) > 0
                       ? <span className={`pill ${s.invoice_status}`}>₹{money(s.amount_due)} due</span>
                       : <span className="muted small">—</span>}
                 </td>

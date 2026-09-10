@@ -114,7 +114,9 @@ export default function StudentDetail({
     </label>
   )
 
+  // A cancelled invoice keeps its balance as history; nobody owes it.
   const outstanding = (invoices?.items ?? [])
+    .filter((inv) => !inv.is_cancelled)
     .reduce((total, inv) => total + Number(inv.balance), 0)
 
   if (collecting) {

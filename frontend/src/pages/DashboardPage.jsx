@@ -22,7 +22,20 @@ export default function DashboardPage() {
   const [org, setOrg] = useState(null)
   const [branches, setBranches] = useState([])
   const [error, setError] = useState(null)
-  const [active, setActive] = useState(null)
+  // Which module is open lives in the URL hash, so a refresh lands where you
+  // were and back/forward work. No router needed — the app is one page.
+  const [active, setActive] = useState(() => window.location.hash.slice(1) || null)
+
+  useEffect(() => {
+    const onHash = () => setActive(window.location.hash.slice(1) || null)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  const show = (key) => {
+    window.location.hash = key ?? ''
+    setActive(key ?? null)
+  }
 
   useEffect(() => {
     apiFetch('/organizations/current/')
@@ -90,10 +103,10 @@ export default function DashboardPage() {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="brand">
+        <button type="button" className="brand" onClick={() => show(null)}>
           <strong>{org.name}</strong>
           <span className="muted small">{org.verticals.map(verticalLabel).join(', ')}</span>
-        </div>
+        </button>
 
         <nav>
           {modules.map((module) => (
@@ -101,7 +114,7 @@ export default function DashboardPage() {
               key={module.key}
               type="button"
               className={module.key === active ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActive(module.key)}
+              onClick={() => show(module.key)}
             >
               {module.label}
             </button>
@@ -116,7 +129,7 @@ export default function DashboardPage() {
                 key={item.key}
                 type="button"
                 className={item.key === active ? 'nav-item active' : 'nav-item'}
-                onClick={() => setActive(item.key)}
+                onClick={() => show(item.key)}
               >
                 {item.label}
               </button>
@@ -170,7 +183,7 @@ export default function DashboardPage() {
                   key={module.key}
                   type="button"
                   className="tile"
-                  onClick={() => setActive(module.key)}
+                  onClick={() => show(module.key)}
                 >
                   {module.label}
                 </button>

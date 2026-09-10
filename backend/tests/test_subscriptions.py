@@ -399,6 +399,42 @@ class MembershipBillingTests(GymTestCase):
         summary = self.client_for(self.manager).get("/api/billing/summary/")
         self.assertEqual(Decimal(summary.data["billed"]), Decimal("0.00"))
 
+    def test_a_cancelled_membership_owes_nothing(self):
+        """The invoice keeps its balance as history, but the profile must not
+        go on saying money is due on a membership nobody is chasing."""
+        created = self.subscribe()
+        self.client_for(self.manager).patch(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/",
+            {"cancelled_on": str(self.today)}, format="json",
+        )
+
+        row = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        ).data
+        self.assertEqual(row["invoice_status"], "cancelled")
+        self.assertEqual(Decimal(row["amount_due"]), Decimal("0.00"))
+
+    def test_a_part_paid_cancellation_still_shows_what_is_owed(self):
+        """That invoice survives cancellation, so the balance is real."""
+        created = self.subscribe()
+        invoice_id = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        ).data["invoice"]
+        self.client_for(self.manager).post(
+            "/api/billing/payments/",
+            {"invoice": invoice_id, "amount": "500.00", "paid_on": str(self.today)},
+            format="json",
+        )
+        self.client_for(self.manager).patch(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/",
+            {"cancelled_on": str(self.today)}, format="json",
+        )
+
+        row = self.client_for(self.manager).get(
+            f"/api/gym-ops/subscriptions/{created.data['id']}/"
+        ).data
+        self.assertEqual(Decimal(row["amount_due"]), Decimal("1000.00"))
+
     def test_cancelling_a_part_paid_membership_keeps_its_bill(self):
         """Real money changed hands. Whether that becomes a refund or a
         credit is a person's decision, not something to quietly automate."""
