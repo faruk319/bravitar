@@ -26,6 +26,11 @@ class ProgressPhotoPrivacyTests(TenantAPITestCase):
     """Progress photos are pictures of someone's body. Being in the same
     academy — even as its owner — is not a reason to see them."""
 
+    def setUp(self):
+        super().setUp()
+        # These belong to a member, so whoever trains here has a record.
+        self.as_member(self.manager, name="The Manager")
+
     def upload_as_manager(self):
         return self.client_for(self.manager).post(
             "/api/gym/body/photos/",

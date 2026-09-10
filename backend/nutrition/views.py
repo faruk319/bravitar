@@ -8,6 +8,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
 from exercises.permissions import HasFitnessVertical
+from students.owner import named_student, own_student
 from tenants.context import get_current_academy
 from tenants.permissions import IsOrganizationStaff, IsPerson
 
@@ -28,6 +29,26 @@ class NutritionScopedMixin:
     @property
     def academy(self):
         return get_current_academy(self.request)
+
+    @property
+    def member(self):
+        """The member a plan is written FOR. Named, not inferred: a trainer
+        setting macro targets is not the person they are for."""
+        return named_student(self.request, self.academy)
+
+    @property
+    def own(self):
+        """The caller's own record, for the food diary.
+
+        A plan is written for you; a diary is written by you. The trainer sets
+        the targets and does not get to read what you actually ate.
+        """
+        return own_student(self.request, self.academy, required=False)
+
+    def own_queryset(self, model):
+        if self.own is None:
+            return model.objects.none()
+        return model.objects.filter(academy=self.academy, student=self.own)
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "academy": self.academy}
@@ -66,7 +87,7 @@ class NutritionPlanView(NutritionScopedMixin, generics.GenericAPIView):
 
     def _plan(self):
         return NutritionPlan.objects.filter(
-            academy=self.academy, user_id=self.request.user.id
+            academy=self.academy, student=self.member
         ).first()
 
     def get(self, request):
@@ -77,7 +98,7 @@ class NutritionPlanView(NutritionScopedMixin, generics.GenericAPIView):
         plan = self._plan()
         serializer = self.get_serializer(plan, data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(academy=self.academy, user_id=request.user.id)
+        serializer.save(academy=self.academy, student=named_student(request, self.academy))
         return Response(serializer.data)
 
 
@@ -85,26 +106,22 @@ class FoodLogListCreateView(NutritionScopedMixin, generics.ListCreateAPIView):
     serializer_class = FoodLogEntrySerializer
 
     def get_queryset(self):
-        return (
-            FoodLogEntry.objects.filter(
-                academy=self.academy,
-                user_id=self.request.user.id,
-                consumed_on=_requested_date(self.request),
-            )
-            .select_related("food")
-        )
+        return self.own_queryset(FoodLogEntry).filter(
+            consumed_on=_requested_date(self.request)
+        ).select_related("food")
 
     def perform_create(self, serializer):
-        serializer.save(academy=self.academy, user_id=self.request.user.id)
+        serializer.save(
+            academy=self.academy,
+            student=own_student(self.request, self.academy),
+        )
 
 
 class FoodLogDetailView(NutritionScopedMixin, generics.RetrieveDestroyAPIView):
     serializer_class = FoodLogEntrySerializer
 
     def get_queryset(self):
-        return FoodLogEntry.objects.filter(
-            academy=self.academy, user_id=self.request.user.id
-        ).select_related("food")
+        return self.own_queryset(FoodLogEntry).select_related("food")
 
 
 @api_view(["GET"])
@@ -114,9 +131,10 @@ def daily_summary(request):
     academy = get_current_academy(request)
     day = _requested_date(request)
 
+    mine = own_student(request, academy, required=False)
     entries = FoodLogEntry.objects.filter(
-        academy=academy, user_id=request.user.id, consumed_on=day
-    ).select_related("food")
+        academy=academy, student=mine, consumed_on=day
+    ).select_related("food") if mine else FoodLogEntry.objects.none()
 
     zero = Decimal("0.0")
     totals = {"energy_kcal": zero, "protein_g": zero, "carbs_g": zero, "fat_g": zero}
@@ -129,8 +147,8 @@ def daily_summary(request):
             per_meal[entry.meal][key] += value
 
     plan = NutritionPlan.objects.filter(
-        academy=academy, user_id=request.user.id
-    ).first()
+        academy=academy, student=mine
+    ).first() if mine else None
 
     return Response(
         {

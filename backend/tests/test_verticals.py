@@ -14,9 +14,17 @@ KARATE_ENDPOINTS = ["/api/karate/belts/", "/api/karate/bouts/", "/api/karate/sta
 
 class VerticalGatingTests(TenantAPITestCase):
     def test_a_gym_reaches_both_of_its_verticals(self):
+        # Routines and muscle stats are about one member, so they need naming.
+        # The 403 cases below don't: the vertical gate is a permission, and
+        # runs before the view ever asks who the records are for.
+        member = self.as_member(self.owner, name="The Owner")
         for path in FITNESS_ENDPOINTS + GYM_OPS_ENDPOINTS:
             with self.subTest(path=path):
-                self.assertEqual(self.client_for(self.owner).get(path).status_code, 200)
+                joiner = "&" if "?" in path else "?"
+                response = self.client_for(self.owner).get(
+                    f"{path}{joiner}student={member.id}"
+                )
+                self.assertEqual(response.status_code, 200)
 
     def test_a_gym_is_refused_by_other_verticals(self):
         for path in SWIM_ENDPOINTS + KARATE_ENDPOINTS:

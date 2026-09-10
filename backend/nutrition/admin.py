@@ -11,10 +11,10 @@ class FoodAdmin(admin.ModelAdmin):
 
 @admin.register(NutritionPlan)
 class NutritionPlanAdmin(admin.ModelAdmin):
-    list_display = ["name", "academy", "user_id", "target_kcal"]
+    list_display = ["name", "academy", "student", "target_kcal"]
 
 
 @admin.register(FoodLogEntry)
 class FoodLogEntryAdmin(admin.ModelAdmin):
-    list_display = ["food", "amount_g", "meal", "consumed_on", "user_id"]
+    list_display = ["food", "amount_g", "meal", "consumed_on", "student"]
     list_filter = ["meal", "consumed_on"]

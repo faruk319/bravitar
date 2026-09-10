@@ -65,6 +65,22 @@ class TenantAPITestCase(APITestCase):
         )
         return make_user(user_id, email)
 
+    def as_member(self, user, name="Trainee", academy=None):
+        """A Student record for a login.
+
+        Personal fitness records belong to a member, not to an account, so
+        anybody who trains here has one — a trainer who lifts at their own
+        gym included. Their staff role is a separate thing.
+        """
+        from datetime import date
+
+        from students.models import Student
+
+        return Student.objects.create(
+            academy=academy or self.org, full_name=name,
+            joined_on=date(2026, 1, 1), user_id=user.id,
+        )
+
     def client_for(self, user, academy=None):
         """A client whose Host resolves to `academy`'s organization and who is
         signed in as `user`. Defaults to the primary academy."""

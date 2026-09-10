@@ -75,7 +75,9 @@ class NutritionPlan(models.Model):
     academy = models.ForeignKey(
         Academy, on_delete=models.CASCADE, related_name="nutrition_plans"
     )
-    user_id = models.CharField(max_length=64)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="nutrition_plans", null=True,
+    )
 
     name = models.CharField(max_length=255, default="Daily targets")
     target_kcal = models.PositiveIntegerField()
@@ -89,7 +91,7 @@ class NutritionPlan(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["academy", "user_id"], name="one_nutrition_plan_per_user"
+                fields=["academy", "student"], name="one_nutrition_plan_per_member"
             )
         ]
 
@@ -103,7 +105,9 @@ class FoodLogEntry(models.Model):
     academy = models.ForeignKey(
         Academy, on_delete=models.CASCADE, related_name="food_log"
     )
-    user_id = models.CharField(max_length=64)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="food_log", null=True,
+    )
 
     food = models.ForeignKey(Food, on_delete=models.PROTECT, related_name="log_entries")
     amount_g = models.DecimalField(max_digits=7, decimal_places=1)

@@ -10,7 +10,7 @@ class RoutineExerciseInline(admin.TabularInline):
 
 @admin.register(Routine)
 class RoutineAdmin(admin.ModelAdmin):
-    list_display = ["name", "academy", "user_id", "created_at"]
+    list_display = ["name", "academy", "student", "created_at"]
     inlines = [RoutineExerciseInline]
 
 
@@ -21,5 +21,5 @@ class SetLogInline(admin.TabularInline):
 
 @admin.register(WorkoutSession)
 class WorkoutSessionAdmin(admin.ModelAdmin):
-    list_display = ["__str__", "academy", "user_id", "started_at", "completed_at"]
+    list_display = ["__str__", "academy", "student", "started_at", "completed_at"]
     inlines = [SetLogInline]

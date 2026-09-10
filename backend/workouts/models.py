@@ -21,7 +21,9 @@ class Routine(models.Model):
     member for themselves."""
 
     academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="routines")
-    user_id = models.CharField(max_length=64, help_text="Supabase user id of the owner.")
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="routines", null=True,
+    )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     is_archived = models.BooleanField(default=False)
@@ -76,7 +78,9 @@ class WorkoutSession(models.Model):
     """One actual training session. May follow a routine, or be freestyle."""
 
     academy = models.ForeignKey(Academy, on_delete=models.CASCADE, related_name="sessions")
-    user_id = models.CharField(max_length=64)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="workout_sessions", null=True,
+    )
     routine = models.ForeignKey(
         Routine, on_delete=models.SET_NULL, related_name="sessions", null=True, blank=True
     )
@@ -138,7 +142,7 @@ class SetLog(models.Model):
             SetLog.objects.filter(
                 exercise=self.exercise,
                 is_warmup=False,
-                session__user_id=self.session.user_id,
+                session__student=self.session.student,
                 session__academy=self.session.academy,
             )
             .exclude(pk=self.pk)

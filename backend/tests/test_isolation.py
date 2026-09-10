@@ -143,6 +143,11 @@ class PersonalDataIsolationTests(TenantAPITestCase):
     """Body measurements and food logs belong to one person, not to the
     academy. Even the owner must not see another person's."""
 
+    def setUp(self):
+        super().setUp()
+        # This data belongs to a member, so whoever logs it has a record.
+        self.as_member(self.manager, name="The Manager")
+
     def test_measurements_are_private_to_their_owner(self):
         self.client_for(self.manager).post(
             "/api/gym/body/entries/",

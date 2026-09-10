@@ -183,8 +183,10 @@ class PersonalRecordTests(TenantAPITestCase):
         self.exercise = Exercise.objects.create(
             name="Bench", slug="bench", primary_muscle="chest"
         )
+        # A session belongs to the member who trained it, not to a login.
+        self.trainee = self.as_member(self.manager, name="The Manager")
         self.session = self.client_for(self.manager).post(
-            "/api/gym/sessions/", {}, format="json"
+            "/api/gym/sessions/", {"student": self.trainee.id}, format="json"
         ).data
 
     def log(self, reps, weight, is_warmup=False):

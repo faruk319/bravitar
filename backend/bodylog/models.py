@@ -13,7 +13,9 @@ class MeasurementEntry(models.Model):
     academy = models.ForeignKey(
         Academy, on_delete=models.CASCADE, related_name="measurements"
     )
-    user_id = models.CharField(max_length=64)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="measurements", null=True,
+    )
 
     metric = models.CharField(max_length=20, choices=Metric.CHOICES)
     value = models.DecimalField(max_digits=6, decimal_places=2)
@@ -27,7 +29,7 @@ class MeasurementEntry(models.Model):
         ordering = ["-measured_on"]
         constraints = [
             models.UniqueConstraint(
-                fields=["academy", "user_id", "metric", "measured_on"],
+                fields=["academy", "student", "metric", "measured_on"],
                 name="one_reading_per_metric_per_day",
             )
         ]
@@ -50,7 +52,9 @@ class ProgressPhoto(models.Model):
     academy = models.ForeignKey(
         Academy, on_delete=models.CASCADE, related_name="progress_photos"
     )
-    user_id = models.CharField(max_length=64)
+    student = models.ForeignKey(
+        "students.Student", on_delete=models.CASCADE, related_name="progress_photos", null=True,
+    )
 
     image = models.ImageField(upload_to=progress_photo_path)
     pose = models.CharField(max_length=10, choices=Pose.CHOICES, default=Pose.FRONT)

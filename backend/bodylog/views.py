@@ -5,6 +5,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from exercises.permissions import HasFitnessVertical
+from students.owner import own_student
 from tenants.context import get_current_academy
 from tenants.permissions import IsPerson
 
@@ -23,13 +24,25 @@ class BodyLogScopedMixin:
     def academy(self):
         return get_current_academy(self.request)
 
+    @property
+    def member(self):
+        """Deliberately their own, unlike routines and macro targets. Those
+        are a plan somebody writes for you; this is a picture of your body."""
+        return own_student(self.request, self.academy, required=False)
+
     def base_queryset(self, model):
-        return model.objects.filter(
-            academy=self.academy, user_id=self.request.user.id
-        )
+        # No record here means no body data here — an empty list, not a 404.
+        # Filtering on a null student would match everybody else's rows.
+        member = self.member
+        if member is None:
+            return model.objects.none()
+        return model.objects.filter(academy=self.academy, student=member)
 
     def perform_create(self, serializer):
-        serializer.save(academy=self.academy, user_id=self.request.user.id)
+        serializer.save(
+            academy=self.academy,
+            student=own_student(self.request, self.academy),
+        )
 
 
 class MeasurementListCreateView(BodyLogScopedMixin, generics.ListCreateAPIView):
