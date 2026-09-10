@@ -9,19 +9,16 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
+from students.models import Student
 from tenants.context import get_current_academy
+from tenants.mixins import OrganizationScopedMixin
 from tenants.permissions import IsOrganizationMember, IsOrganizationStaff
 
 from .allowance import classes_allowed_per_week
-from .models import BookingStatus, ClassBooking, booked_that_week
-from .serializers import ClassBookingSerializer
-
-from rest_framework import generics
-
-from tenants.mixins import OrganizationScopedMixin
-
-from .models import Batch, Enrolment
-from .serializers import BatchSerializer, EnrolmentSerializer
+from .models import (
+    Batch, BookingStatus, ClassBooking, Enrolment, booked_that_week, is_regular,
+)
+from .serializers import BatchSerializer, ClassBookingSerializer, EnrolmentSerializer
 
 
 class BatchListCreateView(OrganizationScopedMixin, generics.ListCreateAPIView):
@@ -151,6 +148,50 @@ def cancel_booking(request, pk):
     })
 
 
+@api_view(["POST"])
+@permission_classes([IsOrganizationStaff])
+@transaction.atomic
+def skip_session(request):
+    """A regular saying they aren't coming, or taking the day back.
+
+    Their place is held by the roster rather than by a row, so this is the
+    only way to free it — and freeing it lets the waitlist move.
+    """
+    academy = get_current_academy(request)
+    batch = Batch.objects.filter(academy=academy, pk=request.data.get("batch")).first()
+    student = Student.objects.filter(
+        academy=academy, pk=request.data.get("student")
+    ).first()
+    day = parse_date(str(request.data.get("session_date", "")))
+
+    if batch is None or student is None or day is None:
+        raise ValidationError({"detail": "Need a batch, a member and a date."})
+    if not is_regular(batch, student, day):
+        raise ValidationError(
+            {"student": f"{student.full_name} isn't in {batch.name}, so there is "
+                        "nothing to skip — cancel their booking instead."}
+        )
+
+    if request.data.get("coming") is True:
+        row = ClassBooking.objects.filter(
+            batch=batch, student=student, session_date=day,
+            status=BookingStatus.SKIPPED,
+        ).first()
+        if row is None:
+            raise ValidationError({"student": "They were already expected."})
+        if not row.unskip():
+            raise ValidationError(
+                {"student": f"{batch.name} filled up while they were away."}
+            )
+        return Response({"status": "expected", "promoted": None})
+
+    row, promoted = ClassBooking.mark_skip(batch, student, day)
+    return Response({
+        "status": row.status,
+        "promoted": ClassBookingSerializer(promoted).data if promoted else None,
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsOrganizationMember])
 def sessions(request):
@@ -164,16 +205,32 @@ def sessions(request):
     end = parse_date(request.query_params.get("to", "")) or start + timedelta(days=13)
     end = min(end, start + timedelta(days=60))
 
-    batches = Batch.objects.filter(academy=academy, is_active=True)
+    batches = Batch.objects.filter(academy=academy, is_active=True).select_related("coach")
     if branch := request.query_params.get("branch"):
         batches = batches.filter(branch_id=branch)
 
+    # One query for every row that departs from the default, rather than one
+    # per session — a fortnight of six batches is eighty-odd sessions.
     counts = {}
     for row in ClassBooking.objects.filter(
         academy=academy, session_date__range=(start, end),
-        status__in=BookingStatus.OPEN,
+        status__in=[*BookingStatus.OPEN, BookingStatus.SKIPPED],
     ).values("batch_id", "session_date", "status").annotate(total=Count("id")):
         counts[(row["batch_id"], row["session_date"], row["status"])] = row["total"]
+
+    # Regulars come off the roster, so their dates are compared per session.
+    enrolments = list(
+        Enrolment.objects.filter(batch__in=batches, is_active=True)
+        .values("batch_id", "enrolled_on", "left_on")
+    )
+
+    def regulars_for(batch_id, day):
+        return sum(
+            1 for e in enrolments
+            if e["batch_id"] == batch_id
+            and e["enrolled_on"] <= day
+            and (e["left_on"] is None or e["left_on"] >= day)
+        )
 
     rows = []
     for batch in batches:
@@ -183,15 +240,22 @@ def sessions(request):
             # so it offers nothing. Same reading the register takes.
             if day.weekday() not in batch.days_of_week:
                 continue
-            taken = counts.get((batch.id, day, BookingStatus.BOOKED), 0)
+            regulars = regulars_for(batch.id, day)
+            skipped = counts.get((batch.id, day, BookingStatus.SKIPPED), 0)
+            drop_ins = counts.get((batch.id, day, BookingStatus.BOOKED), 0)
+            taken = regulars - skipped + drop_ins
             rows.append({
                 "batch": batch.id,
                 "batch_name": batch.name,
+                "coach": (batch.coach.email if batch.coach_id else batch.coach_name),
                 "branch": batch.branch_id,
                 "session_date": day,
                 "start_time": batch.start_time,
                 "end_time": batch.end_time,
                 "capacity": batch.capacity,
+                "regulars": regulars,
+                "skipped": skipped,
+                "drop_ins": drop_ins,
                 "taken": taken,
                 "places_left": None if batch.capacity is None else max(batch.capacity - taken, 0),
                 "waiting": counts.get((batch.id, day, BookingStatus.WAITLISTED), 0),

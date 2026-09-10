@@ -5,7 +5,7 @@ from attendance.admission import admission_for
 
 from students.models import Student
 
-from .models import Batch, BookingStatus, ClassBooking, Enrolment
+from .models import Batch, BookingStatus, ClassBooking, Enrolment, is_regular
 
 
 class BatchSerializer(serializers.ModelSerializer):
@@ -126,6 +126,17 @@ class ClassBookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"student": f"{student.full_name} already has a place that day."}
             )
+
+        # A regular already holds a place every day the batch runs; booking
+        # one on top would take two places for one person.
+        if is_regular(batch, student, day) and not ClassBooking.objects.filter(
+            batch=batch, student=student, session_date=day,
+            status=BookingStatus.SKIPPED,
+        ).exists():
+            raise serializers.ValidationError({"student": (
+                f"{student.full_name} is in {batch.name} already, so they have "
+                "a place every day it runs."
+            )})
 
         # No point holding a place for somebody the door won't let in.
         verdict = admission_for(student)

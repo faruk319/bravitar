@@ -554,6 +554,8 @@ dialog.confirm p { margin: 0 0 0.9rem; }
   padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 999px;
   font-size: 0.85rem;
 }
+.booking-chip.away { opacity: 0.55; }
+.pill.skipped { background: var(--border); color: var(--muted); }
 .pill.booked { background: #dcf3dc; color: #1d6b1d; }
 .pill.waitlisted { background: #fdf0d5; color: #8a5a00; }
 .pill.attended { background: #e6e9fb; color: #3a3f8f; }

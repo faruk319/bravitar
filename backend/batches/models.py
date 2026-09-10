@@ -78,11 +78,16 @@ class BookingStatus:
 
     `waitlisted` is a real place in a queue, not a failed booking — when
     somebody cancels, the first person waiting takes their place.
+
+    `skipped` is the opposite: a regular of the batch saying they are not
+    coming that day. They hold a place by default, so the only way to give
+    it up is to say so.
     """
 
     BOOKED = "booked"
     WAITLISTED = "waitlisted"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"
     ATTENDED = "attended"
     NO_SHOW = "no_show"
 
@@ -90,12 +95,14 @@ class BookingStatus:
         (BOOKED, "Booked"),
         (WAITLISTED, "Waiting"),
         (CANCELLED, "Cancelled"),
+        (SKIPPED, "Not coming"),
         (ATTENDED, "Attended"),
         (NO_SHOW, "Didn't turn up"),
     ]
     # Holding a place, or waiting for one.
     OPEN = [BOOKED, WAITLISTED]
-    # Took up a place on the day.
+    # Took up a place on the day. A regular's place is counted from their
+    # enrolment, not from a row, so `booked` here means a drop-in only.
     TOOK_PLACE = [BOOKED, ATTENDED, NO_SHOW]
 
 
@@ -143,16 +150,65 @@ class ClassBooking(models.Model):
         return self.status in BookingStatus.OPEN
 
     @classmethod
-    def places_taken(cls, batch, session_date):
+    def drop_ins(cls, batch, session_date):
+        """Places held by somebody booked for that one day."""
         return cls.objects.filter(
             batch=batch, session_date=session_date, status=BookingStatus.BOOKED
         ).count()
+
+    @classmethod
+    def places_taken(cls, batch, session_date):
+        """Everyone holding a place: the batch's regulars, less whoever said
+        they aren't coming, plus that day's drop-ins.
+
+        A regular holds their place without a row — the roster already says
+        they are expected. Rows exist only where somebody departs from that.
+        """
+        skipped = cls.objects.filter(
+            batch=batch, session_date=session_date, status=BookingStatus.SKIPPED
+        ).count()
+        return (
+            regulars_on(batch, session_date).count()
+            - skipped
+            + cls.drop_ins(batch, session_date)
+        )
 
     @classmethod
     def waiting(cls, batch, session_date):
         return cls.objects.filter(
             batch=batch, session_date=session_date, status=BookingStatus.WAITLISTED
         ).order_by("booked_at", "id")
+
+    @classmethod
+    def mark_skip(cls, batch, student, session_date):
+        """A regular saying they aren't coming. Frees their place for the day.
+
+        Returns the row and whoever was promoted off the waitlist by it.
+        """
+        existing = cls.objects.filter(
+            batch=batch, student=student, session_date=session_date,
+            status=BookingStatus.SKIPPED,
+        ).first()
+        if existing:
+            return existing, None
+
+        row = cls.objects.create(
+            academy_id=batch.academy_id, batch=batch, student=student,
+            session_date=session_date, status=BookingStatus.SKIPPED,
+        )
+        return row, row.promote_from_waitlist()
+
+    def unskip(self):
+        """Take the place back. Refused if it has gone in the meantime."""
+        if self.status != BookingStatus.SKIPPED:
+            return False
+        capacity = self.batch.capacity
+        if capacity is not None and ClassBooking.places_taken(
+            self.batch, self.session_date
+        ) >= capacity:
+            return False
+        self.delete()
+        return True
 
     def cancel(self):
         """Give the place up, and hand it to whoever is waiting."""
@@ -190,6 +246,22 @@ class ClassBooking(models.Model):
             candidate.save(update_fields=["status"])
             return candidate
         return None
+
+
+def regulars_on(batch, day):
+    """Enrolments that were running on `day`.
+
+    Date-bounded rather than just `is_active`, so a session next month does
+    not count somebody who leaves next week, and last month's session still
+    counts whoever was there at the time.
+    """
+    return Enrolment.objects.filter(
+        batch=batch, is_active=True, enrolled_on__lte=day
+    ).filter(models.Q(left_on__isnull=True) | models.Q(left_on__gte=day))
+
+
+def is_regular(batch, student, day):
+    return regulars_on(batch, day).filter(student=student).exists()
 
 
 def week_of(day):

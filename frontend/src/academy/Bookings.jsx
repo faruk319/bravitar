@@ -70,6 +70,7 @@ export default function Bookings() {
   const [from, setFrom] = useState(today)
   const [sessions, setSessions] = useState(null)
   const [bookings, setBookings] = useState([])
+  const [enrolments, setEnrolments] = useState([])
   const [booking, setBooking] = useState(null)
   const [open, setOpen] = useState(null)
   const [refresh, setRefresh] = useState(0)
@@ -80,12 +81,14 @@ export default function Bookings() {
     let cancelled = false
     Promise.all([
       apiFetch(`/batches/sessions/?from=${from}&to=${to}`),
-      apiFetchAll(`/batches/bookings/?from=${from}&to=${to}&open=true`),
+      apiFetchAll(`/batches/bookings/?from=${from}&to=${to}`),
+      apiFetchAll('/batches/enrolments/'),
     ])
-      .then(([calendar, rows]) => {
+      .then(([calendar, rows, roster]) => {
         if (cancelled) return
         setSessions(calendar.sessions)
         setBookings(rows)
+        setEnrolments(roster.filter((e) => e.is_active))
       })
       .catch((err) => !cancelled && setError(err.message))
     return () => {
@@ -95,6 +98,19 @@ export default function Bookings() {
 
   async function cancel(row) {
     await apiFetch(`/batches/bookings/${row.id}/cancel/`, { method: 'POST' })
+    setRefresh((n) => n + 1)
+  }
+
+  async function setComing(session, studentId, coming) {
+    await apiFetch('/batches/sessions/skip/', {
+      method: 'POST',
+      body: JSON.stringify({
+        batch: session.batch,
+        student: studentId,
+        session_date: session.session_date,
+        coming,
+      }),
+    })
     setRefresh((n) => n + 1)
   }
 
@@ -111,10 +127,39 @@ export default function Bookings() {
     )
   }
 
-  const forSession = (session) => bookings.filter(
+  const key = (session) => `${session.batch}-${session.session_date}`
+
+  const rowsFor = (session) => bookings.filter(
     (b) => b.batch === session.batch && b.session_date === session.session_date,
   )
-  const key = (session) => `${session.batch}-${session.session_date}`
+
+  /** Who is in this session: the batch's regulars, then that day's drop-ins.
+   *  A regular holds a place with no row, so a `skipped` row is the only
+   *  thing that takes them out. */
+  function peopleIn(session) {
+    const rows = rowsFor(session)
+    const skipped = new Set(
+      rows.filter((r) => r.status === 'skipped').map((r) => r.student),
+    )
+    const regulars = enrolments
+      .filter((e) => e.batch === session.batch
+        && e.enrolled_on <= session.session_date
+        && (!e.left_on || e.left_on >= session.session_date))
+      .map((e) => ({
+        id: `reg-${e.id}`,
+        student: e.student,
+        name: e.student_name,
+        regular: true,
+        away: skipped.has(e.student),
+      }))
+    const dropIns = rows
+      .filter((r) => ['booked', 'waitlisted'].includes(r.status))
+      .map((r) => ({
+        id: r.id, student: r.student, name: r.student_name,
+        regular: false, status: r.status, row: r,
+      }))
+    return [...regulars, ...dropIns]
+  }
 
   return (
     <>
@@ -141,14 +186,14 @@ export default function Bookings() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Day</th><th>Class</th><th>Time</th><th>Places</th>
-                <th>Waiting</th><th />
+                <th>Day</th><th>Class</th><th>Time</th><th>Who</th>
+                <th>Places</th><th>Waiting</th><th />
               </tr>
             </thead>
             <tbody>
               {sessions.map((session) => {
                 const showing = open === key(session)
-                const rows = showing ? forSession(session) : []
+                const people = showing ? peopleIn(session) : []
                 return [
                   <tr key={key(session)}>
                     <td>{dayLabel(session.session_date)}</td>
@@ -157,8 +202,14 @@ export default function Bookings() {
                               onClick={() => setOpen(showing ? null : key(session))}>
                         {session.batch_name}
                       </button>
+                      <div className="muted small">{session.coach || 'No coach set'}</div>
                     </td>
                     <td>{timeLabel(session.start_time) || '—'}</td>
+                    <td className="muted small">
+                      {session.regulars - session.skipped} regular
+                      {session.drop_ins > 0 && ` + ${session.drop_ins} drop-in`}
+                      {session.skipped > 0 && ` · ${session.skipped} away`}
+                    </td>
                     <td>
                       {session.capacity === null
                         ? <span className="muted small">no limit</span>
@@ -179,24 +230,53 @@ export default function Bookings() {
                   </tr>,
                   showing && (
                     <tr key={`${key(session)}-who`} className="subrow">
-                      <td colSpan={6}>
-                        {rows.length === 0 ? (
-                          <span className="muted small">Nobody booked yet.</span>
+                      <td colSpan={7}>
+                        {people.length === 0 ? (
+                          <span className="muted small">Nobody in this one yet.</span>
                         ) : (
                           <div className="booking-list">
-                            {rows.map((row) => (
-                              <span key={row.id} className="booking-chip">
-                                {row.student_name}
-                                <span className={`pill ${row.status}`}>{row.status}</span>
-                                <ConfirmAction
-                                  label="×"
-                                  heading={`Cancel ${row.student_name}'s place?`}
-                                  detail={row.status === 'booked'
-                                    ? 'The place goes to whoever is first on the waiting list.'
-                                    : 'They come off the waiting list.'}
-                                  confirmLabel="Yes, cancel"
-                                  onConfirm={() => cancel(row)}
-                                />
+                            {people.map((person) => (
+                              <span
+                                key={person.id}
+                                className={person.away ? 'booking-chip away' : 'booking-chip'}
+                              >
+                                {person.name}
+                                {person.regular ? (
+                                  <>
+                                    <span className={person.away ? 'pill left' : 'pill active'}>
+                                      {person.away ? 'away' : 'regular'}
+                                    </span>
+                                    {person.away ? (
+                                      <button
+                                        type="button" className="link"
+                                        onClick={() => setComing(session, person.student, true)}
+                                      >
+                                        coming
+                                      </button>
+                                    ) : (
+                                      <ConfirmAction
+                                        label="×"
+                                        heading={`${person.name} not coming on ${dayLabel(session.session_date)}?`}
+                                        detail="Their place is free for that day only, and goes to whoever is first on the waiting list. They stay in the batch."
+                                        confirmLabel="Yes, free the place"
+                                        onConfirm={() => setComing(session, person.student, false)}
+                                      />
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className={`pill ${person.status}`}>{person.status}</span>
+                                    <ConfirmAction
+                                      label="×"
+                                      heading={`Cancel ${person.name}'s place?`}
+                                      detail={person.status === 'booked'
+                                        ? 'The place goes to whoever is first on the waiting list.'
+                                        : 'They come off the waiting list.'}
+                                      confirmLabel="Yes, cancel"
+                                      onConfirm={() => cancel(person.row)}
+                                    />
+                                  </>
+                                )}
                               </span>
                             ))}
                           </div>

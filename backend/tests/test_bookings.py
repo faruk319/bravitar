@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from batches.models import Batch, BookingStatus, ClassBooking
+from batches.models import Batch, BookingStatus, ClassBooking, Enrolment
 from students.models import Student
 from subscriptions.constants import BillingPeriod
 from subscriptions.models import MembershipTier
@@ -252,6 +252,14 @@ class SessionsCalendarTests(BookingTestCase):
         data = self.sessions(**{"from": str(self.today), "to": str(self.today + timedelta(days=2))})
         self.assertEqual(len(data["sessions"]), 3)
 
+    def test_it_names_the_coach(self):
+        """Whoever is on the desk should not have to open the batch to find
+        out who is taking the class."""
+        self.batch.coach_name = "Priya"
+        self.batch.save()
+        row = self.sessions(**{"from": str(self.day), "to": str(self.day)})["sessions"][0]
+        self.assertEqual(row["coach"], "Priya")
+
     def test_it_says_what_is_left(self):
         self.book(self.paid_member("Aarav"))
         row = next(
@@ -289,12 +297,7 @@ class SessionsCalendarTests(BookingTestCase):
 class BookingMeetsAttendanceTests(BookingTestCase):
     def test_checking_in_settles_the_booking(self):
         """A place you booked and turned up for is attended, not still open."""
-        from batches.models import Enrolment
-
         student = self.paid_member("Aarav")
-        Enrolment.objects.create(
-            batch=self.batch, student=student, enrolled_on=self.today, is_active=True
-        )
         booking = self.book(student, day=self.today).data
 
         self.client_for(self.manager).post(
@@ -303,6 +306,152 @@ class BookingMeetsAttendanceTests(BookingTestCase):
         self.assertEqual(
             ClassBooking.objects.get(pk=booking["id"]).status, BookingStatus.ATTENDED
         )
+
+
+class RegularsHoldPlacesTests(BookingTestCase):
+    """The roster and the day's bookings compete for the same seats.
+
+    Counting only bookings said a batch with nine regulars had every place
+    free, which is how a class ends up double-sold.
+    """
+
+    def enrol(self, name, on=None):
+        student = self.paid_member(name)
+        Enrolment.objects.create(
+            batch=self.batch, student=student,
+            enrolled_on=on or self.today, is_active=True,
+        )
+        return student
+
+    def session(self, day=None):
+        day = day or self.day
+        data = self.client_for(self.manager).get(
+            f"/api/batches/sessions/?from={day}&to={day}"
+        ).data
+        return next(s for s in data["sessions"] if s["batch"] == self.batch.id)
+
+    def skip(self, student, day=None, coming=False):
+        return self.client_for(self.manager).post(
+            "/api/batches/sessions/skip/",
+            {
+                "batch": self.batch.id, "student": student.id,
+                "session_date": str(day or self.day), "coming": coming,
+            },
+            format="json",
+        )
+
+    def test_a_regular_takes_a_place_without_booking_one(self):
+        self.enrol("Aarav")
+        row = self.session()
+        self.assertEqual(row["regulars"], 1)
+        self.assertEqual(row["taken"], 1)
+        self.assertEqual(row["places_left"], 1)
+
+    def test_regulars_and_drop_ins_share_the_capacity(self):
+        self.enrol("Aarav")
+        self.book(self.paid_member("Visitor"))
+        row = self.session()
+        self.assertEqual((row["regulars"], row["drop_ins"]), (1, 1))
+        self.assertEqual(row["places_left"], 0)
+
+    def test_regulars_alone_can_fill_a_session(self):
+        """A drop-in then waits, rather than being sold a place that is gone."""
+        self.enrol("First")
+        self.enrol("Second")
+        response = self.book(self.paid_member("Visitor"))
+        self.assertEqual(response.data["status"], "waitlisted")
+
+    def test_a_regular_cannot_book_the_batch_they_are_in(self):
+        """It would take two places for one person."""
+        student = self.enrol("Aarav")
+        response = self.book(student)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("already", str(response.data))
+
+    def test_an_enrolment_starting_later_does_not_hold_a_place_yet(self):
+        self.enrol("Aarav", on=self.day + timedelta(days=7))
+        self.assertEqual(self.session()["regulars"], 0)
+
+    def test_someone_who_left_no_longer_holds_a_place(self):
+        student = self.enrol("Aarav")
+        Enrolment.objects.filter(batch=self.batch, student=student).update(
+            left_on=self.today
+        )
+        self.assertEqual(self.session()["regulars"], 0)
+
+
+class SkippingASessionTests(RegularsHoldPlacesTests):
+    def test_saying_they_are_not_coming_frees_the_place(self):
+        student = self.enrol("Aarav")
+        self.assertEqual(self.session()["places_left"], 1)
+
+        self.assertEqual(self.skip(student).status_code, 200)
+        row = self.session()
+        self.assertEqual(row["skipped"], 1)
+        self.assertEqual(row["places_left"], 2)
+
+    def test_a_skip_hands_the_place_to_whoever_is_waiting(self):
+        self.enrol("First")
+        self.enrol("Second")
+        waiting = self.book(self.paid_member("Visitor")).data
+        self.assertEqual(waiting["status"], "waitlisted")
+
+        response = self.skip(Student.objects.get(full_name="First"))
+        self.assertEqual(response.data["promoted"]["id"], waiting["id"])
+        self.assertEqual(
+            ClassBooking.objects.get(pk=waiting["id"]).status, BookingStatus.BOOKED
+        )
+
+    def test_a_regular_who_skipped_can_be_expected_again(self):
+        student = self.enrol("Aarav")
+        self.skip(student)
+        self.assertEqual(self.skip(student, coming=True).status_code, 200)
+        self.assertEqual(self.session()["skipped"], 0)
+
+    def test_they_cannot_take_a_place_back_once_it_has_gone(self):
+        """Somebody else is holding it now."""
+        student = self.enrol("Aarav")
+        self.enrol("Second")
+        self.skip(student)
+        self.book(self.paid_member("Visitor"))
+
+        response = self.skip(student, coming=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("filled up", str(response.data))
+
+    def test_a_skip_only_frees_that_one_day(self):
+        student = self.enrol("Aarav")
+        self.skip(student)
+        self.assertEqual(self.session()["places_left"], 2)
+        self.assertEqual(self.session(self.day + timedelta(days=1))["places_left"], 1)
+
+    def test_only_a_regular_can_skip(self):
+        response = self.skip(self.paid_member("Stranger"))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cancel their booking instead", str(response.data))
+
+    def test_a_regular_who_skipped_may_book_that_day_after_all(self):
+        """They gave the place up, so taking it back the other way is fine."""
+        student = self.enrol("Aarav")
+        self.skip(student)
+        self.assertEqual(self.book(student).status_code, 201)
+
+
+class RegularsAndCreditsTests(RegularsHoldPlacesTests):
+    def test_being_a_regular_does_not_spend_weekly_credits(self):
+        """The batch was sold to them; charging it again to their weekly
+        allowance would lock them out of the thing they bought."""
+        student = self.paid_member("Aarav", credits=1)
+        Enrolment.objects.create(
+            batch=self.batch, student=student,
+            enrolled_on=self.today, is_active=True,
+        )
+        other = Batch.objects.create(
+            academy=self.org, name="Evening HIIT",
+            days_of_week=list(range(7)), capacity=5, is_active=True,
+        )
+        response = self.book(student, batch=other)
+        self.assertEqual(response.status_code, 201)
 
 
 class BookingIsolationTests(BookingTestCase):
