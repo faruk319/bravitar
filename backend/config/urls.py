@@ -28,6 +28,11 @@ urlpatterns = [
     path('api/gym/nutrition/', include('nutrition.urls')),
     # Cross-vertical core — available to every vertical
     path('api/students/', include('students.urls')),
+    # The member's own view of their record. Kept off /students/ because the
+    # question is different: not what the academy may see, but what this
+    # person may see about themselves. Not /api/me/ either — that is already
+    # the Supabase identity, which is a different thing from an enrolment.
+    path('api/member/', include('students.me_urls')),
     path('api/batches/', include('batches.urls')),
     path('api/attendance/', include('attendance.urls')),
     path('api/billing/', include('billing.urls')),

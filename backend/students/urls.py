@@ -28,4 +28,5 @@ urlpatterns = [
     path("documents/<int:pk>/verify/", views.verify_document, name="member-document-verify"),
     path("<int:pk>/", views.StudentDetailView.as_view(), name="student-detail"),
     path("<int:pk>/photo/", views.MemberPhotoView.as_view(), name="member-photo"),
+    path("<int:pk>/invite/", views.invite_member, name="member-invite"),
 ]

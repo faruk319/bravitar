@@ -154,3 +154,47 @@ class RequiresVertical(IsOrganizationMember):
             f"This academy does not have the '{self.vertical}' module enabled."
         )
         return False
+
+
+class IsSignedInMember(BasePermission):
+    """The member app: somebody acting for their own records, not the academy's.
+
+    Resolves Students by `user_id` rather than Membership. A Membership is a
+    login for somebody who runs the academy, and a member is not that — so
+    giving members one would mean two rows per person and a role that has to
+    be checked everywhere it must not apply.
+
+    One login may cover several Students. That is how a parent reaches their
+    children, and it is why this sets `request.students` rather than a single
+    student: which one is being acted for is the view's business.
+    """
+
+    message = "You are not a member of this academy."
+
+    def has_permission(self, request, view):
+        from students.models import Student
+
+        organization = get_current_organization(request)
+        if organization is None or not getattr(request.user, "is_authenticated", False):
+            return False
+
+        # A key acts for the academy, never for a person.
+        if getattr(request.user, "is_api_key", False):
+            return False
+
+        def theirs():
+            return Student.objects.filter(
+                academy__organization=organization, user_id=request.user.id
+            ).select_related("academy", "branch")
+
+        students = theirs()
+        if not students.exists():
+            # Might be arriving on an invitation for the first time. Only on
+            # the miss path, so the common case stays one query.
+            from students.invitations import claim_pending_students
+
+            if claim_pending_students(request.user):
+                students = theirs()
+
+        request.students = students
+        return students.exists()

@@ -52,6 +52,12 @@ class Student(models.Model):
         max_length=64, blank=True,
         help_text="Supabase user id, if this student has their own login.",
     )
+    invited_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the academy invited them to sign in. Only an invited "
+                  "record can be claimed: an email here is a contact detail "
+                  "the desk typed in, not a grant of access.",
+    )
 
     # For the front desk, so unlike a progress photo this is not private to
     # the member — anyone running the academy may see it.

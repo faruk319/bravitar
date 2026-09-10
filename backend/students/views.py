@@ -168,6 +168,37 @@ def verify_document(request, pk):
     return Response(MemberDocumentSerializer(document).data)
 
 
+@api_view(["POST"])
+@permission_classes([IsOrganizationManager, IsPerson])
+def invite_member(request, pk):
+    """Let this member sign in, or take that away again.
+
+    Deliberately explicit rather than automatic: an email on a member record
+    is a contact detail the desk typed in at sign-up, and turning every one of
+    those into a login nobody asked for would hand out access by accident.
+    """
+    from .invitations import invite, withdraw_invite
+
+    academy = get_current_academy(request)
+    student = Student.objects.filter(academy=academy, pk=pk).first()
+    if student is None:
+        raise Http404
+
+    if request.data.get("allowed") is False:
+        withdraw_invite(student)
+    elif not invite(student):
+        raise ValidationError(
+            {"email": f"{student.full_name} has no email address to invite."}
+        )
+
+    student.refresh_from_db()
+    return Response({
+        "invited": student.invited_at is not None,
+        "signed_in": bool(student.user_id),
+        "email": student.email,
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsOrganizationStaff])
 def onboarding_meta(request):

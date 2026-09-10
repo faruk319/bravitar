@@ -67,6 +67,39 @@ class EnrolmentDetailView(OrganizationScopedMixin, generics.RetrieveUpdateDestro
         ).select_related("student", "batch")
 
 
+def place_booking(academy, data):
+    """Validate, then take a place or join the queue when the session is full.
+
+    The one place the rule lives — validation included, deliberately. The desk
+    and the member app both come through here, so neither can end up enforcing
+    a rule the other doesn't, and a member cannot reach a shortcut past the
+    checks the desk goes through.
+    """
+    serializer = ClassBookingSerializer(data=data, context={"academy": academy})
+    serializer.is_valid(raise_exception=True)
+    batch = serializer.validated_data["batch"]
+    student = serializer.validated_data["student"]
+    day = serializer.validated_data["session_date"]
+
+    full = (
+        batch.capacity is not None
+        and ClassBooking.places_taken(batch, day) >= batch.capacity
+    )
+
+    # Waiting doesn't spend a credit; only a place does.
+    if not full:
+        allowed = classes_allowed_per_week(student)
+        if allowed is not None and booked_that_week(student, day) >= allowed:
+            raise ValidationError({"student": (
+                f"{student.full_name} has used all {allowed} classes for that week."
+            )})
+
+    return ClassBooking.objects.create(
+        academy=academy, batch=batch, student=student, session_date=day,
+        status=BookingStatus.WAITLISTED if full else BookingStatus.BOOKED,
+    )
+
+
 class BookingScopedMixin(OrganizationScopedMixin):
     serializer_class = ClassBookingSerializer
 
@@ -95,30 +128,7 @@ class BookingListCreateView(BookingScopedMixin, generics.ListCreateAPIView):
         A full session is not an error — a waitlisted place is a real answer,
         and the response says which one they got.
         """
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        batch = serializer.validated_data["batch"]
-        student = serializer.validated_data["student"]
-        day = serializer.validated_data["session_date"]
-
-        full = (
-            batch.capacity is not None
-            and ClassBooking.places_taken(batch, day) >= batch.capacity
-        )
-
-        # Waiting doesn't spend a credit; only a place does.
-        if not full:
-            allowed = classes_allowed_per_week(student)
-            if allowed is not None and booked_that_week(student, day) >= allowed:
-                raise ValidationError({"student": (
-                    f"{student.full_name} has used all {allowed} classes for that week."
-                )})
-
-        booking = ClassBooking.objects.create(
-            academy=self.academy, batch=batch, student=student, session_date=day,
-            status=BookingStatus.WAITLISTED if full else BookingStatus.BOOKED,
-        )
+        booking = place_booking(self.academy, request.data)
         return Response(
             ClassBookingSerializer(booking).data, status=status.HTTP_201_CREATED
         )
@@ -192,21 +202,18 @@ def skip_session(request):
     })
 
 
-@api_view(["GET"])
-@permission_classes([IsOrganizationMember])
-def sessions(request):
+def build_sessions(academy, start, end, branch=None):
     """What can be booked, day by day, with what is left.
 
     Built from each batch's weekday pattern rather than stored, so a batch
     that changes its days doesn't leave phantom sessions behind.
-    """
-    academy = get_current_academy(request)
-    start = parse_date(request.query_params.get("from", "")) or timezone.localdate()
-    end = parse_date(request.query_params.get("to", "")) or start + timedelta(days=13)
-    end = min(end, start + timedelta(days=60))
 
+    A plain function so the member app shows the same calendar the desk does.
+    A member being told there is a place when the desk knows there isn't would
+    be worse than having no app at all.
+    """
     batches = Batch.objects.filter(academy=academy, is_active=True).select_related("coach")
-    if branch := request.query_params.get("branch"):
+    if branch:
         batches = batches.filter(branch_id=branch)
 
     # One query for every row that departs from the default, rather than one
@@ -262,4 +269,17 @@ def sessions(request):
             })
 
     rows.sort(key=lambda r: (r["session_date"], r["start_time"] or time.min, r["batch_name"]))
+    return rows
+
+
+@api_view(["GET"])
+@permission_classes([IsOrganizationMember])
+def sessions(request):
+    academy = get_current_academy(request)
+    start = parse_date(request.query_params.get("from", "")) or timezone.localdate()
+    end = parse_date(request.query_params.get("to", "")) or start + timedelta(days=13)
+    end = min(end, start + timedelta(days=60))
+    rows = build_sessions(
+        academy, start, end, branch=request.query_params.get("branch")
+    )
     return Response({"from": start, "to": end, "sessions": rows})
