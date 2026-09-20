@@ -20,7 +20,7 @@ Read `docs/00-product-brief.md` before your first task in a new area.
 | Language | TypeScript, strict mode, no `any` |
 | App | Next.js (App Router), one full-stack codebase |
 | DB | PostgreSQL on **Supabase** (managed), Row-Level Security enabled |
-| DB access | App connects as a custom `app_runtime` role. **Never** the `service_role` key |
+| DB access | Three roles: `postgres` migrates, `app_runtime` (NOBYPASSRLS) serves, `app_platform` (exempt) only inside `withPlatformAdmin()`. **Never** the `service_role` key |
 | ORM | Drizzle ORM, plain SQL migrations |
 | Auth | Custom session cookies (argon2id), sessions stored in Postgres |
 | Jobs | pg-boss (Postgres-backed queue, no Redis) |

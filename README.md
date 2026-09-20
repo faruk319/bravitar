@@ -18,3 +18,6 @@ pnpm dev          # http://localhost:3000
 
 Checks: `pnpm typecheck && pnpm lint && pnpm test`, and `pnpm test:isolation`
 (tenant-leak suite, needs the database).
+
+Gotcha: if you `pnpm migrate:down` past `0001` (which drops the app roles), the local
+pooler keeps a stale role cache — `docker restart supabase_pooler_bravitar` after `pnpm migrate`.
