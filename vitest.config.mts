@@ -6,9 +6,9 @@ import { defineConfig } from "vitest/config";
 const alias = { "@": path.resolve(import.meta.dirname, "src") };
 const dotenv = existsSync(".env") ? parseEnv(readFileSync(".env", "utf8")) : {};
 
-// `unit` is the everyday suite and needs no database. `isolation` is the
-// tenant-leak suite: it reads .env, needs the local stack, is run on its own,
-// and must never pass by having no files.
+// `unit` needs no database. `integration` and `isolation` read .env and need
+// the local stack; `isolation` is the tenant-leak suite, run on its own, and
+// must never pass by having no files.
 export default defineConfig({
   test: {
     projects: [
@@ -17,7 +17,17 @@ export default defineConfig({
         test: {
           name: "unit",
           include: ["src/**/*.test.ts"],
-          exclude: ["src/**/*.isolation.test.ts", "**/node_modules/**"],
+          exclude: ["src/**/*.isolation.test.ts", "src/**/*.integration.test.ts", "**/node_modules/**"],
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
+          name: "integration",
+          include: ["src/**/*.integration.test.ts"],
+          env: dotenv,
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
         },
       },
       {

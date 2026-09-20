@@ -127,6 +127,6 @@ pnpm migrate      # apply migrations/*.sql (owner role); migrate:down reverts th
 pnpm seed         # demo tenant: 1 karate academy, 1 tuition centre
 pnpm typecheck
 pnpm lint
-pnpm test
+pnpm test             # unit + integration (integration needs db:up)
 pnpm test:isolation   # tenant leak suite — must always pass
 ```

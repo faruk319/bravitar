@@ -17,7 +17,9 @@
     "migrate": "node --env-file-if-exists=.env --import tsx src/lib/db/migrate.ts up",
     "migrate:down": "node --env-file-if-exists=.env --import tsx src/lib/db/migrate.ts down",
     "seed": "node --env-file-if-exists=.env --import tsx src/lib/db/seed.ts",
-    "test": "vitest run --project unit",
+    "test": "vitest run --project unit --project integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "test:isolation": "vitest run --project isolation"
   },
   "dependencies": {

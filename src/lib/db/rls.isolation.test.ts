@@ -2,10 +2,15 @@ import { sql as q } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assertDatabaseSafety } from "@/lib/db/assert-safe";
 import { db, sql as runtimeSql } from "@/lib/db/client";
+import { auditLog } from "@/lib/db/audit";
 import { readAppCatalog } from "@/lib/db/isolation/catalog";
 import { fixtures, PLATFORM_TABLES } from "@/lib/db/isolation/registry";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
+import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { withTenant } from "@/lib/db/with-tenant";
+import { ensurePlatformPlans } from "@/modules/platform/repo";
+import { platformPlans } from "@/modules/platform/schema";
 import { createTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 
@@ -33,21 +38,21 @@ async function countAs(tenantId: string | null, table: string): Promise<number> 
 
 let A = "";
 let B = "";
+let slugA = "";
 
 beforeAll(async () => {
   const stamp = Math.random().toString(36).slice(2, 8);
+  slugA = `iso-a-${stamp}`;
   [A, B] = await withPlatformAdmin({ action: "test.isolation.setup", actorType: "system" }, async (tx) => {
-    const a = await createTenant(tx, { name: `Isolation A ${stamp}`, slug: `iso-a-${stamp}` });
+    await ensurePlatformPlans(tx);
+    const a = await createTenant(tx, { name: `Isolation A ${stamp}`, slug: slugA, verticalPreset: "karate" });
     const b = await createTenant(tx, { name: `Isolation B ${stamp}`, slug: `iso-b-${stamp}` });
     return [a.id, b.id];
   });
 });
 
 afterAll(async () => {
-  for (const t of tenantScoped) {
-    await platformSql`DELETE FROM app.${platformSql(t.table)} WHERE tenant_id IN ${platformSql([A, B])}`;
-  }
-  await platformSql`DELETE FROM app.tenants WHERE id IN ${platformSql([A, B])}`;
+  await deleteTenantsCompletely([A, B]);
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
 });
@@ -151,14 +156,12 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
     await expect(withTenant(B, (tx) => fixture(tx, A))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
   });
 
-  it("tenant B cannot update or delete A's rows (0 rows affected)", async () => {
-    const [updated, deleted] = await withTenant(B, async (tx) => {
-      const u = await tx.execute(q`UPDATE app.${q.identifier(t.table)} SET tenant_id = tenant_id WHERE tenant_id = ${A}`);
-      const d = await tx.execute(q`DELETE FROM app.${q.identifier(t.table)} WHERE tenant_id = ${A}`);
-      return [u.count, d.count];
-    });
-    expect(updated).toBe(0);
-    expect(deleted).toBe(0);
+  it("tenant B cannot update or delete A's rows (0 rows affected, or refused outright)", async () => {
+    // Append-only tables revoke UPDATE/DELETE entirely; either outcome is a non-leak.
+    const affected = async (stmt: ReturnType<typeof q>) =>
+      withTenant(B, (tx) => tx.execute(stmt)).then((r) => r.count, (e: unknown) => (sqlState(e) === RLS_VIOLATION ? 0 : Promise.reject(e)));
+    expect(await affected(q`UPDATE app.${q.identifier(t.table)} SET tenant_id = tenant_id WHERE tenant_id = ${A}`)).toBe(0);
+    expect(await affected(q`DELETE FROM app.${q.identifier(t.table)} WHERE tenant_id = ${A}`)).toBe(0);
     expect(await countAs(A, t.table)).toBeGreaterThan(0);
   });
 
@@ -183,5 +186,47 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
       expect(r.foreign, `tenant ${r.id} saw foreign rows`).toBe(0);
       expect(r.own).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("append-only audit_log", () => {
+  it("refuses UPDATE and DELETE for the runtime role even on its own rows", async () => {
+    await withTenant(A, (tx) => tx.insert(auditLog).values({ tenantId: A, actorType: "system", action: "test.append_only" }));
+    await expect(withTenant(A, (tx) => tx.update(auditLog).set({ action: "tampered" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(withTenant(A, (tx) => tx.delete(auditLog))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+  });
+
+  it("refuses UPDATE and DELETE for the platform role too", async () => {
+    await expect(platformDb.update(auditLog).set({ action: "tampered" })).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(platformDb.delete(auditLog)).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+  });
+
+  it("cannot write a row for another tenant", async () => {
+    await expect(withTenant(B, (tx) => tx.insert(auditLog).values({ tenantId: A, actorType: "system", action: "test.smuggle" }))).rejects.toSatisfy(
+      (e) => sqlState(e) === RLS_VIOLATION,
+    );
+  });
+});
+
+describe("platform_plans", () => {
+  it("is readable by tenants but not writable", async () => {
+    const plans = await withTenant(A, (tx) => tx.select({ code: platformPlans.code }).from(platformPlans));
+    expect(plans.map((p) => p.code)).toContain("starter");
+    await expect(withTenant(A, (tx) => tx.insert(platformPlans).values({ code: "free", name: "Free", pricePaise: 0n, billingCycle: "monthly" }))).rejects.toSatisfy(
+      (e) => sqlState(e) === RLS_VIOLATION,
+    );
+  });
+});
+
+describe("resolve_tenant_slug", () => {
+  it("returns one tenant's public fields without any context", async () => {
+    const found = await resolveTenantBySlug(slugA);
+    expect(found).toMatchObject({ id: A, slug: slugA, status: "active", verticalPreset: "karate" });
+    expect(found && "enabledModules" in found).toBe(false);
+  });
+
+  it("returns nothing for an unknown slug, and app.tenants stays unreadable", async () => {
+    expect(await resolveTenantBySlug("no-such-academy")).toBeUndefined();
+    expect(await db.select({ id: tenants.id }).from(tenants)).toEqual([]);
   });
 });

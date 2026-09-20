@@ -157,6 +157,27 @@ CREATE TABLE tenant_integrations (
 
 ---
 
+## 3a. Label packs
+
+`tenants.vertical_preset` picks a pack; `tenants.label_overrides` edits it. The
+canonical entity names (`students`, `staff_users`, `batches`, `sessions`,
+`programs`) never change in code or database — only what the screen calls them.
+
+| preset   | student | staff      | batch | session | program |
+|----------|---------|------------|-------|---------|---------|
+| general  | Student | Staff      | Batch | Session | Program |
+| tuition  | Student | Teacher    | Batch | Class   | Subject |
+| deeniyat | Student | Teacher    | Batch | Class   | Course  |
+| karate   | Student | Coach      | Batch | Class   | Program |
+| dance    | Student | Instructor | Batch | Class   | Course  |
+| sports   | Player  | Coach      | Group | Session | Program |
+
+Each key has `one` and `many` forms (`Class` / `Classes`). Overrides are partial
+and per key: `{"staff": {"one": "Sensei"}}` changes only that word. Unknown keys
+are ignored. `resolveLabels(tenant)` in `src/lib/tenant/labels.ts` is the only
+place this merge happens. English only at launch; a language dimension is added
+when Hindi and Marathi arrive.
+
 ## 4. Auth and RBAC
 
 ```sql
@@ -774,9 +795,14 @@ CREATE POLICY tenant_isolation ON <t>
 ```
 
 Excluded (no `tenant_id`, platform-owned): `platform_admins`, `platform_plans`,
-`permissions`, `webhook_events`, `otp_codes`, `sessions_auth`, `audit_log`.
+`permissions`, `webhook_events`, `otp_codes`, `sessions_auth`.
 These are protected by code paths and grants instead, and each one needs an
 explicit comment in the migration saying why it has no policy.
+
+`audit_log` has a nullable `tenant_id` and **does** get the standard policy: a
+tenant reads and writes only rows tagged with itself, platform-level rows
+(`tenant_id IS NULL`) are written by the platform role only. Append-only is
+enforced by revoking UPDATE and DELETE from both application roles.
 
 Write the migration that applies RLS as a loop over
 `information_schema.columns WHERE column_name = 'tenant_id'`, so it can be re-run

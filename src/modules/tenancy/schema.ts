@@ -1,6 +1,6 @@
-import { boolean, char, customType, jsonb, pgSchema, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, char, customType, integer, jsonb, pgSchema, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-// Mirrors migrations/0002_tenants_and_branches.sql. DDL lives in the migration;
+// Mirrors migrations/0002_tenants_and_branches.sql and resources in 0003. DDL lives in the migration;
 // this file exists for typed queries and must be kept in step with it.
 export const app = pgSchema("app");
 
@@ -42,5 +42,16 @@ export const branches = app.table("branches", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
+// Rooms, halls, grounds, courts.
+export const resources = app.table("resources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  branchId: uuid("branch_id").notNull().references(() => branches.id),
+  name: text("name").notNull(),
+  capacity: integer("capacity"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
 export type Tenant = typeof tenants.$inferSelect;
 export type Branch = typeof branches.$inferSelect;
+export type Resource = typeof resources.$inferSelect;
