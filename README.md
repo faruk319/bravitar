@@ -16,7 +16,9 @@ pnpm migrate      # apply migrations/*.sql
 pnpm dev          # http://localhost:3000
 ```
 
-Log in locally (the seed prints the dev password; tenants live on `<slug>.localhost`):
+Log in locally at `http://shivaji-karate.localhost:3000` or `http://bright-future.localhost:3000`
+(owner `owner@<slug>.demo`, coach `coach@shivaji-karate.demo` / `teacher@bright-future.demo`,
+password `Demo@1234`). Or with curl:
 
 ```bash
 curl -i -X POST http://localhost:3000/api/auth/login -H 'Host: shivaji-karate.localhost:3000' \

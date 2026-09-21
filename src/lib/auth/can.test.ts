@@ -4,10 +4,11 @@ import { type AccessContext, assertCan, can, ForbiddenError, moduleFlags } from 
 const base: AccessContext = { tenantId: "t", staffId: "s", isOwner: false, modules: moduleFlags({ fees: true, enquiries: false }), permissions: ["fees:collect", "enquiries:create"] };
 
 describe("can", () => {
-  it("owner bypasses modules and permissions", () => {
-    const owner = { ...base, isOwner: true, modules: {}, permissions: [] };
+  it("owner bypasses permissions but not a switched-off module", () => {
+    const owner = { ...base, isOwner: true, permissions: [] };
     expect(can(owner, "fees", "fees:refund")).toBe(true);
-    expect(can(owner, "credits", "credits:manage")).toBe(true);
+    expect(can(owner, "enquiries", "enquiries:create")).toBe(false);
+    expect(can(owner, "credits", "credits:manage")).toBe(false);
   });
 
   it("grants a held permission in an enabled module", () => {

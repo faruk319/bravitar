@@ -163,11 +163,14 @@ or branch assignments change.
 
 ```ts
 function can(ctx, module, permission) {
-  if (ctx.isOwner) return true;                      // 1. owner bypass
-  if (!ctx.modules[module]) return false;            // 2. tenant feature flag
+  if (!ctx.modules[module]) return false;            // 1. tenant feature flag (owner included)
+  if (ctx.isOwner) return true;                      // 2. owner bypass
   return ctx.permissions.includes(permission);       // 3. role permissions (union)
 }
 ```
+
+A switched-off module is off for everyone, the owner included: the flag belongs
+to the tenant (and its plan), not to the person. `core` is never switched off.
 
 Enforce it in the **service layer**, not only in route handlers, so background
 jobs and future entry points can't skip it. Hiding a button in the UI is cosmetic;

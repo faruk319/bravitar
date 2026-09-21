@@ -17,10 +17,11 @@ export class ForbiddenError extends AppError {
   }
 }
 
-// docs/01 "Authorization — two gates, checked in this order".
+// docs/01 "Authorization — two gates". A switched-off module is off for
+// everyone, the owner included: the flag belongs to the tenant, not the person.
 export function can(ctx: AccessContext, module: string, permission: string): boolean {
-  if (ctx.isOwner) return true; // 1. owner bypass
-  if (!ctx.modules[module]) return false; // 2. tenant feature flag
+  if (!ctx.modules[module]) return false; // 1. tenant feature flag
+  if (ctx.isOwner) return true; // 2. owner bypass
   return ctx.permissions.includes(permission); // 3. role permissions (union)
 }
 

@@ -78,7 +78,7 @@ describe("owner bypass", () => {
     expect(ctx.isOwner).toBe(true);
     expect(ctx.permissions).toEqual([]);
     expect(can(ctx, "fees", "fees:refund")).toBe(true);
-    expect(can(ctx, "credits", "credits:manage")).toBe(true);
+    expect(can(ctx, "credits", "credits:manage")).toBe(false); // module off for this tenant
     expect(() => assertCan(ctx, "integrations:manage")).not.toThrow();
   });
 });

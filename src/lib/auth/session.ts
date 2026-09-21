@@ -47,11 +47,15 @@ type LookupRow = {
   revoked_at: Date | null;
 };
 
-// Cookie -> live session, or undefined. The only query that runs without a
-// tenant context is the SECURITY DEFINER lookup by token hash.
+// Cookie -> live session, or undefined.
 export async function getStaffSession(req: Request): Promise<StaffSession | undefined> {
   const token = readSessionCookie(req);
-  if (!token) return undefined;
+  return token ? getStaffSessionFromToken(token) : undefined;
+}
+
+// Token -> live session, or undefined. The only query that runs without a
+// tenant context is the SECURITY DEFINER lookup by token hash.
+export async function getStaffSessionFromToken(token: string): Promise<StaffSession | undefined> {
   const [row] = await db.execute<LookupRow>(sql`SELECT * FROM app.session_by_token_hash(${hashToken(token)})`);
   if (!row || row.actor_type !== "staff" || !row.tenant_id) return undefined;
   if (row.revoked_at || new Date(row.expires_at).getTime() <= Date.now()) return undefined;
