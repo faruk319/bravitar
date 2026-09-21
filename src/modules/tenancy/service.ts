@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AuditEntry } from "@/lib/db/audit";
 import { withPlatformAdmin } from "@/lib/db/platform";
@@ -7,8 +8,9 @@ import type { TenantSubscription } from "@/modules/platform/schema";
 import { createStaff, replaceStaffRoles, syncPermissions } from "@/modules/staff/repo";
 import { PASSWORD_UNSET, type StaffUser } from "@/modules/staff/schema";
 import { createPresetRoles } from "@/modules/staff/service";
+import { invalidateSessionsForTenant } from "@/modules/auth/repo";
 import { createBranch, createTenant } from "./repo";
-import type { Branch, Tenant } from "./schema";
+import { type Branch, type EnabledModules, type Tenant, tenants } from "./schema";
 
 // docs/03 §1: creating a tenant creates everything it needs in one transaction:
 // tenant, default branch, subscription, permission catalog, the four preset
@@ -56,5 +58,20 @@ export async function createTenantWithDefaults(
     });
     await replaceStaffRoles(tx, tenant.id, owner.id, [roles.Owner.id]);
     return { tenant, branch, subscription, owner };
+  });
+}
+
+// Platform-admin action. Every live session of the tenant rebuilds its
+// context on the next request, so nav and route gates follow immediately.
+export async function setTenantModules(
+  actor: Pick<AuditEntry, "actorType" | "actorId" | "impersonatedBy">,
+  tenantId: string,
+  modules: EnabledModules,
+): Promise<Tenant> {
+  return withPlatformAdmin({ ...actor, action: "tenant.modules.set", tenantId, entityType: "tenant", entityId: tenantId, after: modules }, async (tx) => {
+    const [row] = await tx.update(tenants).set({ enabledModules: modules }).where(eq(tenants.id, tenantId)).returning();
+    if (!row) throw new Error("tenant not found");
+    await invalidateSessionsForTenant(tx, tenantId);
+    return row;
   });
 }

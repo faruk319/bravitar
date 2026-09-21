@@ -4,7 +4,12 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createResource, findTenantBySlug } from "@/modules/tenancy/repo";
+import { setPassword } from "@/modules/auth/service";
+import { loadAccessContext } from "@/modules/staff/service";
 import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy/service";
+
+// Dev-only login for the seeded owners. Never reuse in production.
+const DEMO_PASSWORD = "Demo@1234";
 
 // Demo data for local development. Idempotent by natural key (plan code,
 // tenant slug): inserts what is missing, never updates what is there.
@@ -26,7 +31,8 @@ export async function seed(): Promise<SeedResult> {
       continue;
     }
     const { tenant, branch, owner } = await createTenantWithDefaults({ actorType: "system" }, input);
-    console.log(`seed: ${input.slug} owner ${owner.email} (no password yet)`);
+    await withTenant(tenant.id, async (tx) => setPassword(tx, await loadAccessContext(tx, owner.id), owner.id, DEMO_PASSWORD));
+    console.log(`seed: ${input.slug} owner ${owner.email} password ${DEMO_PASSWORD} (dev only)`);
     // Through the tenant's own context, like the app would.
     await withTenant(tenant.id, (tx) => createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource }));
     result.tenantsCreated.push(input.slug);

@@ -5,7 +5,7 @@ import { PERMISSION_KEYS, PRESET_ROLES } from "@/lib/auth/permissions";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { countActiveOwners, listRoles, rolePermissionKeys, staffRoleIds } from "@/modules/staff/repo";
@@ -21,7 +21,7 @@ import {
   setStaffRoles,
 } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { createTenantWithDefaults, setTenantModules } from "@/modules/tenancy/service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
@@ -100,11 +100,10 @@ describe("module flag", () => {
     expect(rowsBefore).toContain("enquiries:create");
     expect(can(await ctxOf(frontDesk.id), "enquiries", "enquiries:create")).toBe(true);
 
-    const setModule = (enabled: boolean) =>
-      withPlatformAdmin({ action: "tenant.modules.set", actorType: "system", tenantId: T }, async (tx) => {
-        const [t] = await tx.select({ m: tenants.enabledModules }).from(tenants).where(eq(tenants.id, T));
-        await tx.update(tenants).set({ enabledModules: { ...t?.m, enquiries: enabled } }).where(eq(tenants.id, T));
-      });
+    const setModule = async (enabled: boolean) => {
+      const [t] = await platformDb.select({ m: tenants.enabledModules }).from(tenants).where(eq(tenants.id, T));
+      await setTenantModules({ actorType: "system" }, T, { ...t?.m, enquiries: enabled });
+    };
 
     await setModule(false);
     const blocked = await ctxOf(frontDesk.id);

@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
 import { AppError, ConflictError, NotFoundError } from "@/lib/errors";
+import { invalidateSessionsForRoleHolders, invalidateSessionsForStaff, revokeSessionsForStaff } from "@/modules/auth/repo";
 import { tenants } from "@/modules/tenancy/schema";
 import {
   countActiveOwners,
@@ -98,7 +99,15 @@ export async function setStaffRoles(tx: Tx, ctx: AccessContext, staffId: string,
   const before = await staffRoleIds(tx, staffId);
   await replaceStaffRoles(tx, ctx.tenantId, staffId, roleIds);
   await writeAudit(tx, { ...actor(ctx), action: "staff.roles.set", entityType: "staff_user", entityId: staffId, before: { roleIds: before }, after: { roleIds } });
-  // TODO(auth slice): invalidate this staff member's cached session context.
+  await invalidateSessionsForStaff(tx, staffId);
+}
+
+export async function setStaffBranches(tx: Tx, ctx: AccessContext, staffId: string, branchIds: string[]): Promise<void> {
+  assertCan(ctx, "staff:manage");
+  await requireStaff(tx, staffId);
+  await replaceStaffBranches(tx, ctx.tenantId, staffId, branchIds);
+  await writeAudit(tx, { ...actor(ctx), action: "staff.branches.set", entityType: "staff_user", entityId: staffId, after: { branchIds } });
+  await invalidateSessionsForStaff(tx, staffId);
 }
 
 export async function setOwner(tx: Tx, ctx: AccessContext, staffId: string, isOwner: boolean): Promise<StaffUser> {
@@ -116,7 +125,7 @@ export async function deactivateStaff(tx: Tx, ctx: AccessContext, staffId: strin
   if (staff.isOwner && staff.isActive) await ensureNotLastOwner(tx, ctx.tenantId);
   const updated = await updateStaff(tx, staffId, { isActive: false });
   await writeAudit(tx, { ...actor(ctx), action: "staff.deactivate", entityType: "staff_user", entityId: staffId });
-  // TODO(auth slice): revoke every session of this staff member immediately.
+  await revokeSessionsForStaff(tx, staffId);
   return updated;
 }
 
@@ -130,7 +139,7 @@ export async function setRolePermissions(tx: Tx, ctx: AccessContext, roleId: str
   const before = await rolePermissionKeys(tx, roleId);
   await replaceRolePermissions(tx, ctx.tenantId, roleId, valid);
   await writeAudit(tx, { ...actor(ctx), action: "role.permissions.set", entityType: "role", entityId: roleId, before: { keys: before }, after: { keys: valid } });
-  // TODO(auth slice): invalidate the cached context of every holder of this role.
+  await invalidateSessionsForRoleHolders(tx, roleId);
   return valid;
 }
 

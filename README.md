@@ -16,6 +16,13 @@ pnpm migrate      # apply migrations/*.sql
 pnpm dev          # http://localhost:3000
 ```
 
+Log in locally (the seed prints the dev password; tenants live on `<slug>.localhost`):
+
+```bash
+curl -i -X POST http://localhost:3000/api/auth/login -H 'Host: shivaji-karate.localhost:3000' \
+  -H 'content-type: application/json' -d '{"email":"owner@shivaji-karate.demo","password":"Demo@1234"}'
+```
+
 Checks: `pnpm typecheck && pnpm lint && pnpm test`, and `pnpm test:isolation`
 (tenant-leak suite, needs the database).
 

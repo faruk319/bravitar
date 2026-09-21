@@ -11,6 +11,8 @@ const shape = {
   DATABASE_URL_MIGRATOR: pgUrl.optional(),
   APP_RUNTIME_PASSWORD: z.string().optional(),
   APP_PLATFORM_PASSWORD: z.string().optional(),
+  // Host tenants log in on: <slug>.<APP_DOMAIN>
+  APP_DOMAIN: z.string().default("localhost:3000"),
 };
 
 type UrlKeys = "DATABASE_URL" | "DATABASE_URL_PLATFORM" | "DATABASE_URL_MIGRATOR";

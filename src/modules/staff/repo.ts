@@ -47,6 +47,10 @@ export async function updateStaff(tx: Tx, id: string, patch: Partial<Pick<StaffU
   return row;
 }
 
+export async function updateStaffPassword(tx: Tx, id: string, passwordHash: string): Promise<void> {
+  await tx.update(staffUsers).set({ passwordHash }).where(eq(staffUsers.id, id));
+}
+
 export async function createRole(tx: AnyTx, input: { tenantId: string; name: string; isSystem?: boolean }): Promise<Role> {
   const [row] = await tx.insert(roles).values({ id: uuidv7(), ...input }).returning();
   if (!row) throw new Error("role insert returned no row");
