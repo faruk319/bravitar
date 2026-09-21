@@ -9,8 +9,8 @@ import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy
 // Demo data for local development. Idempotent by natural key (plan code,
 // tenant slug): inserts what is missing, never updates what is there.
 const DEMO_TENANTS: (NewTenantInput & { resource: string })[] = [
-  { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall" },
-  { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1" },
+  { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo" } },
+  { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo" } },
 ];
 
 export type SeedResult = { plansCreated: string[]; tenantsCreated: string[]; tenantsPresent: string[] };
@@ -25,7 +25,8 @@ export async function seed(): Promise<SeedResult> {
       result.tenantsPresent.push(input.slug);
       continue;
     }
-    const { tenant, branch } = await createTenantWithDefaults({ actorType: "system" }, input);
+    const { tenant, branch, owner } = await createTenantWithDefaults({ actorType: "system" }, input);
+    console.log(`seed: ${input.slug} owner ${owner.email} (no password yet)`);
     // Through the tenant's own context, like the app would.
     await withTenant(tenant.id, (tx) => createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource }));
     result.tenantsCreated.push(input.slug);

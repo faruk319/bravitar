@@ -1,4 +1,5 @@
 import { platformFixtures } from "@/modules/platform/isolation";
+import { staffFixtures } from "@/modules/staff/isolation";
 import { tenancyFixtures } from "@/modules/tenancy/isolation";
 import { systemFixtures } from "./system";
 import type { IsolationFixtures } from "./types";
@@ -7,6 +8,7 @@ import type { IsolationFixtures } from "./types";
 export const fixtures: IsolationFixtures = {
   ...tenancyFixtures,
   ...platformFixtures,
+  ...staffFixtures,
   ...systemFixtures,
 };
 
@@ -15,4 +17,5 @@ export const fixtures: IsolationFixtures = {
 export const PLATFORM_TABLES: Record<string, string> = {
   tenants: "the tenant itself; app_runtime is limited to its own row by policy tenant_self",
   platform_plans: "global reference data; app_runtime has SELECT only, the platform role edits it",
+  permissions: "global catalog synced from src/lib/auth/permissions.ts; app_runtime has SELECT only",
 };

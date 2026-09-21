@@ -10,6 +10,7 @@ import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { withTenant } from "@/lib/db/with-tenant";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
+import { syncPermissions } from "@/modules/staff/repo";
 import { platformPlans } from "@/modules/platform/schema";
 import { createTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
@@ -30,8 +31,13 @@ function sqlState(err: unknown): string | undefined {
   return e.code ?? e.cause?.code;
 }
 
-async function countAs(tenantId: string | null, table: string): Promise<number> {
-  const query = q`SELECT count(*)::int AS n FROM app.${q.identifier(table)}`;
+// Rows visible in `table` under a tenant context (or none), optionally only
+// those tagged with a given tenant_id. Fixtures may create rows for either
+// tenant, so leak checks must count rows *tagged with the other tenant*.
+async function countAs(tenantId: string | null, table: string, taggedWith?: string): Promise<number> {
+  const query = taggedWith
+    ? q`SELECT count(*)::int AS n FROM app.${q.identifier(table)} WHERE tenant_id = ${taggedWith}`
+    : q`SELECT count(*)::int AS n FROM app.${q.identifier(table)}`;
   const rows = tenantId === null ? await db.execute<{ n: number }>(query) : await withTenant(tenantId, (tx) => tx.execute<{ n: number }>(query));
   return rows[0]?.n ?? -1;
 }
@@ -45,6 +51,7 @@ beforeAll(async () => {
   slugA = `iso-a-${stamp}`;
   [A, B] = await withPlatformAdmin({ action: "test.isolation.setup", actorType: "system" }, async (tx) => {
     await ensurePlatformPlans(tx);
+    await syncPermissions(tx);
     const a = await createTenant(tx, { name: `Isolation A ${stamp}`, slug: slugA, verticalPreset: "karate" });
     const b = await createTenant(tx, { name: `Isolation B ${stamp}`, slug: `iso-b-${stamp}` });
     return [a.id, b.id];
@@ -141,11 +148,12 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
   });
 
   it("tenant A sees its own rows", async () => {
-    expect(await countAs(A, t.table)).toBeGreaterThan(0);
+    expect(await countAs(A, t.table, A)).toBeGreaterThan(0);
   });
 
   it("tenant B sees none of A's rows", async () => {
-    expect(await countAs(B, t.table)).toBe(0);
+    expect(await countAs(B, t.table, A)).toBe(0);
+    expect(await countAs(A, t.table, B)).toBe(0);
   });
 
   it("no context sees nothing", async () => {
@@ -162,7 +170,7 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
       withTenant(B, (tx) => tx.execute(stmt)).then((r) => r.count, (e: unknown) => (sqlState(e) === RLS_VIOLATION ? 0 : Promise.reject(e)));
     expect(await affected(q`UPDATE app.${q.identifier(t.table)} SET tenant_id = tenant_id WHERE tenant_id = ${A}`)).toBe(0);
     expect(await affected(q`DELETE FROM app.${q.identifier(t.table)} WHERE tenant_id = ${A}`)).toBe(0);
-    expect(await countAs(A, t.table)).toBeGreaterThan(0);
+    expect(await countAs(A, t.table, A)).toBeGreaterThan(0);
   });
 
   it("tenant A cannot move its rows to tenant B", async () => {

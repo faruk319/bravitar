@@ -105,7 +105,7 @@ migrations/                 # numbered .sql files, append-only
 - [ ] Types check, lint clean, tests pass
 - [ ] Tenant isolation test added for any new tenant-scoped table
 - [ ] Migration has an applied `-- up` and a working `-- down`
-- [ ] Permission check on every new API route (`module:action`)
+- [ ] Permission check on every new API route (`module:action`): `assertCan()` in the service, route helper on top
 - [ ] Feature-flag check if the route belongs to an optional module
 - [ ] Audit log entry if the action touches money, attendance or roles
 - [ ] Seed data updated so the new feature is visible in `pnpm seed`

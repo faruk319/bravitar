@@ -26,8 +26,9 @@ describe("createTenantWithDefaults", () => {
   it("creates tenant, default branch, trial subscription and an audit row in one go", async () => {
     await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
     const before = Date.now();
-    const { tenant, branch, subscription } = await createTenantWithDefaults({ actorType: "system" }, { name: "Integration Karate", slug, verticalPreset: "karate" });
+    const { tenant, branch, subscription, owner } = await createTenantWithDefaults({ actorType: "system" }, { name: "Integration Karate", slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
     created.push(tenant.id);
+    expect(owner).toMatchObject({ tenantId: tenant.id, isOwner: true, isActive: true, passwordHash: "!" });
 
     expect(tenant.slug).toBe(slug);
     expect(branch).toMatchObject({ tenantId: tenant.id, isDefault: true, name: "Main branch" });
@@ -56,13 +57,15 @@ describe("createTenantWithDefaults", () => {
       return { tenantId: t?.id, branchCount: rows.length };
     };
     const before = await countRows();
-    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "Dup", slug })).rejects.toThrow();
+    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "Dup", slug, owner: { name: "Dup", email: "dup@example.test" } })).rejects.toThrow();
     expect(await countRows()).toEqual(before);
   });
 
   it("validates its input before touching the database", async () => {
-    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "X", slug: "Bad Slug!" })).rejects.toThrow();
-    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "Okay", slug: `x-${stamp}`, verticalPreset: "swimming" as never })).rejects.toThrow();
+    const owner = { name: "O", email: "o@example.test" };
+    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "X", slug: "Bad Slug!", owner })).rejects.toThrow();
+    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "Okay", slug: `x-${stamp}`, verticalPreset: "swimming" as never, owner })).rejects.toThrow();
+    await expect(createTenantWithDefaults({ actorType: "system" }, { name: "Okay", slug: `y-${stamp}`, owner: { name: "O", email: "not-an-email" } })).rejects.toThrow();
   });
 
   it("is resolvable by slug and carries the karate label pack", async () => {

@@ -52,6 +52,25 @@ role editor (tick permissions), deactivate staff.
 | Teacher | `students:read`, `sessions:read`, `attendance:mark`, `sessions:note` |
 | Front Desk | `students:*`, `enquiries:*`, `fees:collect`, `invoices:read`, `attendance:mark` |
 
+**Permission catalog** (`src/lib/auth/permissions.ts` is the source of truth and is
+synced into `permissions`; `module` is the `enabled_modules` flag a key belongs to,
+`core` is always on):
+
+| module | keys |
+|---|---|
+| core | `staff:read`, `staff:manage`, `settings:manage`, `integrations:manage`, `audit:read` |
+| students | `students:read`, `students:read_all`, `students:create`, `students:update`, `students:import` |
+| enquiries | `enquiries:read`, `enquiries:create`, `enquiries:update`, `enquiries:convert` |
+| batches | `programs:manage`, `batches:read`, `batches:manage`, `sessions:read`, `sessions:note`, `sessions:manage`, `enrollments:manage` |
+| attendance | `attendance:read`, `attendance:mark`, `attendance:amend` |
+| fees | `fee_plans:manage`, `invoices:read`, `invoices:manage`, `fees:collect`, `fees:refund`, `payments:read` |
+| messaging | `messages:read`, `messages:send`, `messages:manage` |
+| reports | `reports:view`, `reports:export` |
+
+Owner holds no permission rows: access comes from `staff_users.is_owner`. A staff
+row whose `password_hash` is `!` has no password yet and cannot log in until the
+invite / set-password flow is completed.
+
 **Rules**
 
 - Every tenant always has at least one active owner. Blocked at the service layer,
