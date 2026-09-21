@@ -1,0 +1,123 @@
+import { and, asc, count, eq, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
+import type { Tx } from "@/lib/db/client";
+import { uuidv7 } from "@/lib/ids";
+import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
+
+// Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
+export type Scope = { branchIds: string[] };
+
+function inScope(scope: Scope): SQL | undefined {
+  return scope.branchIds.length ? inArray(students.branchId, scope.branchIds) : undefined;
+}
+
+export async function createHousehold(tx: Tx, input: { tenantId: string; name: string; address?: string }): Promise<Household> {
+  const [row] = await tx.insert(households).values({ id: uuidv7(), ...input }).returning();
+  if (!row) throw new Error("household insert returned no row");
+  return row;
+}
+
+export async function getHousehold(tx: Tx, id: string): Promise<Household | undefined> {
+  const [row] = await tx.select().from(households).where(and(eq(households.id, id), isNull(households.deletedAt)));
+  return row;
+}
+
+export async function createGuardian(tx: Tx, input: { tenantId: string; householdId: string; fullName: string; phone: string; email?: string; isPrimary?: boolean }): Promise<Guardian> {
+  const [row] = await tx.insert(guardians).values({ id: uuidv7(), ...input }).returning();
+  if (!row) throw new Error("guardian insert returned no row");
+  return row;
+}
+
+export async function findGuardianByPhone(tx: Tx, phone: string): Promise<Guardian | undefined> {
+  const [row] = await tx.select().from(guardians).where(and(eq(guardians.phone, phone), isNull(guardians.deletedAt)));
+  return row;
+}
+
+export async function guardiansOfHousehold(tx: Tx, householdId: string): Promise<Guardian[]> {
+  return tx.select().from(guardians).where(and(eq(guardians.householdId, householdId), isNull(guardians.deletedAt))).orderBy(asc(guardians.isPrimary), asc(guardians.fullName));
+}
+
+export async function studentsOfHousehold(tx: Tx, householdId: string): Promise<Student[]> {
+  return tx.select().from(students).where(and(eq(students.householdId, householdId), isNull(students.deletedAt))).orderBy(asc(students.fullName));
+}
+
+export type NewStudentRow = Omit<typeof students.$inferInsert, "id">;
+
+export async function insertStudent(tx: Tx, row: NewStudentRow): Promise<Student> {
+  const [s] = await tx.insert(students).values({ id: uuidv7(), ...row }).returning();
+  if (!s) throw new Error("student insert returned no row");
+  return s;
+}
+
+export async function getStudent(tx: Tx, scope: Scope, id: string): Promise<Student | undefined> {
+  const [row] = await tx.select().from(students).where(and(eq(students.id, id), isNull(students.deletedAt), inScope(scope)));
+  return row;
+}
+
+export async function updateStudent(tx: Tx, id: string, patch: Partial<typeof students.$inferInsert>): Promise<Student> {
+  const [row] = await tx.update(students).set({ ...patch, updatedAt: new Date() }).where(eq(students.id, id)).returning();
+  if (!row) throw new Error("student update matched no row");
+  return row;
+}
+
+export async function linkGuardian(tx: Tx, tenantId: string, studentId: string, guardianId: string, relation: Relation): Promise<void> {
+  await tx.insert(studentGuardians).values({ tenantId, studentId, guardianId, relation }).onConflictDoNothing();
+}
+
+export async function guardiansOfStudent(tx: Tx, studentId: string): Promise<(Guardian & { relation: Relation })[]> {
+  const rows = await tx
+    .select({ g: guardians, relation: studentGuardians.relation })
+    .from(studentGuardians)
+    .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
+    .where(and(eq(studentGuardians.studentId, studentId), isNull(guardians.deletedAt)));
+  return rows.map((r) => ({ ...r.g, relation: r.relation }));
+}
+
+export type StudentListRow = { student: Student; guardianName: string | null; guardianPhone: string | null };
+
+// Partial name (trigram-indexed) or phone digits, within scope, optional status.
+export async function searchStudents(tx: Tx, scope: Scope, opts: { q?: string; status?: StudentStatus; limit?: number }): Promise<StudentListRow[]> {
+  const q = opts.q?.trim();
+  const digits = q?.replace(/\D/g, "") ?? "";
+  const where = [isNull(students.deletedAt), inScope(scope)];
+  if (opts.status) where.push(eq(students.status, opts.status));
+  if (q) {
+    const byName = ilike(students.fullName, `%${q}%`);
+    where.push(digits.length >= 4 ? or(byName, like(students.phone, `%${digits}%`), like(guardians.phone, `%${digits}%`)) : byName);
+  }
+  const rows = await tx
+    .selectDistinctOn([students.fullName, students.id], { student: students, guardianName: guardians.fullName, guardianPhone: guardians.phone })
+    .from(students)
+    .leftJoin(studentGuardians, eq(studentGuardians.studentId, students.id))
+    .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
+    .where(and(...where))
+    .orderBy(asc(students.fullName), asc(students.id), asc(guardians.isPrimary))
+    .limit(opts.limit ?? 50);
+  return rows;
+}
+
+export async function countStudents(tx: Tx, scope: Scope): Promise<number> {
+  const [row] = await tx.select({ n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope)));
+  return row?.n ?? 0;
+}
+
+export async function listConsents(tx: Tx, studentId: string): Promise<Consent[]> {
+  return tx.select().from(consents).where(eq(consents.studentId, studentId)).orderBy(asc(consents.kind), asc(consents.grantedAt));
+}
+
+// Grant/revoke is a new row each time: consent history is evidence.
+export async function recordConsent(tx: Tx, input: { tenantId: string; studentId: string; guardianId?: string | null; kind: ConsentKind; granted: boolean; grantedIp?: string; method: "portal" | "paper" | "staff_recorded" }): Promise<Consent> {
+  const [row] = await tx
+    .insert(consents)
+    .values({ id: uuidv7(), ...input, guardianId: input.guardianId ?? null, grantedIp: input.grantedIp ?? null, revokedAt: input.granted ? null : new Date() })
+    .returning();
+  if (!row) throw new Error("consent insert returned no row");
+  return row;
+}
+
+// Latest row per kind decides.
+export async function currentConsents(tx: Tx, studentId: string): Promise<Partial<Record<ConsentKind, boolean>>> {
+  const rows = await listConsents(tx, studentId);
+  const out: Partial<Record<ConsentKind, boolean>> = {};
+  for (const c of rows) out[c.kind] = c.granted;
+  return out;
+}

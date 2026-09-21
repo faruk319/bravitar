@@ -4,6 +4,7 @@ export class AppError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly details?: unknown, // extra, JSON-safe context for the client
   ) {
     super(message);
     this.name = new.target.name;
@@ -17,8 +18,14 @@ export class NotFoundError extends AppError {
 }
 
 export class ConflictError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super(message, 409, details);
+  }
+}
+
+export class BadRequestError extends AppError {
   constructor(message: string) {
-    super(message, 409);
+    super(message, 400);
   }
 }
 

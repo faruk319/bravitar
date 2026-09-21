@@ -13,7 +13,7 @@ export function EmptyState({ title, hint, action, onAction, href, icon, soon }: 
       <p className="max-w-xs text-body text-muted-foreground">{hint}</p>
       <div className="mt-3 flex flex-col items-center gap-1">
         {href && !soon ? (
-          <Button size="lg" render={<a href={href} />}>
+          <Button size="lg" nativeButton={false} render={<a href={href} />}>
             {action}
           </Button>
         ) : (

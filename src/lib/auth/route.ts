@@ -34,7 +34,7 @@ export function json(body: unknown, init: ResponseInit = {}): Response {
 }
 
 export function jsonError(err: unknown): Response {
-  if (err instanceof AppError) return json({ error: err.message }, { status: err.status });
+  if (err instanceof AppError) return json({ error: err.message, ...(err.details !== undefined ? { details: err.details } : {}) }, { status: err.status });
   if (err instanceof ZodError) {
     return json({ error: "Invalid input", issues: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }, { status: 400 });
   }

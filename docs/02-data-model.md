@@ -348,6 +348,24 @@ data. Anything you need to compute on, join on, or bill on gets a real column.
 
 ---
 
+
+### Slice 6 addendum (agreed 2026-09-21)
+
+- `students.code` is `PREFIX/YYYY/0001`. The prefix lives in `tenants.code_prefix`
+  (2–5 upper-case letters, defaulted from the academy's initials, editable in
+  Settings). The counter is `student_code_series (tenant_id, year, next_value)`,
+  per tenant per calendar year, allocated with `UPDATE … RETURNING` under the row
+  lock; `number_series` (per branch, per financial year) is for invoices and
+  receipts only.
+- `students.code_edited_at` records the one allowed manual edit; after that the
+  code is locked.
+- `students.left_reason` is one of `moved_away | fees | timing | lost_interest |
+  completed | health | other`; `other` needs `left_note`.
+- Students are never hard-deleted: `deleted_at` is set only while there is no
+  attendance, invoice or payment history; otherwise `status = 'left'`.
+
+---
+
 ## 6. Enquiries and trials
 
 The module most likely to make an owner say yes. Do not cut it.

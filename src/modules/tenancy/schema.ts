@@ -27,6 +27,7 @@ export const tenants = app.table("tenants", {
   enabledModules: jsonb("enabled_modules").$type<EnabledModules>().notNull().default(DEFAULT_ENABLED_MODULES),
   labelOverrides: jsonb("label_overrides").$type<Record<string, string>>().notNull().default({}),
   status: text("status", { enum: ["active", "suspended", "closed"] }).notNull().default("active"),
+  codePrefix: text("code_prefix").notNull().default("STU"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

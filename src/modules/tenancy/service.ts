@@ -31,6 +31,13 @@ export const newTenantSchema = z.object({
 });
 export type NewTenantInput = z.input<typeof newTenantSchema>;
 
+// "Shivaji Karate Academy" -> SKA; padded to two letters, capped at five.
+export function codePrefixFor(name: string): string {
+  const letters = name.toUpperCase().replace(/[^A-Z ]/g, "").split(/\s+/).filter(Boolean).map((w) => w[0] ?? "");
+  const p = letters.join("").slice(0, 5);
+  return p.length >= 2 ? p : (p + "ST").slice(0, 2);
+}
+
 export type CreatedTenant = { tenant: Tenant; branch: Branch; subscription: TenantSubscription; owner: StaffUser };
 
 export async function createTenantWithDefaults(
@@ -40,7 +47,7 @@ export async function createTenantWithDefaults(
   const data = newTenantSchema.parse(input);
   const trialEndsAt = new Date(Date.now() + data.trialDays * 86_400_000);
   return withPlatformAdmin({ ...actor, action: "tenant.create", entityType: "tenant", after: { slug: data.slug, plan: data.planCode } }, async (tx, audit) => {
-    const tenant = await createTenant(tx, { name: data.name, slug: data.slug, verticalPreset: data.verticalPreset, timezone: data.timezone });
+    const tenant = await createTenant(tx, { name: data.name, slug: data.slug, verticalPreset: data.verticalPreset, timezone: data.timezone, codePrefix: codePrefixFor(data.name) });
     audit.tenantId = tenant.id;
     audit.entityId = tenant.id;
     const branch = await createBranch(tx, { tenantId: tenant.id, name: data.branchName, isDefault: true });

@@ -7,7 +7,7 @@ import { type Branch, branches, type Resource, resources, type Tenant, tenants }
 // Tenant-scoped functions take a Tx from withTenant() and never a tenant id
 // for reads: the context is on the transaction, and RLS does the filtering.
 
-export type CreateTenantInput = { name: string; slug: string; verticalPreset?: string; timezone?: string };
+export type CreateTenantInput = { name: string; slug: string; verticalPreset?: string; timezone?: string; codePrefix?: string };
 
 export async function createTenant(tx: PlatformTx, input: CreateTenantInput): Promise<Tenant> {
   const [row] = await tx.insert(tenants).values({ id: uuidv7(), ...input }).returning();
@@ -35,6 +35,11 @@ export async function createBranch(tx: Tx | PlatformTx, input: CreateBranchInput
 
 export async function listBranches(tx: Tx): Promise<Branch[]> {
   return tx.select().from(branches).where(isNull(branches.deletedAt)).orderBy(branches.name);
+}
+
+export async function getDefaultBranch(tx: Tx): Promise<Branch | undefined> {
+  const [row] = await tx.select().from(branches).where(and(eq(branches.isDefault, true), isNull(branches.deletedAt)));
+  return row;
 }
 
 export async function getBranch(tx: Tx, id: string): Promise<Branch | undefined> {
