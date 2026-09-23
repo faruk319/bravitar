@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AuditEntry } from "@/lib/db/audit";
 import { withPlatformAdmin } from "@/lib/db/platform";
+import { isTimeZone } from "@/lib/dates";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { createSubscription } from "@/modules/platform/repo";
 import type { TenantSubscription } from "@/modules/platform/schema";
@@ -19,7 +20,7 @@ export const newTenantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/, "lowercase letters, digits and hyphens"),
   verticalPreset: z.enum(VERTICAL_PRESETS).default("general"),
-  timezone: z.string().default("Asia/Kolkata"),
+  timezone: z.string().default("Asia/Kolkata").refine(isTimeZone, "Unknown timezone"),
   branchName: z.string().trim().min(1).max(120).default("Main branch"),
   planCode: z.string().default("starter"),
   trialDays: z.number().int().min(0).max(365).default(30),

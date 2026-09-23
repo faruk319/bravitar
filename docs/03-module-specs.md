@@ -208,6 +208,22 @@ per branch, day view per coach, holiday calendar.
 - One holiday per date per branch; `NULL` branch means all branches and is also
   unique per date. Staff limited to some branches add holidays for those only.
 
+**Sessions** (agreed 2026-09-23; `src/modules/sessions/`)
+
+- Kept filled to 60 days ahead: nightly (`sessions.generate`, pg-boss, 01:30 IST)
+  and at once when a batch's timing or status, or a holiday, changes.
+- Times are the tenant's wall clock. A class belongs to the day it starts, may
+  cross midnight (up to 8 hours) and always lasts its scheduled length.
+- Past or held sessions are never changed. A day whose class already started
+  gets no second class from a later timing change. Manual cancellations stay.
+- A holiday added later cancels that day's classes (reason "Holiday"); removing
+  it restores them. Dates that were already holidays are simply skipped.
+- Timezone edge cases, all tested: 5:00 AM IST falls on the previous UTC day;
+  5:30 AM IST is 00:00 UTC; "today" is the tenant's; the server timezone never
+  matters; classes crossing or ending at midnight; holidays and timing changes
+  by local date; year end and 29 Feb; DST gap moves forward, DST overlap takes
+  the first; +5:45 offsets; a tenant changing timezone moves future classes.
+
 **Acceptance**
 
 - [ ] A batch running Mon/Wed/Fri 6–7 PM starting the 1st generates exactly the

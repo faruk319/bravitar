@@ -119,7 +119,7 @@ describe("creating batches", () => {
 
   it("refuses bad input with plain messages", async () => {
     await expect(create({ slots: [] })).rejects.toThrow("Pick at least one day");
-    await expect(create({ slots: [{ weekday: 2, startTime: "19:00", endTime: "18:30" }] })).rejects.toThrow("Tue: end time must be after start time");
+    await expect(create({ slots: [{ weekday: 2, startTime: "19:00", endTime: "18:30" }] })).rejects.toThrow("Tue: 24 hours is too long for one class. Check AM/PM.");
     await expect(create({ programId: undefined })).rejects.toThrow("Pick a program");
     await expect(create({ programId: "00000000-0000-7000-8000-000000000000" })).rejects.toMatchObject({ status: 404 });
     await expect(create({ coachId: "00000000-0000-7000-8000-000000000000" })).rejects.toMatchObject({ status: 404 });

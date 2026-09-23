@@ -7,10 +7,12 @@ import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
-import { formatDate, todayIn } from "@/lib/dates";
+import { formatDate, timeIn, todayIn, weekdayOf } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
+import { formatTimeRange, WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { batchDetail, coachChoices } from "@/modules/batches/service";
-import { getOwnTenant, listResources } from "@/modules/tenancy/repo";
+import { upcomingForBatch } from "@/modules/sessions/repo";
+import { listResources } from "@/modules/tenancy/repo";
 
 export default async function BatchPage({ params }: PageProps<"/batches/[id]">) {
   const { id } = await params;
@@ -21,7 +23,8 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
     batch: await batchDetail(tx, ctx, id),
     coaches: await coachChoices(tx, ctx),
     rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
-    today: todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata"),
+    today: todayIn(session.tenant.timezone),
+    next: await upcomingForBatch(tx, id, new Date(), 8),
   })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
@@ -72,6 +75,28 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
           </div>
         ))}
       </dl>
+
+      <section className="mt-6">
+        <h2 className="text-heading">Next classes</h2>
+        {data.next.length ? (
+          <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
+            {data.next.map((s) => (
+              <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 text-body">
+                <span>
+                  {WEEKDAY_SHORT[weekdayOf(s.sessionDate)]}, {formatDate(s.sessionDate)}
+                </span>
+                {s.status === "cancelled" ? (
+                  <span className="text-muted-foreground">Cancelled · {s.cancelReason}</span>
+                ) : (
+                  <span>{formatTimeRange(timeIn(session.tenant.timezone, s.startsAt), timeIn(session.tenant.timezone, s.endsAt))}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-body text-muted-foreground">No classes in the next 60 days.</p>
+        )}
+      </section>
 
       <section className="mt-6">
         <h2 className="text-heading">Roster</h2>

@@ -15,12 +15,17 @@ describe("times", () => {
     expect(formatTimeRange("18:00", "19:00")).toBe("6:00 – 7:00 PM");
     expect(formatTimeRange("05:30:00", "06:30:00")).toBe("5:30 – 6:30 AM");
     expect(formatTimeRange("11:30", "12:30")).toBe("11:30 AM – 12:30 PM");
+    expect(formatTimeRange("23:00", "01:00")).toBe("11:00 PM – 1:00 AM");
+    expect(formatTimeRange("22:00", "00:00")).toBe("10:00 PM – 12:00 AM");
   });
 
   it("validates a weekly timing", () => {
     expect(validateSlots([])).toBe("Pick at least one day");
     expect(validateSlots([{ weekday: 1, startTime: "18:00", endTime: "19:00" }, { weekday: 1, startTime: "07:00", endTime: "08:00" }])).toBe("Mon is listed twice");
-    expect(validateSlots([{ weekday: 3, startTime: "19:00", endTime: "18:00" }])).toBe("Wed: end time must be after start time");
+    expect(validateSlots([{ weekday: 3, startTime: "19:00", endTime: "18:00" }])).toBe("Wed: 23 hours is too long for one class. Check AM/PM.");
+    expect(validateSlots([{ weekday: 3, startTime: "18:00", endTime: "18:00" }])).toBe("Wed: start and end are the same time");
+    expect(validateSlots([{ weekday: 5, startTime: "22:00", endTime: "00:00" }])).toBeUndefined(); // ends at midnight
+    expect(validateSlots([{ weekday: 5, startTime: "23:00", endTime: "01:00" }])).toBeUndefined(); // crosses midnight
     expect(validateSlots([{ weekday: 0, startTime: "", endTime: "10:00" }])).toBe("Sun: enter a start and end time");
     expect(validateSlots([{ weekday: 7, startTime: "10:00", endTime: "11:00" }])).toBe("Unknown day");
     expect(validateSlots(mwf("18:00", "19:00"))).toBeUndefined();

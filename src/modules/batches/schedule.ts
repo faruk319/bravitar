@@ -23,6 +23,15 @@ export function minutes(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0);
 }
 
+// A class may cross midnight (end earlier than start = next day), but not run
+// longer than this, which catches AM/PM slips like 6 AM – 5 AM.
+const MAX_CLASS_MINUTES = 8 * 60;
+
+export function durationMinutes(start: string, end: string): number {
+  const d = minutes(end) - minutes(start);
+  return d > 0 ? d : d + 24 * 60;
+}
+
 export function formatTime(t: string, withMeridiem = true): string {
   const total = minutes(t);
   const h = Math.floor(total / 60);
@@ -47,7 +56,9 @@ export function validateSlots(slots: Slot[]): string | undefined {
     const a = normalizeTime(s.startTime);
     const b = normalizeTime(s.endTime);
     if (!a || !b) return `${day}: enter a start and end time`;
-    if (minutes(b) <= minutes(a)) return `${day}: end time must be after start time`;
+    if (a === b) return `${day}: start and end are the same time`;
+    const hours = Math.round(durationMinutes(a, b) / 60);
+    if (durationMinutes(a, b) > MAX_CLASS_MINUTES) return `${day}: ${hours} hours is too long for one class. Check AM/PM.`;
   }
   return undefined;
 }

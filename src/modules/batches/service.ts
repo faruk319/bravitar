@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, isIsoDate, startOfWeek, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
+import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { canUseBranch, pickBranch } from "@/modules/tenancy/branch-access";
 import { getBranch, getOwnTenant, listResources } from "@/modules/tenancy/repo";
 import {
@@ -161,6 +162,7 @@ export async function createBatch(tx: Tx, ctx: ScopedCtx, input: NewBatchInput):
     startDate,
   });
   await insertRules(tx, ctx.tenantId, batch.id, slots, startDate);
+  await reconcileSessions(tx, { batchIds: [batch.id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.create", entityType: "batch", entityId: batch.id, after: { name: batch.name, schedule: summarizeSchedule(slots), startDate } });
   return batch;
 }
@@ -216,6 +218,7 @@ export async function changeSchedule(tx: Tx, ctx: ScopedCtx, id: string, input: 
     await closeRulesFrom(tx, id, from);
   }
   await insertRules(tx, ctx.tenantId, id, slots, from);
+  await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.schedule.set", entityType: "batch", entityId: id, before: { schedule: before }, after: { schedule: summarizeSchedule(slots), from } });
   return { from };
 }
@@ -227,6 +230,7 @@ export async function closeBatch(tx: Tx, ctx: ScopedCtx, id: string, input: { en
   const endDate = checkDate(input.endDate ?? (await tenantToday(tx)), "End date");
   if (endDate < batch.startDate) throw new BadRequestError("The end date is before the batch started");
   const after = await updateBatch(tx, id, { status: "ended", endDate });
+  await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.close", entityType: "batch", entityId: id, after: { endDate } });
   return after;
 }
@@ -236,6 +240,7 @@ export async function reopenBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<B
   const batch = await requireBatch(tx, ctx, id);
   if (batch.status !== "ended") throw new ConflictError("This batch isn't closed");
   const after = await updateBatch(tx, id, { status: "active", endDate: null });
+  await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.reopen", entityType: "batch", entityId: id, before: { endDate: batch.endDate } });
   return after;
 }
@@ -252,6 +257,7 @@ export async function archiveBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<
     if (await inUse(tx, id)) throw new ConflictError("This batch has students. Close it instead.");
   }
   await updateBatch(tx, id, { deletedAt: new Date() });
+  await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.archive", entityType: "batch", entityId: id });
 }
 
@@ -328,6 +334,7 @@ export async function addHoliday(tx: Tx, ctx: ScopedCtx, input: z.input<typeof h
     throw e;
   }
   await writeAudit(tx, { ...actor(ctx), action: "holiday.create", entityType: "holiday", entityId: holiday.id, after: { date, name: data.name, branchId } });
+  await reconcileSessions(tx);
   return holiday;
 }
 
@@ -337,6 +344,7 @@ export async function removeHoliday(tx: Tx, ctx: ScopedCtx, id: string): Promise
   const allowed = h && (h.branchId === null ? !ctx.branchIds.length : canUseBranch(ctx.branchIds, h.branchId));
   if (!h || !allowed) throw new NotFoundError("Holiday");
   await deleteHoliday(tx, id);
+  await reconcileSessions(tx);
   await writeAudit(tx, { ...actor(ctx), action: "holiday.delete", entityType: "holiday", entityId: id, before: { date: h.date, name: h.name, branchId: h.branchId } });
 }
 
