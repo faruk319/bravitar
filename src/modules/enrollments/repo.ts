@@ -67,6 +67,25 @@ export async function currentBatchNames(tx: Tx, studentIds: string[], day: strin
   return out;
 }
 
+export type OnRoster = { batchId: string; studentId: string; name: string; code: string; paused: boolean };
+
+// Who is on each batch's roster on `day`; paused = paused on or before that day.
+export async function onRoster(tx: Tx, batchIds: string[], day: string): Promise<OnRoster[]> {
+  if (!batchIds.length) return [];
+  return tx
+    .select({
+      batchId: enrollments.batchId,
+      studentId: enrollments.studentId,
+      name: students.fullName,
+      code: students.code,
+      paused: sql<boolean>`(${enrollments.status} = 'paused' AND ${enrollments.pausedOn} <= ${day}::date)`,
+    })
+    .from(enrollments)
+    .innerJoin(students, eq(students.id, enrollments.studentId))
+    .where(and(inArray(enrollments.batchId, batchIds), reaches(day), sql`${enrollments.startDate} <= ${day}::date`, isNull(students.deletedAt)))
+    .orderBy(asc(students.fullName));
+}
+
 // Batch id -> students on the roster on `day` (paused included).
 export async function rosterCounts(tx: Tx, batchIds: string[], day: string): Promise<Map<string, number>> {
   if (!batchIds.length) return new Map();

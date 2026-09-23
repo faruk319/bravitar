@@ -124,9 +124,9 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
               <ul className="divide-y divide-neutral-100">
                 {data.next.map((s) => (
                   <li key={s.id} className="flex min-h-12 items-center justify-between gap-3 text-body">
-                    <span>
+                    <Link href={`/sessions/${s.id}`} className="hover:underline">
                       {WEEKDAY_SHORT[weekdayOf(s.sessionDate)]}, {formatDate(s.sessionDate)}
-                    </span>
+                    </Link>
                     {s.status === "cancelled" ? (
                       <span className="text-muted-foreground">Cancelled · {s.cancelReason}</span>
                     ) : (

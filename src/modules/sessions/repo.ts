@@ -1,13 +1,12 @@
-import { and, asc, eq, gt, gte, inArray, ne, not, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, ne, not, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
+import { attendance } from "@/modules/attendance/schema";
 import { type Session, sessions } from "./schema";
 
-// The only rows the generator may change: future and not yet held.
-// CONTRACT for the attendance slice: marking attendance sets status 'held',
-// and "has attendance rows" must be added to this predicate.
+// The only rows the generator may change: future, not held, no attendance.
 function changeable(now: Date): SQL {
-  return and(gt(sessions.startsAt, now), ne(sessions.status, "held")) as SQL;
+  return and(gt(sessions.startsAt, now), ne(sessions.status, "held"), sql`NOT EXISTS (SELECT 1 FROM ${attendance} WHERE ${attendance.sessionId} = ${sessions.id})`) as SQL;
 }
 
 // Generated rows only: classes added by hand are never the generator's to change.

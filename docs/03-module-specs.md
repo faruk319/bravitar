@@ -296,6 +296,25 @@ attendance history per student, monthly attendance grid per batch.
   after that it needs `attendance:amend`. Every change is audited.
 - Marking attendance for a future session is refused.
 
+**Agreed 2026-09-23** (`src/modules/attendance/`)
+
+- The edit window is 48 hours from class start. After it the register locks:
+  any write, new or changed, needs `attendance:amend`.
+- A class can be marked any time on its own date (tenant timezone), even before
+  it starts. Later dates and cancelled classes are refused.
+- Roster = students enrolled on the class date, plus anyone already marked.
+  Paused students sit last, greyed, not markable and not counted.
+- Teachers see the classes they take (batch coach, or the substitute on the
+  session); `students:read_all` holders see every class in their branches.
+- "Mark all present" fills only unmarked rows and can be undone; a tap cycles
+  Present → Absent → Late; a long press adds a note. Nothing is sent until Save.
+- One upsert per save on `(session_id, student_id)`: two phones never duplicate,
+  the later save wins, and each save is one audit row listing its changes.
+  Saved marks can be changed but never cleared (no deletes). The class becomes
+  `held`, so the session generator never touches it.
+- % attendance = (present + late) / (present + late + absent); unmarked and
+  excused don't count.
+
 **Acceptance**
 
 - [ ] Marking a 30-student roster takes under 15 seconds on a mid-range Android

@@ -2,6 +2,7 @@ import { CalendarDays, type LucideIcon, Phone, Target, UserRound } from "lucide-
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Avatar } from "@/components/avatar";
+import { MARK_STYLE, MarkBadge } from "@/components/attendance/mark-badge";
 import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch } from "@/components/enrollments/student-batches";
 import { PageHeader } from "@/components/page-header";
@@ -13,7 +14,10 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
-import { addDays, formatDate, todayIn } from "@/lib/dates";
+import { addDays, formatDate, todayIn, weekdayOf } from "@/lib/dates";
+import { cn } from "@/lib/utils";
+import { studentAttendance } from "@/modules/attendance/service";
+import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPhone } from "@/lib/phone";
@@ -39,14 +43,17 @@ function pastNote(e: StudentEnrollment): string {
 export default async function StudentPage({ params, searchParams }: PageProps<"/students/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
-  const tab = (TABS as readonly string[]).includes(String(sp.tab)) ? (sp.tab as (typeof TABS)[number]) : "overview";
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
+  // docs/07 §7.3: no fee information without a fees permission.
+  const tabs = TABS.filter((t) => t !== "fees" || can(ctx, "fees", "invoices:read"));
+  const tab = tabs.find((t) => t === sp.tab) ?? "overview";
   const canEnroll = can(ctx, "batches", "enrollments:manage");
   const o = await withTenant(session.tenant.id, async (tx) => ({
     ...(await studentOverview(tx, ctx, id)),
     batches: await studentBatches(tx, ctx, id),
     choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
+    attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
   })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
@@ -96,7 +103,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
             </div>
           </Card>
         <div className="min-w-0 lg:row-span-2">
-          <SegmentedTabs label="Sections" items={TABS.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: t[0]?.toUpperCase() + t.slice(1), active: t === tab }))} />
+          <SegmentedTabs label="Sections" items={tabs.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: t[0]?.toUpperCase() + t.slice(1), active: t === tab }))} />
           {tab === "overview" ? (
             <Card>
               <CardHeader title="Batches" action={canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null} />
@@ -133,7 +140,31 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           ) : (
             <Card>
               {tab === "attendance" ? (
-                <EmptyState title="No attendance yet" hint="Marks appear once this student is in a batch." action="Enroll in a batch" soon />
+                o.attendance?.recent.length ? (
+                  <>
+                    <CardHeader title="Last 30 days" action={<span className="text-display">{o.attendance.percent === null ? "—" : `${o.attendance.percent}%`}</span>} />
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                      {(["present", "late", "absent", "unmarked"] as const).map((k) => (
+                        <div key={k} className={cn("rounded-xl px-4 py-3", k === "unmarked" ? "bg-neutral-100 text-neutral-700" : MARK_STYLE[k].cls)}>
+                          <p className="text-label">{k === "unmarked" ? "Not marked" : MARK_STYLE[k].word}</p>
+                          <p className="text-display tabular-nums">{o.attendance?.counts[k]}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <ul className="mt-4 divide-y divide-neutral-100">
+                      {o.attendance.recent.map((c) => (
+                        <li key={c.sessionId} className="flex min-h-12 items-center justify-between gap-3">
+                          <span className="text-body">
+                            {WEEKDAY_SHORT[weekdayOf(c.date)]}, {formatDate(c.date)} <span className="text-caption text-muted-foreground">· {c.batchName}</span>
+                          </span>
+                          <MarkBadge mark={c.mark} />
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <EmptyState title="No classes yet" hint="Marks appear here once this student's classes are taken." />
+                )
               ) : tab === "fees" ? (
                 <EmptyState title="No fees yet" hint="Invoices and receipts appear here." action="Collect payment" soon />
               ) : (

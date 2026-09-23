@@ -1,4 +1,6 @@
 import { pathToFileURL } from "node:url";
+import { and, asc, lt, ne } from "drizzle-orm";
+import type { Tx } from "@/lib/db/client";
 import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -9,6 +11,9 @@ import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
+import { classRoster, saveAttendance } from "@/modules/attendance/service";
+import { reconcileSessions } from "@/modules/sessions/reconcile";
+import { sessions } from "@/modules/sessions/schema";
 import { createStudent, type NewStudentInput, setStudentStatus, type StudentCtx } from "@/modules/students/service";
 import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy/service";
 
@@ -58,6 +63,23 @@ function demoBatches(vertical: string): { programs: string[]; batches: DemoBatch
       { name: "Science 10", program: "Class 10 Science", coach: "coach", inExtraBranch: true, capacity: 20, startDate: "2026-07-01", slots: days([2, 4], "17:00", "18:30"), students: ["Zoya Shaikh", "Meher Kaur"] },
     ],
   };
+}
+
+// The last 30 days of classes, marked mostly present with a few absences and
+// late arrivals, so Today, the register and profiles have something to show.
+async function seedHistory(tx: Tx, ctx: StudentCtx): Promise<void> {
+  const now = new Date();
+  await reconcileSessions(tx, { now: new Date(now.getTime() - 30 * 86_400_000) });
+  await reconcileSessions(tx, { now });
+  const past = await tx.select().from(sessions).where(and(lt(sessions.startsAt, now), ne(sessions.status, "cancelled"))).orderBy(asc(sessions.startsAt));
+  for (const [day, c] of past.entries()) {
+    const at = new Date(c.startsAt.getTime() + 3_600_000);
+    const roster = await classRoster(tx, ctx, c.id, { now: at });
+    const marks = roster.entries
+      .filter((e) => !e.paused)
+      .map((e, i) => ({ studentId: e.studentId, status: (i + day) % 9 === 0 ? ("absent" as const) : (i + day) % 13 === 0 ? ("late" as const) : ("present" as const) }));
+    if (marks.length) await saveAttendance(tx, ctx, c.id, { marks }, { now: at });
+  }
 }
 
 const DEMO_HOLIDAYS = [
@@ -119,6 +141,7 @@ export async function seed(): Promise<SeedResult> {
       }
       // Paused after joining, so their batches show as paused too.
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
+      await seedHistory(tx, sctx);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
     });
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches`);
