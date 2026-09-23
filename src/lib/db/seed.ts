@@ -7,6 +7,7 @@ import { createBranch, createResource, findTenantBySlug } from "@/modules/tenanc
 import { setPassword } from "@/modules/auth/service";
 import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { createStudent, type NewStudentInput, setStudentStatus, type StudentCtx } from "@/modules/students/service";
 import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy/service";
 
@@ -34,6 +35,35 @@ function demoStudents(vertical: string): (NewStudentInput & { paused?: boolean }
   ];
 }
 
+type DemoBatch = { name: string; program: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[] };
+const days = (weekdays: number[], startTime: string, endTime: string) => weekdays.map((weekday) => ({ weekday, startTime, endTime }));
+
+// Early Morning (5:30 AM) is there for Prompt 9's timezone test.
+function demoBatches(vertical: string): { programs: string[]; batches: DemoBatch[] } {
+  if (vertical === "karate") {
+    return {
+      programs: ["Karate"],
+      batches: [
+        { name: "Beginners B", program: "Karate", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 3, 5], "18:00", "19:00") },
+        { name: "Advanced A", program: "Karate", coach: "coach", withRoom: true, capacity: 20, startDate: "2026-06-01", slots: days([1, 3, 5], "19:15", "20:15") },
+        { name: "Early Morning", program: "Karate", coach: "owner", capacity: 15, startDate: "2026-06-01", slots: days([2, 4], "05:30", "06:30") },
+      ],
+    };
+  }
+  return {
+    programs: ["Class 9 Maths", "Class 10 Science"],
+    batches: [
+      { name: "Maths 9 A", program: "Class 9 Maths", coach: "coach", withRoom: true, capacity: 25, startDate: "2026-07-01", slots: [...days([1, 3], "16:00", "17:00"), ...days([6], "10:00", "11:30")] },
+      { name: "Science 10", program: "Class 10 Science", coach: "coach", inExtraBranch: true, capacity: 20, startDate: "2026-07-01", slots: days([2, 4], "17:00", "18:30") },
+    ],
+  };
+}
+
+const DEMO_HOLIDAYS = [
+  { date: "2026-10-02", name: "Gandhi Jayanti" },
+  { date: "2026-12-25", name: "Christmas" },
+];
+
 export type SeedResult = { plansCreated: string[]; tenantsCreated: string[]; tenantsPresent: string[] };
 
 export async function seed(): Promise<SeedResult> {
@@ -51,8 +81,8 @@ export async function seed(): Promise<SeedResult> {
     await withTenant(tenant.id, async (tx) => {
       const ctx = await loadAccessContext(tx, owner.id);
       await setPassword(tx, ctx, owner.id, DEMO_PASSWORD);
-      await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
-      if (extraBranch) await createBranch(tx, { tenantId: tenant.id, name: extraBranch });
+      const room = await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
+      const second = extraBranch ? await createBranch(tx, { tenantId: tenant.id, name: extraBranch }) : undefined;
       const teacherRole = (await listRoles(tx)).find((r) => r.name === "Teacher");
       const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: teacherRole ? [teacherRole.id] : [] });
       await setPassword(tx, ctx, staff.id, DEMO_PASSWORD);
@@ -66,8 +96,25 @@ export async function seed(): Promise<SeedResult> {
         families.set(phone, created.household.id);
         if (paused) await setStudentStatus(tx, sctx, created.student.id, { status: "paused" });
       }
+
+      const plan = demoBatches(input.verticalPreset ?? "general");
+      const programIds = new Map<string, string>();
+      for (const name of plan.programs) programIds.set(name, (await addProgram(tx, sctx, { name })).id);
+      for (const b of plan.batches) {
+        await createBatch(tx, sctx, {
+          name: b.name,
+          programId: programIds.get(b.program) ?? "",
+          coachId: b.coach === "owner" ? owner.id : staff.id,
+          ...(b.withRoom ? { resourceId: room.id } : {}),
+          ...(b.inExtraBranch && second ? { branchId: second.id } : { branchId: branch.id }),
+          capacity: b.capacity,
+          startDate: b.startDate,
+          slots: b.slots,
+        });
+      }
+      for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
     });
-    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students`);
+    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches`);
     result.tenantsCreated.push(input.slug);
   }
   return result;

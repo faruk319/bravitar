@@ -9,7 +9,7 @@ import { StudentSearchBar } from "@/components/students/search-bar";
 import { StatusBadge } from "@/components/students/status-badge";
 import { Button } from "@/components/ui/button";
 import { can } from "@/lib/auth/can";
-import { requireStaffPage } from "@/lib/auth/server";
+import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatPhone } from "@/lib/phone";
 import { countStudents, searchStudents } from "@/modules/students/repo";
@@ -20,7 +20,7 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
   const q = typeof sp.q === "string" ? sp.q : "";
   const status = typeof sp.status === "string" && (STUDENT_STATUSES as readonly string[]).includes(sp.status) ? (sp.status as StudentStatus) : undefined;
   const session = await requireStaffPage();
-  const scope = { branchIds: session.branchIds };
+  const scope = { branchIds: await selectedBranchIds(session) };
   const { rows, total } = await withTenant(session.tenant.id, async (tx) => ({
     rows: await searchStudents(tx, scope, { ...(q ? { q } : {}), ...(status ? { status } : {}) }),
     total: await countStudents(tx, scope),

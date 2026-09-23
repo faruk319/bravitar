@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { BRANCH_COOKIE } from "./branch-cookie";
 import { SESSION_COOKIE } from "./cookie";
 import { getStaffSessionFromToken, type StaffSession } from "./session";
 
@@ -13,4 +14,12 @@ export async function requireStaffPage(): Promise<StaffSession> {
   const session = await currentStaffSession();
   if (!session) redirect("/login");
   return session;
+}
+
+// The branches a list page should show: the switcher's choice if this staff
+// member may use it, otherwise everything they can see (empty = all).
+export async function selectedBranchIds(session: StaffSession): Promise<string[]> {
+  const chosen = (await cookies()).get(BRANCH_COOKIE)?.value;
+  if (chosen && chosen !== "all" && (!session.branchIds.length || session.branchIds.includes(chosen))) return [chosen];
+  return session.branchIds;
 }

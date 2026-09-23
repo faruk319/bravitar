@@ -195,6 +195,19 @@ per branch, day view per coach, holiday calendar.
 - Capacity is a soft warning in V1, not a hard block. Roster academies routinely
   squeeze in one more student.
 
+**Timing, closing, holidays** (agreed 2026-09-23; `src/modules/batches/`)
+
+- Weekly timing is stored as one rule per weekday with `effective_from/to`. A
+  change takes a From date (today or later): rules in force then end the day
+  before, rules not yet in force are dropped, the past is never rewritten. Before
+  a batch has started, its timing is simply replaced.
+- Closing sets `status = ended` and a last day; it is reversible (Reopen). Timing
+  can't change while closed. Deleting is a soft delete, refused while the batch
+  is in use (enrollments register that check) — "close it instead".
+- The coach must be able to work in the batch's branch; the owner can coach.
+- One holiday per date per branch; `NULL` branch means all branches and is also
+  unique per date. Staff limited to some branches add holidays for those only.
+
 **Acceptance**
 
 - [ ] A batch running Mon/Wed/Fri 6–7 PM starting the 1st generates exactly the

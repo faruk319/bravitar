@@ -1,10 +1,16 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { currentStaffSession } from "@/lib/auth/server";
+import { homeFor, shellFor } from "@/lib/auth/shell";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { slugFromHost } from "@/modules/auth/routes";
 import { LoginForm } from "./login-form";
 
 // docs/07 §7.9. The academy comes from the subdomain.
 export default async function LoginPage() {
+  // Already signed in (a live session, not just a cookie): go home.
+  const session = await currentStaffSession();
+  if (session) redirect(homeFor(shellFor(session)));
   const slug = slugFromHost((await headers()).get("host"));
   const tenant = slug ? await resolveTenantBySlug(slug) : undefined;
   if (!tenant) {

@@ -1,4 +1,4 @@
-import { json, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
+import { json, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
 import { normalizePhone } from "@/lib/phone";
 import { type ImportRequest, importStudents } from "./import";
@@ -16,18 +16,8 @@ import {
   updateStudentDetails,
 } from "./service";
 
-// Branch scoping and the requester's IP ride on the context.
 export function studentCtx({ session, req }: StaffRequest): StudentCtx {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return {
-    tenantId: session.tenant.id,
-    staffId: session.actor.id,
-    isOwner: session.isOwner,
-    modules: session.modules,
-    permissions: session.permissions,
-    branchIds: session.branchIds,
-    ...(ip ? { ip } : {}),
-  };
+  return scopedCtx(session, req);
 }
 
 const idFrom = (req: Request, segment: number) => new URL(req.url).pathname.split("/").filter(Boolean)[segment] ?? "";

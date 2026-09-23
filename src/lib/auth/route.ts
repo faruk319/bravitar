@@ -1,4 +1,4 @@
-import { assertCan } from "@/lib/auth/can";
+import { type AccessContext, assertCan } from "@/lib/auth/can";
 import type { PermissionKey } from "@/lib/auth/permissions";
 import { getStaffSession, type StaffSession } from "@/lib/auth/session";
 import type { Tx } from "@/lib/db/client";
@@ -7,6 +7,23 @@ import { ZodError } from "zod";
 import { AppError, UnauthorizedError } from "@/lib/errors";
 
 export type StaffRequest = { req: Request; session: StaffSession; tx: Tx };
+
+// Access context plus the staff member's branches (empty = all) and IP;
+// what every branch-scoped service takes.
+export type ScopedCtx = AccessContext & { branchIds: string[]; ip?: string };
+
+export function scopedCtx(session: Omit<StaffSession, "sessionId"> | StaffSession, req?: Request): ScopedCtx {
+  const ip = req?.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return {
+    tenantId: session.tenant.id,
+    staffId: session.actor.id,
+    isOwner: session.isOwner,
+    modules: session.modules,
+    permissions: session.permissions,
+    branchIds: session.branchIds,
+    ...(ip ? { ip } : {}),
+  };
+}
 
 // Every staff route declares its permission (or `null`, deliberately, for
 // routes like /me and /logout). The session is resolved from the cookie, the

@@ -1,4 +1,5 @@
 import { authFixtures } from "@/modules/auth/isolation";
+import { batchFixtures } from "@/modules/batches/isolation";
 import { platformFixtures } from "@/modules/platform/isolation";
 import { staffFixtures } from "@/modules/staff/isolation";
 import { studentFixtures } from "@/modules/students/isolation";
@@ -13,6 +14,7 @@ export const fixtures: IsolationFixtures = {
   ...staffFixtures,
   ...authFixtures,
   ...studentFixtures,
+  ...batchFixtures,
   ...systemFixtures,
 };
 

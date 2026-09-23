@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { type AccessContext, assertCan } from "@/lib/auth/can";
+import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
-import { getBranch, getDefaultBranch, getOwnTenant } from "@/modules/tenancy/repo";
+import { pickBranch } from "@/modules/tenancy/branch-access";
+import { getOwnTenant } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
 import {
   createGuardian,
@@ -25,7 +27,7 @@ import {
 } from "./repo";
 import { type ConsentKind, type Guardian, type Household, LEFT_REASONS, RELATIONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
 
-export type StudentCtx = AccessContext & { branchIds: string[]; ip?: string };
+export type StudentCtx = ScopedCtx;
 
 const scopeOf = (ctx: StudentCtx): Scope => ({ branchIds: ctx.branchIds });
 const actor = (ctx: AccessContext) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
@@ -75,19 +77,6 @@ function householdNameFor(guardianName: string): string {
   return `${last} family`;
 }
 
-async function resolveBranch(tx: Tx, ctx: StudentCtx, wanted: string | undefined): Promise<string> {
-  const allowed = ctx.branchIds;
-  if (wanted) {
-    if (allowed.length && !allowed.includes(wanted)) throw new NotFoundError("Branch");
-    if (!(await getBranch(tx, wanted))) throw new NotFoundError("Branch");
-    return wanted;
-  }
-  if (allowed.length === 1) return allowed[0] ?? "";
-  const def = await getDefaultBranch(tx);
-  if (!def || (allowed.length && !allowed.includes(def.id))) throw new BadRequestError("Pick a branch");
-  return def.id;
-}
-
 function yearIn(timezone: string): number {
   return Number(new Intl.DateTimeFormat("en-IN", { timeZone: timezone, year: "numeric" }).format(new Date()));
 }
@@ -106,7 +95,7 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   if (!data.guardian && !data.adultPhone) throw new BadRequestError("Add a guardian, or a phone number for an adult student");
 
   const contactPhone = data.guardian?.phone ?? data.adultPhone ?? "";
-  const branchId = await resolveBranch(tx, ctx, data.branchId);
+  const branchId = await pickBranch(tx, ctx.branchIds, data.branchId);
 
   // Household and guardian: reuse the family when the phone is known.
   let household: Household;
