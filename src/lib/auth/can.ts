@@ -26,11 +26,13 @@ export function can(ctx: AccessContext, module: string, permission: string): boo
 }
 
 // Service-layer gate: the module comes from the catalog, not the caller.
+// can() with the module taken from the catalog.
+export function allows(ctx: AccessContext, permission: PermissionKey): boolean {
+  return can(ctx, PERMISSIONS[permission].module, permission);
+}
+
 export function assertCan(ctx: AccessContext, permission: PermissionKey): void {
-  const owningModule = PERMISSIONS[permission].module;
-  if (!can(ctx, owningModule, permission)) {
-    throw new ForbiddenError(`Not allowed: ${permission}`);
-  }
+  if (!allows(ctx, permission)) throw new ForbiddenError(`Not allowed: ${permission}`);
 }
 
 // tenants.enabled_modules plus the modules that are never switched off.

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SESSION_COOKIE } from "@/lib/auth/cookie";
 import { json, withStaffRequest } from "@/lib/auth/route";
-import { hashToken, newSessionToken } from "@/lib/auth/token";
+import { hashToken, newToken } from "@/lib/auth/token";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
@@ -125,14 +125,14 @@ describe("session lifecycle", () => {
 
   it("rejects a missing, forged, or database-leaked (hashed) token", async () => {
     expect((await meHandler(get("/api/auth/me"))).status).toBe(401);
-    expect((await meHandler(get("/api/auth/me", `${SESSION_COOKIE}=${newSessionToken()}`))).status).toBe(401);
+    expect((await meHandler(get("/api/auth/me", `${SESSION_COOKIE}=${newToken()}`))).status).toBe(401);
     const cookie = await signIn();
     const token = cookie.split("=")[1] ?? "";
     expect((await meHandler(get("/api/auth/me", `${SESSION_COOKIE}=${hashToken(token)}`))).status).toBe(401);
   });
 
   it("rejects an expired session", async () => {
-    const token = newSessionToken();
+    const token = newToken();
     await withTenant(A, (tx) =>
       insertSession(tx, { tokenHash: hashToken(token), actorType: "staff", actorId: ownerA.id, tenantId: A, cachedContext: null, expiresAt: new Date(Date.now() - 1000) }),
     );

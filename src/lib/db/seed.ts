@@ -8,7 +8,7 @@ import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
 import { listRoles } from "@/modules/staff/repo";
-import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { addStaff, createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
@@ -101,14 +101,19 @@ export async function seed(): Promise<SeedResult> {
     }
     const { tenant, branch, owner } = await createTenantWithDefaults({ actorType: "system" }, input);
     // Through the tenant's own context, like the app would.
+    let invite = "";
     await withTenant(tenant.id, async (tx) => {
       const ctx = await loadAccessContext(tx, owner.id);
       await setPassword(tx, ctx, owner.id, DEMO_PASSWORD);
       const room = await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
       const second = extraBranch ? await createBranch(tx, { tenantId: tenant.id, name: extraBranch }) : undefined;
-      const teacherRole = (await listRoles(tx)).find((r) => r.name === "Teacher");
-      const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: teacherRole ? [teacherRole.id] : [] });
+      const roles = await listRoles(tx);
+      const roleId = (name: string) => roles.filter((r) => r.name === name).map((r) => r.id); // demo data only
+      const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: roleId("Teacher") });
       await setPassword(tx, ctx, staff.id, DEMO_PASSWORD);
+      // A front desk hire who hasn't opened their invite yet.
+      const desk = await addStaff(tx, ctx, { email: `desk@${input.slug}.demo`, fullName: "Neha Kulkarni", roleIds: roleId("Front Desk") });
+      invite = `http://${input.slug}.localhost:3000/invite/${desk.token}`;
 
       const sctx: StudentCtx = { ...ctx, branchIds: [] };
       const families = new Map<string, string>(); // guardian phone -> household id
@@ -145,6 +150,7 @@ export async function seed(): Promise<SeedResult> {
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
     });
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches`);
+    console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
     result.tenantsCreated.push(input.slug);
   }
   return result;

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
-// Opaque session token: the cookie holds the token, the database only its hash.
-export function newSessionToken(): string {
+// Opaque tokens (session cookies, invite links): the client holds the token, the database only its hash.
+export function newToken(): string {
   return randomBytes(32).toString("base64url");
 }
 

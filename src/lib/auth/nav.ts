@@ -20,7 +20,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Daily",
     items: [
-      { href: "/dashboard", label: { text: "Dashboard" }, icon: "LayoutDashboard", permission: "reports:view" },
+      { href: "/dashboard", label: { text: "Dashboard" }, icon: "LayoutDashboard", permission: null }, // blocks inside follow permissions
       { href: "/today", label: { labelKey: "session", form: "many", prefix: "Today's " }, icon: "CalendarDays", permission: "sessions:read" },
       { href: "/attendance", label: { text: "Attendance" }, icon: "ClipboardCheck", permission: "attendance:read" },
     ],

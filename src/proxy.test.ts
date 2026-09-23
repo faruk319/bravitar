@@ -16,6 +16,11 @@ describe("proxy", () => {
     expect(proxy(req("/login")).headers.get("location")).toBeNull();
   });
 
+  it("lets invite links through without a cookie: the new staff member has no session yet", () => {
+    expect(proxy(req("/invite/abc123")).headers.get("location")).toBeNull();
+    expect(proxy(req("/invitex")).headers.get("location")).toBe("http://shivaji-karate.localhost:3000/login");
+  });
+
   it("lets pages through when a cookie exists; the layout checks it for real", () => {
     expect(proxy(req("/students", "bravitar_session=anything")).headers.get("location")).toBeNull();
     expect(proxy(req("/")).headers.get("location")).toBeNull();

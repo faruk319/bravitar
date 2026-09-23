@@ -3,7 +3,7 @@ import { type AccessContext, assertCan } from "@/lib/auth/can";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/cookie";
 import { dummyPasswordHash, hashPassword, passwordSchema, verifyPassword } from "@/lib/auth/password";
 import { buildSessionContext, type SessionContext } from "@/lib/auth/session";
-import { hashToken, newSessionToken } from "@/lib/auth/token";
+import { hashToken, newToken } from "@/lib/auth/token";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -44,7 +44,7 @@ export async function login(input: LoginInput): Promise<{ token: string; session
   await withTenant(tenant.id, (tx) => recordLoginAttempt(tx, attempt));
   if (!staff || !ok) throw new UnauthorizedError(BAD_CREDENTIALS);
 
-  const token = newSessionToken();
+  const token = newToken();
   return withTenant(tenant.id, async (tx) => {
     const context = await buildSessionContext(tx, staff.id);
     const session = await insertSession(tx, {

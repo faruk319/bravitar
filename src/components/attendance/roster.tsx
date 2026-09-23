@@ -70,7 +70,10 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
       {canMark ? (
         <div className="mb-3 flex items-center justify-between gap-3">
           {undo ? (
-            <Button variant="outline" size="lg" onClick={() => (setMarks(undo), setUndo(undefined))}>
+            <Button variant="outline" size="lg" onClick={() => {
+                setMarks(undo);
+                setUndo(undefined);
+              }}>
               Undo
             </Button>
           ) : (

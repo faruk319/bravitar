@@ -115,7 +115,8 @@ migrations/                 # numbered .sql files, append-only
 Microservices. A second database. GraphQL. A custom no-code form builder.
 A social feed or leaderboard. Native mobile apps. Biometric or RFID integration.
 POS/inventory. Schema-per-tenant. Your own payment wallet or escrow.
-An unlimited custom-role builder (V1 has 4 preset roles + per-permission override).
+(Custom roles were approved on 2026-09-23: the owner creates roles and ticks
+permissions. Never check a role name in code; check permission keys.)
 
 ## Commands
 

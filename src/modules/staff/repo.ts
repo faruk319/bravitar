@@ -3,7 +3,7 @@ import { PERMISSION_KEYS, PERMISSIONS, type PermissionKey } from "@/lib/auth/per
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
 import { uuidv7 } from "@/lib/ids";
-import { permissions, type Role, rolePermissions, roles, staffBranches, staffRoles, type StaffUser, staffUsers } from "./schema";
+import { permissions, type Role, rolePermissions, roles, staffBranches, staffInvites, staffRoles, type StaffUser, staffUsers } from "./schema";
 
 type AnyTx = Tx | PlatformTx;
 
@@ -106,4 +106,67 @@ export async function permissionKeysForStaff(tx: AnyTx, staffId: string): Promis
     .where(inArray(rolePermissions.roleId, roleIds))
     .orderBy(rolePermissions.permissionKey);
   return rows.map((r) => r.key);
+}
+
+export async function renameRoleRow(tx: Tx, id: string, name: string): Promise<Role> {
+  const [r] = await tx.update(roles).set({ name }).where(eq(roles.id, id)).returning();
+  if (!r) throw new Error("role update returned no row");
+  return r;
+}
+
+export async function deleteRoleRow(tx: Tx, id: string): Promise<void> {
+  await tx.delete(roles).where(eq(roles.id, id));
+}
+
+// Role id -> active staff holding it.
+export async function roleHolderCounts(tx: Tx): Promise<Map<string, number>> {
+  const rows = await tx
+    .select({ roleId: staffRoles.roleId, n: count() })
+    .from(staffRoles)
+    .innerJoin(staffUsers, eq(staffUsers.id, staffRoles.staffId))
+    .where(and(eq(staffUsers.isActive, true), isNull(staffUsers.deletedAt)))
+    .groupBy(staffRoles.roleId);
+  return new Map(rows.map((r) => [r.roleId, r.n]));
+}
+
+// Role id -> permission keys, for every role of the tenant.
+export async function allRolePermissions(tx: Tx): Promise<Map<string, string[]>> {
+  const rows = await tx.select({ roleId: rolePermissions.roleId, key: rolePermissions.permissionKey }).from(rolePermissions);
+  const out = new Map<string, string[]>();
+  for (const r of rows) out.set(r.roleId, [...(out.get(r.roleId) ?? []), r.key]);
+  return out;
+}
+
+export async function staffRoleLinks(tx: Tx): Promise<{ staffId: string; roleId: string }[]> {
+  return tx.select({ staffId: staffRoles.staffId, roleId: staffRoles.roleId }).from(staffRoles);
+}
+
+export async function staffBranchLinks(tx: Tx): Promise<{ staffId: string; branchId: string }[]> {
+  return tx.select({ staffId: staffBranches.staffId, branchId: staffBranches.branchId }).from(staffBranches);
+}
+
+export async function insertInvite(tx: Tx, row: { tenantId: string; staffId: string; tokenHash: string; expiresAt: Date; createdBy: string }): Promise<void> {
+  await tx.insert(staffInvites).values({ id: uuidv7(), ...row });
+}
+
+// Older links stop working when a new one is made.
+export async function expireInvites(tx: Tx, staffId: string, now: Date): Promise<void> {
+  await tx
+    .update(staffInvites)
+    .set({ expiresAt: now })
+    .where(and(eq(staffInvites.staffId, staffId), isNull(staffInvites.usedAt), sql`${staffInvites.expiresAt} > ${now.toISOString()}::timestamptz`));
+}
+
+export async function markInviteUsed(tx: Tx, id: string, now: Date): Promise<boolean> {
+  const rows = await tx.update(staffInvites).set({ usedAt: now }).where(and(eq(staffInvites.id, id), isNull(staffInvites.usedAt))).returning({ id: staffInvites.id });
+  return rows.length === 1;
+}
+
+// Staff with a link that is still usable.
+export async function staffWithOpenInvites(tx: Tx, now: Date): Promise<Set<string>> {
+  const rows = await tx
+    .selectDistinct({ staffId: staffInvites.staffId })
+    .from(staffInvites)
+    .where(and(isNull(staffInvites.usedAt), sql`${staffInvites.expiresAt} > ${now.toISOString()}::timestamptz`));
+  return new Set(rows.map((r) => r.staffId));
 }

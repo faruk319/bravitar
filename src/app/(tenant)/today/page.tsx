@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ClassStatus } from "@/components/attendance/class-status";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
@@ -11,19 +12,8 @@ import { shellFor } from "@/lib/auth/shell";
 import { formatDate, timeIn, weekdayOf } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { cn } from "@/lib/utils";
-import { type ClassCard, todaysClasses } from "@/modules/attendance/service";
+import { todaysClasses } from "@/modules/attendance/service";
 import { formatTimeRange, WEEKDAY_SHORT } from "@/modules/batches/schedule";
-
-function Status({ c }: { c: ClassCard }) {
-  if (c.session.status === "cancelled") return <span className="text-muted-foreground">Cancelled · {c.session.cancelReason}</span>;
-  if (!c.marked) return <span className="text-warning-600">● Not marked</span>;
-  const done = c.marked >= c.students;
-  return (
-    <span className={done ? "text-success-600" : "text-warning-600"}>
-      {done ? "✓" : "◐"} Marked {c.marked}/{c.students}
-    </span>
-  );
-}
 
 export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const session = await requireStaffPage();
@@ -56,7 +46,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
                   {c.roomName ? ` · ${c.roomName}` : ""} · {c.students} students
                 </p>
                 <p className="mt-1 text-label">
-                  <Status c={c} />
+                  <ClassStatus c={c} />
                 </p>
               </Link>
             </li>

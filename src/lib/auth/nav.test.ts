@@ -33,9 +33,12 @@ describe("navFor", () => {
     expect(hrefs(navFor({ isOwner: true, modules: { ...all, enquiries: false }, permissions: [] }))).not.toContain("/enquiries");
   });
 
-  it("drops a group that ends up empty", () => {
+  it("drops a group that ends up empty; the dashboard is for everyone", () => {
     const groups = navFor({ isOwner: false, modules: all, permissions: ["students:read"] });
-    expect(groups.map((g) => g.title)).toEqual(["People"]);
+    expect(groups.map((g) => [g.title, g.items.map((i) => i.href)])).toEqual([
+      ["Daily", ["/dashboard"]],
+      ["People", ["/students"]],
+    ]);
   });
 });
 

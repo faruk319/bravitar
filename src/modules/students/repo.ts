@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
@@ -137,4 +137,9 @@ export async function currentConsents(tx: Tx, studentId: string): Promise<Partia
   const out: Partial<Record<ConsentKind, boolean>> = {};
   for (const c of rows) out[c.kind] = c.granted;
   return out;
+}
+
+export async function countJoinedSince(tx: Tx, scope: Scope, from: string): Promise<number> {
+  const [row] = await tx.select({ n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope), gte(students.joinedOn, from)));
+  return row?.n ?? 0;
 }

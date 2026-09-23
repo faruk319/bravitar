@@ -66,5 +66,17 @@ export const staffRoles = app.table(
   (t) => [primaryKey({ columns: [t.staffId, t.roleId] })],
 );
 
+// Mirrors migrations/0012_staff_invites.sql.
+export const staffInvites = app.table("staff_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  staffId: uuid("staff_id").notNull().references(() => staffUsers.id),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdBy: uuid("created_by").references(() => staffUsers.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type StaffUser = typeof staffUsers.$inferSelect;
 export type Role = typeof roles.$inferSelect;

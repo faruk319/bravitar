@@ -81,6 +81,22 @@ invite / set-password flow is completed.
 - Teachers only see batches they are assigned to as coach, unless they also hold
   a role with `students:read_all`.
 
+**Agreed 2026-09-23** (`src/modules/staff/`, `src/modules/dashboard/`)
+
+- No code checks a role name: every decision is a permission key (`can`/`allows`).
+  The 4 presets are only a new academy's starting data.
+- Anyone with `staff:manage` creates roles (optionally copying another's ticks),
+  renames them, ticks permissions and deletes them. Owner stays "everything" and
+  can't be edited. A role held by active staff can't be deleted. Names are unique.
+  Every change is audited and clears holders' cached access (next page load).
+- New staff get a one-time invite link, valid 7 days, to copy or send on WhatsApp;
+  they set their own password. A new link expires older ones and, once used,
+  signs the person out everywhere (so it doubles as a password reset). Only the
+  token's hash is stored.
+- The dashboard is for everyone in the admin shell; each block appears only with
+  its permission (students, today's classes, present today, batches, staff).
+  Sidebar and shell are chosen from permissions too.
+
 **Acceptance**
 
 - [ ] A Teacher hitting a fees API route gets 403, even by direct URL
