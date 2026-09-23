@@ -9,7 +9,7 @@ import { SheetContent, SheetTitle } from "@/components/ui/sheet";
 // Bottom sheet with one form; useAction runs a request, shows its error, refreshes on success.
 export function SheetForm({ trigger, title, children, onSubmit, submitLabel, busy, error, variant = "outline" }: { trigger: string; title: string; children: ReactNode; onSubmit: (e: FormEvent<HTMLFormElement>) => void; submitLabel: string; busy: boolean; error?: string | undefined; variant?: "outline" | "destructive" }) {
   return (
-    <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto rounded-t-xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+    <SheetContent side="auto">
       <SheetTitle className="text-heading">{title}</SheetTitle>
       <form onSubmit={onSubmit} className="mt-4 flex max-w-md flex-col gap-4" noValidate>
         {children}

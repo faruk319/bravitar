@@ -27,6 +27,11 @@ A coach on a laptop still gets the coach shell — bigger, same structure.
 
 ## 2. Design tokens
 
+Visual references (layout and components, not colours): `docs/uiux reference.webp`,
+`docs/stundet profile.webp`, `docs/attandance .webp`. Adopted 2026-09-23: grey
+canvas, white cards, soft shadows, 600 for titles and numbers. Palette still to
+be decided; everything below goes through tokens so that is a one-file change.
+
 ### Colour
 
 Neutrals do ninety percent of the work. There is **one** accent, and it means
@@ -73,15 +78,15 @@ Devanagari needs about 15% more line-height — leave that room in the type scal
 now rather than re-tuning every screen later.
 
 ```
-display   24px / 500 / 1.3    screen titles
-heading   18px / 500 / 1.4    card titles, section heads
+display   24px / 600 / 1.3    screen titles, stat numbers
+heading   18px / 600 / 1.4    card titles, section heads
 body      16px / 400 / 1.5    default. Never smaller for anything a user reads
-label     14px / 500 / 1.4    field labels, table headers
-caption   13px / 400 / 1.4    timestamps, helper text
-number    20px / 500 / 1.2    tabular-nums, for money and counts
+label     14px / 500 / 1.4    field labels, buttons
+caption   13px / 400 / 1.4    timestamps, helper text, table headers (uppercase)
+number    20px / 600 / 1.2    tabular-nums, for money and counts
 ```
 
-Two weights only: 400 and 500. No 600, no 700, no italics.
+Three weights: 400 text, 500 labels, 600 titles and numbers. No 700, no italics.
 
 **16px body is a hard floor on mobile.** Anything below 16px in an input makes
 iOS Safari zoom on focus, and your form jumps around.
@@ -89,9 +94,10 @@ iOS Safari zoom on focus, and your form jumps around.
 ### Spacing, size, shape
 
 ```
-space     4 / 8 / 12 / 16 / 24 / 32 / 48
-radius    8px everywhere. 12px on cards. Nothing else.
-border    1px solid neutral-300. No shadows except on sheets and popovers.
+space     4 / 8 / 12 / 16 / 20 / 24 / 32 / 48
+radius    8px controls, 12px small panels, 16px cards, full for pills and avatars
+surface   grey canvas (canvas token) behind white cards
+card      1px neutral-100 border + shadow-card (a faint lift). Sheets and popovers: shadow-lg
 ```
 
 **Tap targets: 48px minimum, 56px for anything tapped repeatedly.** The
@@ -163,6 +169,11 @@ Badge counts on nav items are the cheapest useful feature in the product:
 `⌘K` search across students, guardians, phone numbers and invoice numbers. Front
 desk staff will use this more than any menu.
 
+Top bar (64px, white): ⌘K search on the left (an icon on phones), then the branch
+switcher and the account avatar (→ My account, which holds sign-out). No bell until
+notifications exist. Every page starts with a page header: breadcrumb, title, and
+the page's actions on the right.
+
 ---
 
 ## 5. Portal shell (parent)
@@ -194,7 +205,22 @@ for phone fields (`inputmode="tel"`), numeric for amounts. Autofocus the first
 field. Submit button never above the fold on mobile.
 
 **Tables.** Desktop only. On phone a table becomes a card list. Never let a
-table scroll sideways on a phone.
+table scroll sideways on a phone. A table lives in a card: toolbar on top (search,
+filter), uppercase caption headers, rows of 56px with an initials avatar over name
+and code, paging of 50 at the foot ("1–50 of 142").
+
+**Cards.** White on the canvas. The header holds the title and at most one control
+(a filter, a period, or the card's action). Sections of a page are cards, not
+bordered boxes.
+
+**Stat cards.** Label, icon badge, the number. Every number links to the list behind
+it. No trend chips until there is a period to compare.
+
+**Status pills.** Filled tint + icon + word (● Active, ◐ Paused, ○ Left).
+
+**Section tabs.** A segmented pill control, not underlines.
+
+**Sheets.** Bottom sheet on phones, right-hand panel from 768px up (`side="auto"`).
 
 ---
 

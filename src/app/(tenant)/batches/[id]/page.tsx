@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChangeTiming, CloseOrReopen, DeleteBatch, EditBatch } from "@/components/batches/batch-actions";
-import { BatchTabs } from "@/components/batches/batch-tabs";
+import { Avatar } from "@/components/avatar";
 import { AddStudents } from "@/components/enrollments/add-students";
+import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
+import { Card, CardHeader } from "@/components/ui/card";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
@@ -55,84 +57,102 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
 
   return (
     <Gate permission="batches:read">
-      <BatchTabs />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-caption text-muted-foreground">{b.programName}</p>
-          <h1 className="text-display">{b.name}</h1>
-          {b.status === "ended" ? <p className="text-body text-muted-foreground">Closed · last day {formatDate(b.endDate)}</p> : null}
-        </div>
-        {canManage ? (
-          <div className="flex flex-wrap gap-2">
-            {b.status !== "ended" ? <ChangeTiming batch={lite} today={today} /> : null}
-            <EditBatch batch={lite} coaches={data.coaches} rooms={data.rooms} />
-            <CloseOrReopen batch={lite} today={today} />
-            <DeleteBatch batch={lite} />
-          </div>
-        ) : null}
-      </div>
+      <PageHeader
+        title={b.name}
+        crumbs={[{ label: "Programs & {batch.many}", href: "/batches" }]}
+        actions={
+          canManage ? (
+            <>
+              {b.status !== "ended" ? <ChangeTiming batch={lite} today={today} /> : null}
+              <EditBatch batch={lite} coaches={data.coaches} rooms={data.rooms} />
+              <CloseOrReopen batch={lite} today={today} />
+              <DeleteBatch batch={lite} />
+            </>
+          ) : undefined
+        }
+      >
+        <p className="text-caption text-muted-foreground">
+          {b.programName}
+          {b.status === "ended" ? ` · Closed · last day ${formatDate(b.endDate)}` : ""}
+        </p>
+      </PageHeader>
 
       {b.upcoming ? (
-        <p className="mt-4 rounded-xl border border-border bg-accent-50 px-4 py-3 text-body">
+        <p className="mb-5 rounded-2xl bg-accent-50 px-4 py-3 text-body text-accent-600">
           From {formatDate(b.upcoming.from)}: {b.upcoming.schedule}
         </p>
       ) : null}
 
-      <dl className="mt-4 grid gap-x-6 gap-y-3 rounded-xl border border-border p-4 md:grid-cols-2">
-        {facts.map(([k, v]) => (
-          <div key={k} className="flex flex-col">
-            <dt className="text-caption text-muted-foreground">{k}</dt>
-            <dd className="text-body">{v}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card>
+            <CardHeader
+              title={
+                <>
+                  Roster <span className="text-muted-foreground tabular-nums">{count}</span>
+                </>
+              }
+              action={
+                can(ctx, "batches", "enrollments:manage") && b.status !== "ended" ? (
+                  <AddStudents batchId={b.id} today={today} inBatch={roster.map((r) => r.studentId)} full={Boolean(b.capacity && count >= b.capacity)} />
+                ) : null
+              }
+            />
+            {roster.length ? (
+              <ul className="divide-y divide-neutral-100">
+                {roster.map((r) => (
+                  <li key={r.id} className="flex min-h-14 items-center justify-between gap-3 py-2">
+                    <Link href={`/students/${r.studentId}`} className="flex items-center gap-3">
+                      <Avatar name={r.studentName} />
+                      <span>
+                        <span className="block text-body font-medium text-neutral-900 hover:underline">{r.studentName}</span>
+                        <span className="block text-caption text-muted-foreground tabular-nums">{r.studentCode}</span>
+                      </span>
+                    </Link>
+                    <span className="text-caption text-muted-foreground">{rosterNote(r, today)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-body text-muted-foreground">No students yet.</p>
+            )}
+          </Card>
 
-      <section className="mt-6">
-        <h2 className="text-heading">Next classes</h2>
-        {data.next.length ? (
-          <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
-            {data.next.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 text-body">
-                <span>
-                  {WEEKDAY_SHORT[weekdayOf(s.sessionDate)]}, {formatDate(s.sessionDate)}
-                </span>
-                {s.status === "cancelled" ? (
-                  <span className="text-muted-foreground">Cancelled · {s.cancelReason}</span>
-                ) : (
-                  <span>{formatTimeRange(timeIn(session.tenant.timezone, s.startsAt), timeIn(session.tenant.timezone, s.endsAt))}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-body text-muted-foreground">No classes in the next 60 days.</p>
-        )}
-      </section>
-
-      <section className="mt-6">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-heading">
-            Roster <span className="text-muted-foreground tabular-nums">{count}</span>
-          </h2>
-          {can(ctx, "batches", "enrollments:manage") && b.status !== "ended" ? (
-            <AddStudents batchId={b.id} today={today} inBatch={roster.map((r) => r.studentId)} full={Boolean(b.capacity && count >= b.capacity)} />
-          ) : null}
+          <Card>
+            <CardHeader title="Next classes" />
+            {data.next.length ? (
+              <ul className="divide-y divide-neutral-100">
+                {data.next.map((s) => (
+                  <li key={s.id} className="flex min-h-12 items-center justify-between gap-3 text-body">
+                    <span>
+                      {WEEKDAY_SHORT[weekdayOf(s.sessionDate)]}, {formatDate(s.sessionDate)}
+                    </span>
+                    {s.status === "cancelled" ? (
+                      <span className="text-muted-foreground">Cancelled · {s.cancelReason}</span>
+                    ) : (
+                      <span>{formatTimeRange(timeIn(session.tenant.timezone, s.startsAt), timeIn(session.tenant.timezone, s.endsAt))}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-body text-muted-foreground">No classes in the next 60 days.</p>
+            )}
+          </Card>
         </div>
-        {roster.length ? (
-          <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
-            {roster.map((r) => (
-              <li key={r.id} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2">
-                <Link href={`/students/${r.studentId}`} className="text-body hover:underline">
-                  {r.studentName} <span className="text-caption text-muted-foreground tabular-nums">{r.studentCode}</span>
-                </Link>
-                <span className="text-caption text-muted-foreground">{rosterNote(r, today)}</span>
-              </li>
+
+        <Card className="self-start">
+          <CardHeader title="Details" />
+          <dl className="divide-y divide-neutral-100">
+            {facts.map(([k, v]) => (
+              <div key={k} className="flex min-h-12 items-center justify-between gap-4">
+                <dt className="text-label text-muted-foreground">{k}</dt>
+                <dd className="text-right text-body">{v}</dd>
+              </div>
             ))}
-          </ul>
-        ) : (
-          <p className="mt-2 text-body text-muted-foreground">No students yet.</p>
-        )}
-      </section>
+          </dl>
+        </Card>
+      </div>
     </Gate>
   );
 }

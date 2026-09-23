@@ -125,7 +125,7 @@ export function ImportWizard() {
           {file.name} · <Count value={file.rowCount} /> rows
         </p>
         {file.encoding === "windows-1252" ? <p className="text-label text-warning-600">Read as Windows text. If names look wrong, save as “CSV UTF-8”.</p> : null}
-        <ul className="divide-y divide-border rounded-xl border border-border">
+        <ul className="divide-y divide-border rounded-xl border border-neutral-100">
           {file.header.map((h, i) => (
             <li key={i} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:gap-4">
               <div className="min-w-0 flex-1">
@@ -251,7 +251,7 @@ export function ImportWizard() {
 function Tile({ label, value, tone }: { label: string; value: number; tone?: "danger" | "warning" | undefined }) {
   const color = tone === "danger" ? "text-danger-600" : tone === "warning" ? "text-warning-600" : "text-neutral-900";
   return (
-    <div className="rounded-xl border border-border p-3">
+    <div className="rounded-xl border border-neutral-100 p-3">
       <div className={`text-number ${color}`}>
         <Count value={value} />
       </div>
@@ -262,7 +262,7 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: "da
 
 function Issues({ issues }: { issues: ImportIssue[] }) {
   return (
-    <ul className="divide-y divide-border rounded-xl border border-border">
+    <ul className="divide-y divide-border rounded-xl border border-neutral-100">
       {issues.slice(0, SHOWN).map((issue) => (
         <li key={`${issue.row}-${issue.message}`} className="flex min-h-12 items-center gap-3 px-3 py-2 text-body">
           <span className="w-16 shrink-0 text-label text-muted-foreground tabular-nums">Row {issue.row}</span>

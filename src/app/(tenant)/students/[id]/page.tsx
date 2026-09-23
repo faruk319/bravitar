@@ -1,10 +1,15 @@
+import { CalendarDays, type LucideIcon, Phone, Target, UserRound } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Avatar } from "@/components/avatar";
 import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch } from "@/components/enrollments/student-batches";
+import { PageHeader } from "@/components/page-header";
+import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
+import { Card, CardHeader } from "@/components/ui/card";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
@@ -12,7 +17,6 @@ import { addDays, formatDate, todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPhone } from "@/lib/phone";
-import { cn } from "@/lib/utils";
 import type { StudentEnrollment } from "@/modules/enrollments/repo";
 import { batchChoices, studentBatches } from "@/modules/enrollments/service";
 import { studentOverview } from "@/modules/students/service";
@@ -53,118 +57,123 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const today = todayIn(session.tenant.timezone);
   const batchLinks = can(ctx, "batches", "batches:read");
 
+  const details: [LucideIcon, string, string][] = [
+    [CalendarDays, "Born", formatDate(s.dateOfBirth)],
+    [UserRound, "Gender", s.gender ? s.gender[0]?.toUpperCase() + s.gender.slice(1) : "—"],
+    [Phone, "Phone", s.phone ? formatPhone(s.phone) : "—"],
+    [Target, "Interested in", s.metadata.programInterest ?? "—"],
+  ];
+
   return (
     <Gate permission="students:read">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-display">
-            {s.fullName} <span className="ml-2 text-label text-muted-foreground tabular-nums">{s.code}</span>
-          </h1>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-body text-muted-foreground">
-            <StatusBadge status={s.status} />
-            {o.batches.current.length ? <span>· {o.batches.current.map((e) => e.batchName).join(", ")}</span> : null}
-            <span>· Joined {formatDate(s.joinedOn)}</span>
-            {s.status === "left" ? <span>· Left {formatDate(s.leftOn)} ({s.leftReason?.replace("_", " ")})</span> : null}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <EditStudentSheet student={s} canUpdate={canUpdate} />
-        </div>
-      </div>
-
-      <nav className="mt-4 flex gap-1 border-b border-border" aria-label="Sections">
-        {TABS.map((t) => (
-          <Link
-            key={t}
-            href={`/students/${s.id}?tab=${t}`}
-            aria-current={t === tab ? "page" : undefined}
-            className={cn("min-h-12 border-b-2 px-3 pt-3 text-body capitalize", t === tab ? "border-accent-600 text-accent-600 font-medium" : "border-transparent text-neutral-700")}
-          >
-            {t}
-          </Link>
-        ))}
-      </nav>
-
-      {tab === "overview" ? (
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <section className="rounded-xl border border-border p-4 md:col-span-2">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-heading">Batches</h2>
-              {canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null}
+      <PageHeader title={s.fullName} crumbs={[{ label: "{student.many}", href: "/students" }]} actions={<EditStudentSheet student={s} canUpdate={canUpdate} />} />
+      <div className="grid items-start gap-5 lg:grid-cols-[340px_1fr]">
+          <Card className="flex flex-col items-center text-center">
+            <Avatar name={s.fullName} size="lg" />
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-label tabular-nums">{s.code}</span>
+              <StatusBadge status={s.status} />
             </div>
-            {o.batches.current.length || o.batches.past.length ? (
-              <ul className="mt-2 divide-y divide-border">
-                {o.batches.current.map((e) => (
-                  <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <div>
-                      <p className="text-body">
-                        {batchLinks ? <Link href={`/batches/${e.batchId}`} className="text-accent-600 hover:underline">{e.batchName}</Link> : e.batchName}{" "}
-                        <span className="text-caption text-muted-foreground">{e.programName}</span>
-                      </p>
-                      <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
-                    </div>
-                    {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} /> : null}
-                  </li>
-                ))}
-                {o.batches.past.map((e) => (
-                  <li key={e.id} className="py-3 text-caption text-muted-foreground">
-                    {e.batchName} · {pastNote(e)}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-body text-muted-foreground">Not in a batch yet.</p>
-            )}
-          </section>
-          <section className="rounded-xl border border-border p-4">
-            <h2 className="text-heading">Family</h2>
-            <p className="mt-1 text-body text-muted-foreground">{o.household?.name} · {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}</p>
-            <ul className="mt-3 divide-y divide-border">
+            <p className="mt-2 text-caption text-muted-foreground">
+              Joined {formatDate(s.joinedOn)}
+              {s.status === "left" ? ` · Left ${formatDate(s.leftOn)} (${s.leftReason?.replace("_", " ")})` : ""}
+            </p>
+            <dl className="mt-4 w-full divide-y divide-neutral-100 text-left">
+              {details.map(([Icon, k, v]) => (
+                <div key={k} className="flex min-h-12 items-center gap-3">
+                  <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <dt className="text-label text-muted-foreground">{k}</dt>
+                  <dd className="ml-auto text-right text-body tabular-nums">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-3 w-full border-t border-neutral-100 pt-3 text-left">
+              <p className="text-caption text-muted-foreground">Consent · data processing {o.consents.data_processing ? "given" : "missing"}</p>
+              <PhotoConsentToggle studentId={s.id} granted={Boolean(o.consents.photo)} canUpdate={canUpdate} />
+            </div>
+            <div className="mt-3 w-full [&>div]:justify-center">
+              <StatusActions student={s} canUpdate={canUpdate} />
+            </div>
+          </Card>
+        <div className="min-w-0 lg:row-span-2">
+          <SegmentedTabs label="Sections" items={TABS.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: t[0]?.toUpperCase() + t.slice(1), active: t === tab }))} />
+          {tab === "overview" ? (
+            <Card>
+              <CardHeader title="Batches" action={canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null} />
+              {o.batches.current.length || o.batches.past.length ? (
+                <ul className="divide-y divide-neutral-100">
+                  {o.batches.current.map((e) => (
+                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                      <div>
+                        <p className="text-body">
+                          {batchLinks ? (
+                            <Link href={`/batches/${e.batchId}`} className="font-medium text-accent-600 hover:underline">
+                              {e.batchName}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{e.batchName}</span>
+                          )}{" "}
+                          <span className="text-caption text-muted-foreground">{e.programName}</span>
+                        </p>
+                        <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
+                      </div>
+                      {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} /> : null}
+                    </li>
+                  ))}
+                  {o.batches.past.map((e) => (
+                    <li key={e.id} className="py-3 text-caption text-muted-foreground">
+                      {e.batchName} · {pastNote(e)}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-body text-muted-foreground">Not in a batch yet.</p>
+              )}
+            </Card>
+          ) : (
+            <Card>
+              {tab === "attendance" ? (
+                <EmptyState title="No attendance yet" hint="Marks appear once this student is in a batch." action="Enroll in a batch" soon />
+              ) : tab === "fees" ? (
+                <EmptyState title="No fees yet" hint="Invoices and receipts appear here." action="Collect payment" soon />
+              ) : (
+                <EmptyState title="No notes yet" hint="Anything the family should be remembered for." action="Add note" soon />
+              )}
+            </Card>
+          )}
+        </div>
+          <Card className="lg:col-start-1">
+            <CardHeader title="Family" />
+            <p className="-mt-2 text-caption text-muted-foreground">
+              {o.household?.name} · {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}
+            </p>
+            <ul className="mt-2 divide-y divide-neutral-100">
               {o.guardians.map((g) => (
-                <li key={g.id} className="flex min-h-12 items-center justify-between gap-3">
+                <li key={g.id} className="flex min-h-14 items-center justify-between gap-3">
                   <span className="text-body">
                     {g.fullName} <span className="text-caption text-muted-foreground capitalize">· {g.relation}</span>
                   </span>
-                  <a href={`tel:${g.phone}`} className="text-body text-accent-600 tabular-nums">{formatPhone(g.phone)}</a>
+                  <a href={`tel:${g.phone}`} className="text-body text-accent-600 tabular-nums">
+                    {formatPhone(g.phone)}
+                  </a>
                 </li>
               ))}
             </ul>
             {o.siblings.length ? (
-              <p className="mt-3 text-body">
+              <p className="mt-2 text-body">
                 Siblings:{" "}
                 {o.siblings.map((sib, i) => (
                   <span key={sib.id}>
                     {i ? ", " : ""}
-                    <Link href={`/students/${sib.id}`} className="text-accent-600 hover:underline">{sib.fullName}</Link>
+                    <Link href={`/students/${sib.id}`} className="text-accent-600 hover:underline">
+                      {sib.fullName}
+                    </Link>
                   </span>
                 ))}
               </p>
             ) : null}
-          </section>
-          <section className="rounded-xl border border-border p-4">
-            <h2 className="text-heading">Details</h2>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-body">
-              <dt className="text-muted-foreground">Born</dt><dd>{formatDate(s.dateOfBirth)}</dd>
-              <dt className="text-muted-foreground">Gender</dt><dd className="capitalize">{s.gender ?? "—"}</dd>
-              <dt className="text-muted-foreground">Phone</dt><dd className="tabular-nums">{s.phone ? formatPhone(s.phone) : "—"}</dd>
-              <dt className="text-muted-foreground">Interested in</dt><dd>{s.metadata.programInterest ?? "—"}</dd>
-            </dl>
-            <div className="mt-3 border-t border-border pt-2">
-              <p className="text-caption text-muted-foreground">Consent · data processing {o.consents.data_processing ? "given" : "missing"}</p>
-              <PhotoConsentToggle studentId={s.id} granted={Boolean(o.consents.photo)} canUpdate={canUpdate} />
-            </div>
-          </section>
-          <section className="md:col-span-2">
-            <StatusActions student={s} canUpdate={canUpdate} />
-          </section>
-        </div>
-      ) : tab === "attendance" ? (
-        <EmptyState title="No attendance yet" hint="Marks appear once this student is in a batch." action="Enroll in a batch" soon />
-      ) : tab === "fees" ? (
-        <EmptyState title="No fees yet" hint="Invoices and receipts appear here." action="Collect payment" soon />
-      ) : (
-        <EmptyState title="No notes yet" hint="Anything the family should be remembered for." action="Add note" soon />
-      )}
+          </Card>
+      </div>
     </Gate>
   );
 }

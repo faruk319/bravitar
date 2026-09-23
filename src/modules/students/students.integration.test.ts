@@ -9,7 +9,7 @@ import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles } from "@/modules/staff/repo";
 import type { StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
-import { countStudents, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
+import { countByStatus, countStudents, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
 import { guardians, students } from "@/modules/students/schema";
 import {
   archiveStudent,
@@ -161,6 +161,19 @@ describe("rules", () => {
     expect((await find("8765 0000")).map((r) => r.student.fullName).sort()).toEqual(["Aarav Deshmukh", "Anaya Deshmukh", "Meher Kaur"]);
     expect((await find("zzzz"))).toEqual([]);
     expect((await withTenant(T, (tx) => searchStudents(tx, { branchIds: [] }, { status: "paused" }))).length).toBe(0);
+  });
+
+  it("the list pages by 50 with a matching count, and counts by status", async () => {
+    const all = { branchIds: [] };
+    const [first, second, matched, byStatus] = await withTenant(T, async (tx) => [
+      await searchStudents(tx, all, { q: "deshmukh", limit: 1 }),
+      await searchStudents(tx, all, { q: "deshmukh", limit: 1, offset: 1 }),
+      await countStudents(tx, all, { q: "8765 0000" }),
+      await countByStatus(tx, all),
+    ] as const);
+    expect([first[0]?.student.fullName, second[0]?.student.fullName]).toEqual(["Aarav Deshmukh", "Anaya Deshmukh"]);
+    expect(matched).toBe(3);
+    expect(byStatus.active).toBe(await withTenant(T, (tx) => countStudents(tx, all, { status: "active" })));
   });
 });
 

@@ -1,4 +1,6 @@
+import { PageHeader } from "@/components/page-header";
 import { SignOutButton } from "@/components/shell/sign-out";
+import { Card } from "@/components/ui/card";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { getStaff, listRoles, staffRoleIds } from "@/modules/staff/repo";
@@ -17,9 +19,10 @@ export default async function MePage() {
     ["Roles", roleNames.join(", ") || (session.isOwner ? "Owner" : "—")],
   ];
   return (
-    <div className="mx-auto max-w-md p-4">
-      <h1 className="mb-4 text-display">Me</h1>
-      <dl className="divide-y divide-border rounded-xl border border-border">
+    <div className="mx-auto max-w-md">
+      <PageHeader title="My account" />
+      <Card className="p-0 md:p-0">
+      <dl className="divide-y divide-neutral-100">
         {rows.map(([k, v]) => (
           <div key={k} className="flex min-h-14 items-center justify-between gap-4 px-4">
             <dt className="text-label text-muted-foreground">{k}</dt>
@@ -27,6 +30,7 @@ export default async function MePage() {
           </div>
         ))}
       </dl>
+      </Card>
       <div className="mt-6">
         <SignOutButton />
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { EmptyState } from "@/components/empty-state";
+import { Card } from "@/components/ui/card";
 import { type LabelKey, type LabelPack, LABEL_KEYS } from "@/lib/tenant/labels";
 import { useLabels } from "./tenant-provider";
 
@@ -16,9 +17,9 @@ export function useLabelText(template: string): string {
 }
 
 export function Placeholder({ title, hint, action }: { title: string; hint: string; action: string }) {
-  return <EmptyState title={useLabelText(title)} hint={useLabelText(hint)} action={useLabelText(action)} soon />;
-}
-
-export function PageTitle({ children }: { children: string }) {
-  return <h1 className="mb-4 text-display">{useLabelText(children)}</h1>;
+  return (
+    <Card>
+      <EmptyState title={useLabelText(title)} hint={useLabelText(hint)} action={useLabelText(action)} soon />
+    </Card>
+  );
 }

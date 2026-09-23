@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { BatchTabs } from "@/components/batches/batch-tabs";
 import { Gate } from "@/components/shell/gate";
-import { PageTitle } from "@/components/shell/placeholder";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
@@ -27,7 +27,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/batches
 
   return (
     <Gate permission="batches:read">
-      <PageTitle>{"Programs & {batch.many}"}</PageTitle>
+      <PageHeader title="Programs & {batch.many}" />
       <BatchTabs />
       <div className="mb-4 flex items-center gap-2">
         <Button variant="outline" size="icon" nativeButton={false} render={<Link href={`/batches/calendar?date=${addDays(cal.weekStart, -7)}`} aria-label="Previous week" />}>
@@ -46,7 +46,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/batches
 
       <div className="grid gap-3 md:grid-cols-7 md:gap-2">
         {cal.days.map((d) => (
-          <section key={d.date} className={cn("rounded-xl border border-border md:min-h-48", d.date === cal.today && "border-accent-600")}>
+          <section key={d.date} className={cn("rounded-2xl border border-neutral-100 bg-card shadow-card md:min-h-48", d.date === cal.today && "border-accent-600")}>
             <header className={cn("flex items-baseline gap-2 border-b border-border px-3 py-2", d.date === cal.today && "bg-accent-50")}>
               <span className="text-label">{WEEKDAY_SHORT[d.weekday]}</span>
               <span className="text-label text-muted-foreground tabular-nums">{dayNum(d.date)}</span>

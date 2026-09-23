@@ -1,7 +1,7 @@
 import { BatchTabs } from "@/components/batches/batch-tabs";
 import { HolidayList } from "@/components/batches/holiday-list";
 import { Gate } from "@/components/shell/gate";
-import { PageTitle } from "@/components/shell/placeholder";
+import { PageHeader } from "@/components/page-header";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
@@ -21,7 +21,7 @@ export default async function HolidaysPage() {
     : { today: "", holidays: [] };
   return (
     <Gate permission="batches:read">
-      <PageTitle>{"Programs & {batch.many}"}</PageTitle>
+      <PageHeader title="Programs & {batch.many}" />
       <BatchTabs />
       <HolidayList
         holidays={data.holidays.map((h) => ({ id: h.id, date: h.date, name: h.name, branchId: h.branchId }))}

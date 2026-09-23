@@ -1,6 +1,7 @@
 import { BatchForm } from "@/components/batches/batch-form";
 import { Gate } from "@/components/shell/gate";
-import { PageTitle } from "@/components/shell/placeholder";
+import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
@@ -24,8 +25,12 @@ export default async function NewBatchPage() {
     : undefined;
   return (
     <Gate permission="batches:manage">
-      <PageTitle>{"Add {batch.one}"}</PageTitle>
-      {data ? <BatchForm {...data} canAddProgram={can(ctx, "batches", "programs:manage")} /> : null}
+      <PageHeader title="Add {batch.one}" crumbs={[{ label: "Programs & {batch.many}", href: "/batches" }]} />
+      {data ? (
+        <Card className="max-w-2xl">
+          <BatchForm {...data} canAddProgram={can(ctx, "batches", "programs:manage")} />
+        </Card>
+      ) : null}
     </Gate>
   );
 }

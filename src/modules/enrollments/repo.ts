@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
@@ -51,6 +51,31 @@ export async function rosterOf(tx: Tx, batchId: string, from: string): Promise<R
     .where(and(eq(enrollments.batchId, batchId), reaches(from), isNull(students.deletedAt)))
     .orderBy(asc(students.fullName));
   return rows.map((r) => ({ ...r.e, studentName: r.studentName, studentCode: r.studentCode }));
+}
+
+// Student id -> batches they're in or joining on `day` (list views).
+export async function currentBatchNames(tx: Tx, studentIds: string[], day: string): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!studentIds.length) return out;
+  const rows = await tx
+    .select({ studentId: enrollments.studentId, name: batches.name })
+    .from(enrollments)
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .where(and(inArray(enrollments.studentId, studentIds), reaches(day)))
+    .orderBy(asc(batches.name));
+  for (const r of rows) out.set(r.studentId, [...(out.get(r.studentId) ?? []), r.name]);
+  return out;
+}
+
+// Batch id -> students on the roster on `day` (paused included).
+export async function rosterCounts(tx: Tx, batchIds: string[], day: string): Promise<Map<string, number>> {
+  if (!batchIds.length) return new Map();
+  const rows = await tx
+    .select({ batchId: enrollments.batchId, n: sql<number>`count(*)::int` })
+    .from(enrollments)
+    .where(and(inArray(enrollments.batchId, batchIds), reaches(day), sql`${enrollments.startDate} <= ${day}::date`))
+    .groupBy(enrollments.batchId);
+  return new Map(rows.map((r) => [r.batchId, r.n]));
 }
 
 export type StudentEnrollment = Enrollment & { batchName: string; programName: string; nextBatchName: string | null };

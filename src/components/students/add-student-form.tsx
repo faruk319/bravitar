@@ -107,7 +107,7 @@ export function AddStudentForm() {
       )}
 
       {suggestion ? (
-        <div className="rounded-xl border border-border bg-neutral-50 p-4">
+        <div className="rounded-xl bg-neutral-50 p-4">
           <p className="text-body">
             This number belongs to <span className="font-medium">{suggestion.guardianName}</span> ({suggestion.householdName}
             {suggestion.students.length ? ` · ${suggestion.students.join(", ")}` : ""}).

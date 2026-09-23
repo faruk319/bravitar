@@ -6,6 +6,7 @@ import { type FormEvent, useState } from "react";
 import { useBranch } from "@/components/shell/tenant-provider";
 import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { send } from "@/lib/send";
 import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/dates";
@@ -36,7 +37,8 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
   return (
     <div className="flex max-w-xl flex-col gap-4">
       {canManage ? (
-        <form onSubmit={add} className="grid gap-3 rounded-xl border border-border p-4 md:grid-cols-2">
+        <Card>
+        <form onSubmit={add} className="grid gap-3 md:grid-cols-2">
           <Field label="Date" id="date">
             <Input id="date" name="date" type="date" required min={today} />
           </Field>
@@ -59,6 +61,7 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
             <Button type="submit" className="w-full">Add holiday</Button>
           </div>
         </form>
+        </Card>
       ) : null}
       {error ? (
         <p role="alert" className="text-label text-danger-600">
@@ -66,7 +69,8 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
         </p>
       ) : null}
       {holidays.length ? (
-        <ul className="divide-y divide-border rounded-xl border border-border">
+        <Card className="overflow-hidden p-0 md:p-0">
+        <ul className="divide-y divide-neutral-100">
           {holidays.map((h) => (
             <li key={h.id} className="flex min-h-14 items-center gap-3 px-4">
               <span className="w-28 shrink-0 text-body tabular-nums">{formatDate(h.date)}</span>
@@ -82,6 +86,7 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
             </li>
           ))}
         </ul>
+        </Card>
       ) : (
         <p className="text-body text-muted-foreground">No upcoming holidays.</p>
       )}

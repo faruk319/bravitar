@@ -1,14 +1,17 @@
 "use client";
 
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import Link from "next/link";
 import { type ReactNode, useState, useSyncExternalStore } from "react";
+import { Avatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { NavGroup } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { BranchSwitcher } from "./branch-switcher";
+import { CommandSearch } from "./command-search";
 import { NavLink } from "./nav-link";
-import { useTenantName } from "./tenant-provider";
+import { useSession, useTenantName } from "./tenant-provider";
 
 const RAIL_KEY = "bravitar.rail";
 const RAIL_EVENT = "bravitar:rail";
@@ -63,13 +66,14 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
 // remembered; a header with a bottom sheet on phones.
 export function AdminShell({ groups, children }: { groups: NavGroup[]; children: ReactNode }) {
   const tenantName = useTenantName();
+  const me = useSession().actor.name;
   const [expanded, toggle] = useRailExpanded();
   const [open, setOpen] = useState(false);
 
   return (
     <div className="flex min-h-full">
-      <aside className={cn("sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-border bg-sidebar p-2 md:flex", expanded ? "w-[260px]" : "w-16")} data-expanded={expanded}>
-        <div className={cn("mb-3 flex items-center", expanded ? "justify-between px-2" : "justify-center")}>
+      <aside className={cn("sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-neutral-100 bg-sidebar p-2 md:flex", expanded ? "w-[260px]" : "w-16")} data-expanded={expanded}>
+        <div className={cn("mb-4 flex h-12 items-center", expanded ? "justify-between pl-3" : "justify-center")}>
           {expanded ? <div className="truncate text-heading">{tenantName}</div> : null}
           <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label={expanded ? "Collapse menu" : "Expand menu"}>
             {expanded ? <PanelLeftClose /> : <PanelLeftOpen />}
@@ -79,12 +83,12 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex h-14 items-center gap-2 border-b border-border bg-background px-3 md:px-6">
+        <header className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex h-16 items-center gap-2 border-b border-neutral-100 bg-background px-3 md:gap-4 md:px-6">
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
               <Menu />
             </SheetTrigger>
-            <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-xl pb-[env(safe-area-inset-bottom,0px)]">
+            <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-2xl p-4 pb-[env(safe-area-inset-bottom,0px)]">
               <SheetTitle className="text-heading">{tenantName}</SheetTitle>
               <div className="mt-3">
                 <NavGroups groups={groups} onNavigate={() => setOpen(false)} />
@@ -92,9 +96,15 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
             </SheetContent>
           </Sheet>
           <div className="min-w-0 flex-1 truncate text-heading md:hidden">{tenantName}</div>
-          <BranchSwitcher className="ml-auto" />
+          <CommandSearch />
+          <div className="flex items-center gap-2 md:ml-auto">
+            <BranchSwitcher />
+            <Link href="/me" aria-label="My account" className="rounded-full">
+              <Avatar name={me} size="sm" />
+            </Link>
+          </div>
         </header>
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8">{children}</main>
       </div>
     </div>
   );

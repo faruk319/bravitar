@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { send } from "@/lib/send";
 import { Input } from "@/components/ui/input";
 
@@ -42,7 +43,8 @@ export function ProgramList({ programs, canManage }: { programs: P[]; canManage:
           {error}
         </p>
       ) : null}
-      <ul className="divide-y divide-border rounded-xl border border-border">
+      <Card className="overflow-hidden p-0 md:p-0">
+      <ul className="divide-y divide-neutral-100">
         {programs.map((p) => (
           <li key={p.id} className="flex min-h-14 items-center gap-3 px-4">
             {editing === p.id ? (
@@ -72,6 +74,7 @@ export function ProgramList({ programs, canManage }: { programs: P[]; canManage:
           </li>
         ))}
       </ul>
+      </Card>
     </div>
   );
 }

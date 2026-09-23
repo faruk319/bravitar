@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { Card } from "@/components/ui/card";
 import { currentStaffSession } from "@/lib/auth/server";
 import { homeFor, shellFor } from "@/lib/auth/shell";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
@@ -22,12 +23,14 @@ export default async function LoginPage() {
     );
   }
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 p-6">
-      <div>
-        <p className="text-caption text-muted-foreground">{tenant.name}</p>
-        <h1 className="text-display">Sign in</h1>
-      </div>
-      <LoginForm />
+    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center p-4">
+      <Card className="flex flex-col gap-6 p-6 md:p-8">
+        <div>
+          <p className="text-caption text-muted-foreground">{tenant.name}</p>
+          <h1 className="text-display">Sign in</h1>
+        </div>
+        <LoginForm />
+      </Card>
     </main>
   );
 }

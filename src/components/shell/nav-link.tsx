@@ -37,12 +37,13 @@ export function NavLink({ item, compact, onNavigate }: { item: NavItem; compact?
       className={cn(
         "flex min-h-12 items-center gap-3 rounded-lg px-3 text-body text-neutral-700 hover:bg-neutral-50",
         active && "bg-accent text-accent-foreground font-medium",
+        active && !compact && "relative before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-full before:bg-accent-600",
         compact && "justify-center px-0",
       )}
     >
       <NavIcon name={item.icon} />
       {compact ? <span className="sr-only">{label}</span> : <span className="truncate">{label}</span>}
-      {!compact && item.count ? <span className="ml-auto text-label text-muted-foreground tabular-nums">{item.count}</span> : null}
+      {!compact && item.count ? <span className="ml-auto rounded-full bg-neutral-100 px-2 py-0.5 text-caption text-neutral-700 tabular-nums">{item.count}</span> : null}
     </Link>
   );
 }

@@ -1,10 +1,11 @@
 import { Gate } from "@/components/shell/gate";
-import { PageTitle, Placeholder } from "@/components/shell/placeholder";
+import { PageHeader } from "@/components/page-header";
+import { Placeholder } from "@/components/shell/placeholder";
 
 export default function Page() {
   return (
     <Gate permission="messages:read">
-      <PageTitle>{"Messages"}</PageTitle>
+      <PageHeader title="Messages" />
       <Placeholder title={"No messages yet"} hint={"Reminders, receipts and notices sent on WhatsApp."} action={"Send message"} />
     </Gate>
   );

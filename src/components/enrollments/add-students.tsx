@@ -46,7 +46,7 @@ export function AddStudents({ batchId, today, inBatch, full }: { batchId: string
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger render={<Button />}>Add students</SheetTrigger>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto rounded-t-xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+      <SheetContent side="auto">
         <SheetTitle className="text-heading">Add students</SheetTitle>
         <div className="mt-4 flex max-w-md flex-col gap-4">
           {full ? <p className="text-label text-warning-600">This batch is full.</p> : null}

@@ -44,7 +44,7 @@ export function StatusActions({ student, canUpdate }: { student: Student; canUpd
       {student.status !== "left" ? (
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger render={<Button variant="outline" />}>Mark as left</SheetTrigger>
-          <SheetContent side="bottom" className="rounded-t-xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+          <SheetContent side="auto">
             <SheetTitle className="text-heading">Why is {student.fullName} leaving?</SheetTitle>
             <form onSubmit={leave} className="mt-4 flex flex-col gap-3">
               <div className="grid gap-1">
@@ -98,7 +98,7 @@ export function EditStudentSheet({ student, canUpdate }: { student: Student; can
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger render={<Button variant="outline" />}>Edit</SheetTrigger>
-      <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto rounded-t-xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+      <SheetContent side="auto">
         <SheetTitle className="text-heading">Edit {student.fullName}</SheetTitle>
         <form onSubmit={save} className="mt-4 flex flex-col gap-3">
           <F label="Name" id="fullName"><Input id="fullName" name="fullName" defaultValue={student.fullName} required /></F>

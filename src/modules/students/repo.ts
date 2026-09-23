@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
@@ -73,9 +73,10 @@ export async function guardiansOfStudent(tx: Tx, studentId: string): Promise<(Gu
 }
 
 export type StudentListRow = { student: Student; guardianName: string | null; guardianPhone: string | null };
+type ListFilter = { q?: string; status?: StudentStatus };
 
 // Partial name (trigram-indexed) or phone digits, within scope, optional status.
-export async function searchStudents(tx: Tx, scope: Scope, opts: { q?: string; status?: StudentStatus; limit?: number }): Promise<StudentListRow[]> {
+function listWhere(scope: Scope, opts: ListFilter): SQL | undefined {
   const q = opts.q?.trim();
   const digits = q?.replace(/\D/g, "") ?? "";
   const where = [isNull(students.deletedAt), inScope(scope)];
@@ -84,20 +85,36 @@ export async function searchStudents(tx: Tx, scope: Scope, opts: { q?: string; s
     const byName = ilike(students.fullName, `%${q}%`);
     where.push(digits.length >= 4 ? or(byName, like(students.phone, `%${digits}%`), like(guardians.phone, `%${digits}%`)) : byName);
   }
-  const rows = await tx
+  return and(...where);
+}
+
+export async function searchStudents(tx: Tx, scope: Scope, opts: ListFilter & { limit?: number; offset?: number }): Promise<StudentListRow[]> {
+  return tx
     .selectDistinctOn([students.fullName, students.id], { student: students, guardianName: guardians.fullName, guardianPhone: guardians.phone })
     .from(students)
     .leftJoin(studentGuardians, eq(studentGuardians.studentId, students.id))
     .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
-    .where(and(...where))
-    .orderBy(asc(students.fullName), asc(students.id), asc(guardians.isPrimary))
-    .limit(opts.limit ?? 50);
-  return rows;
+    .where(listWhere(scope, opts))
+    .orderBy(asc(students.fullName), asc(students.id), desc(guardians.isPrimary))
+    .limit(opts.limit ?? 50)
+    .offset(opts.offset ?? 0);
 }
 
-export async function countStudents(tx: Tx, scope: Scope): Promise<number> {
-  const [row] = await tx.select({ n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope)));
+export async function countStudents(tx: Tx, scope: Scope, opts: ListFilter = {}): Promise<number> {
+  const [row] = await tx
+    .select({ n: countDistinct(students.id) })
+    .from(students)
+    .leftJoin(studentGuardians, eq(studentGuardians.studentId, students.id))
+    .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
+    .where(listWhere(scope, opts));
   return row?.n ?? 0;
+}
+
+export async function countByStatus(tx: Tx, scope: Scope): Promise<Record<StudentStatus, number>> {
+  const rows = await tx.select({ status: students.status, n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope))).groupBy(students.status);
+  const out: Record<StudentStatus, number> = { active: 0, paused: 0, left: 0, prospect: 0 };
+  for (const r of rows) out[r.status] = r.n;
+  return out;
 }
 
 export async function listConsents(tx: Tx, studentId: string): Promise<Consent[]> {
