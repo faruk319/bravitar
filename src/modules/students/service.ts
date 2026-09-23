@@ -94,7 +94,10 @@ function yearIn(timezone: string): number {
 
 export type CreatedStudent = { student: Student; household: Household; guardian: Guardian };
 
-export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentInput): Promise<CreatedStudent> {
+// Import records consent as declared on paper and tags the audit row.
+export type CreateStudentOptions = { consentMethod?: "staff_recorded" | "paper"; source?: "form" | "csv_import" };
+
+export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentInput, opts: CreateStudentOptions = {}): Promise<CreatedStudent> {
   assertCan(ctx, "students:create");
   const data = newStudentSchema.parse(input);
   const minor = isMinor(data.dateOfBirth);
@@ -158,11 +161,11 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   });
   await linkGuardian(tx, ctx.tenantId, student.id, guardian.id, data.guardian ? data.guardian.relation : "self");
 
-  const consent = { tenantId: ctx.tenantId, studentId: student.id, guardianId: guardian.id, method: "staff_recorded" as const, ...(ctx.ip ? { grantedIp: ctx.ip } : {}) };
+  const consent = { tenantId: ctx.tenantId, studentId: student.id, guardianId: guardian.id, method: opts.consentMethod ?? "staff_recorded", ...(ctx.ip ? { grantedIp: ctx.ip } : {}) };
   await recordConsent(tx, { ...consent, kind: "data_processing", granted: true });
   if (data.consents.photo !== undefined) await recordConsent(tx, { ...consent, kind: "photo", granted: data.consents.photo });
 
-  await writeAudit(tx, { ...actor(ctx), action: "student.create", entityType: "student", entityId: student.id, after: { code, householdId: household.id } });
+  await writeAudit(tx, { ...actor(ctx), action: "student.create", entityType: "student", entityId: student.id, after: { code, householdId: household.id, source: opts.source ?? "form" } });
   return { student, household, guardian };
 }
 

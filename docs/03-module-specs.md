@@ -113,6 +113,25 @@ attendance, fees, notes, documents), household view showing all siblings.
 - Adult students: the student is also their own guardian record, so billing and
   portal login work unchanged.
 
+**CSV import** (agreed 2026-09-23; `src/modules/students/import*.ts`)
+
+- Choose file → match columns → check (a dry run of the real import, rolled
+  back) → import. The file stays in the browser; the server re-reads it each step.
+- One consent declaration per file: every imported student gets data-processing
+  consent recorded as `paper`, by the importing staff member, with time and IP.
+  Photo consent only where a column says yes.
+- A row joins a family by phone. If that family already has a student with the
+  same name (Unicode-normalised, spacing and case ignored) the row is skipped,
+  never updated — so re-running a file, duplicate rows and students added by hand
+  all dedupe the same way.
+- Errors (row not imported): no or unreadable name, no or invalid phone, unknown
+  branch. Warnings (imported with a note): unreadable date/gender/relation/photo,
+  extra numbers in a phone cell, no parent name ("Parent of …"), phone already
+  belonging to another parent, a minor's own phone (not kept).
+- Dates are day-first (`03/04/2015` is 3 April). Adults with no named parent are
+  their own contact. Up to 2,000 rows per file. Failed rows download as CSV with
+  an "Import error" column, ready to fix and re-upload.
+
 **Acceptance**
 
 - [ ] Adding a second child to an existing family reuses the household and the

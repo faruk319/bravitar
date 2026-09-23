@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 import { EmptyState } from "@/components/empty-state";
@@ -8,6 +8,7 @@ import { PageTitle } from "@/components/shell/placeholder";
 import { StudentSearchBar } from "@/components/students/search-bar";
 import { StatusBadge } from "@/components/students/status-badge";
 import { Button } from "@/components/ui/button";
+import { can } from "@/lib/auth/can";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatPhone } from "@/lib/phone";
@@ -24,17 +25,26 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
     rows: await searchStudents(tx, scope, { ...(q ? { q } : {}), ...(status ? { status } : {}) }),
     total: await countStudents(tx, scope),
   }));
-  const canCreate = session.isOwner || session.permissions.includes("students:create");
+  const access = { tenantId: session.tenant.id, staffId: session.actor.id, isOwner: session.isOwner, modules: session.modules, permissions: session.permissions };
+  const canCreate = can(access, "students", "students:create");
+  const canImport = canCreate && can(access, "students", "students:import");
 
   return (
     <Gate permission="students:read">
       <div className="flex items-start justify-between gap-3">
         <PageTitle>{"{student.many}"}</PageTitle>
-        {canCreate && total > 0 ? (
-          <Button size="lg" nativeButton={false} render={<Link href="/students/new" />}>
-            <Plus data-icon="inline-start" /> Add
-          </Button>
-        ) : null}
+        <div className="flex gap-2">
+          {canImport ? (
+            <Button size="lg" variant="outline" nativeButton={false} render={<Link href="/students/import" />}>
+              <Upload data-icon="inline-start" /> Import
+            </Button>
+          ) : null}
+          {canCreate && total > 0 ? (
+            <Button size="lg" nativeButton={false} render={<Link href="/students/new" />}>
+              <Plus data-icon="inline-start" /> Add
+            </Button>
+          ) : null}
+        </div>
       </div>
       {total === 0 ? (
         <EmptyState title="No students yet" hint="Add the first one, or import your register." action="Add student" href="/students/new" />

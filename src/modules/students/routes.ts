@@ -1,6 +1,7 @@
 import { json, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
 import { normalizePhone } from "@/lib/phone";
+import { type ImportRequest, importStudents } from "./import";
 import { searchStudents } from "./repo";
 import { STUDENT_STATUSES, type StudentStatus } from "./schema";
 import {
@@ -76,4 +77,10 @@ export const guardianLookup = withStaffRequest("students:read", async (r) => {
   const phone = normalizePhone(new URL(r.req.url).searchParams.get("phone") ?? "");
   if (!phone) return json({ found: null });
   return json({ found: (await lookupGuardian(r.tx, phone)) ?? null });
+});
+
+// Dry run unless the body says dryRun: false.
+export const importRoute = withStaffRequest("students:import", async (r) => {
+  const body = (await r.req.json().catch(() => ({}))) as ImportRequest & { dryRun?: unknown };
+  return json(await importStudents(r.tx, studentCtx(r), body, { dryRun: body.dryRun !== false }));
 });
