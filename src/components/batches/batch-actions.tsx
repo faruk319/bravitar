@@ -1,62 +1,17 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { useState } from "react";
 import { useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Field, SheetForm, useAction } from "@/components/sheet-form";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { send } from "@/lib/send";
 import type { CoachOption } from "@/modules/batches/repo";
 import type { Slot } from "@/modules/batches/schedule";
-import { Field } from "./batch-form";
 import { fromSlots, ScheduleEditor, type ScheduleValue, toSlots } from "./schedule-editor";
 
 type BatchLite = { id: string; name: string; branchId: string; status: string; startDate: string; coachId: string | null; resourceId: string | null; capacity: number | null; slots: Slot[] };
-
-async function send(path: string, method: string, body?: unknown): Promise<string | undefined> {
-  const res = await fetch(path, { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (res.ok) return undefined;
-  const b = (await res.json().catch(() => ({}))) as { error?: string; issues?: { message: string }[] };
-  return b.issues?.[0]?.message ?? b.error ?? "Could not save";
-}
-
-function SheetForm({ trigger, title, children, onSubmit, submitLabel, busy, error, variant = "outline" }: { trigger: string; title: string; children: ReactNode; onSubmit: (e: FormEvent<HTMLFormElement>) => void; submitLabel: string; busy: boolean; error?: string | undefined; variant?: "outline" | "destructive" }) {
-  return (
-    <SheetContent side="bottom" className="max-h-[90vh] overflow-y-auto rounded-t-xl p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-      <SheetTitle className="text-heading">{title}</SheetTitle>
-      <form onSubmit={onSubmit} className="mt-4 flex max-w-md flex-col gap-4" noValidate>
-        {children}
-        {error ? (
-          <p role="alert" className="text-label text-danger-600">
-            {error}
-          </p>
-        ) : null}
-        <Button type="submit" size="lg" variant={variant === "destructive" ? "destructive" : "default"} disabled={busy}>
-          {busy ? "Saving…" : submitLabel}
-        </Button>
-      </form>
-      <span className="sr-only">{trigger}</span>
-    </SheetContent>
-  );
-}
-
-function useAction() {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const run = async (fn: () => Promise<string | undefined>, after?: () => void) => {
-    setBusy(true);
-    setError(undefined);
-    const err = await fn();
-    setBusy(false);
-    if (err) return setError(err);
-    setOpen(false);
-    if (after) after();
-    else router.refresh();
-  };
-  return { open, setOpen, busy, error, run, router };
-}
 
 export function ChangeTiming({ batch, today }: { batch: BatchLite; today: string }) {
   const a = useAction();

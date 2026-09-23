@@ -4,10 +4,11 @@ import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useBranch } from "@/components/shell/tenant-provider";
+import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
+import { send } from "@/lib/send";
 import { Input } from "@/components/ui/input";
 import { formatDate } from "@/lib/dates";
-import { Field } from "./batch-form";
 
 type H = { id: string; date: string; name: string; branchId: string | null };
 
@@ -18,15 +19,10 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
   const branchName = (id: string | null) => (id ? (branches.find((b) => b.id === id)?.name ?? "Other branch") : "All branches");
 
   async function call(path: string, method: string, body?: unknown) {
-    setError(undefined);
-    const res = await fetch(path, { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string; issues?: { message: string }[] };
-      setError(b.issues?.[0]?.message ?? b.error ?? "Could not save");
-      return false;
-    }
-    router.refresh();
-    return true;
+    const err = await send(path, method, body);
+    setError(err);
+    if (!err) router.refresh();
+    return !err;
   }
 
   async function add(e: FormEvent<HTMLFormElement>) {

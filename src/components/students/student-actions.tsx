@@ -6,13 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { send } from "@/lib/send";
 import { LEFT_REASON_LABELS, LEFT_REASONS, type Student } from "@/modules/students/schema";
-
-async function call(path: string, method: string, body: unknown): Promise<string | undefined> {
-  const res = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (res.ok) return undefined;
-  return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Could not save";
-}
 
 // Pause / resume are one tap and undoable; leaving needs a reason (docs/03 §3).
 export function StatusActions({ student, canUpdate }: { student: Student; canUpdate: boolean }) {
@@ -23,7 +18,7 @@ export function StatusActions({ student, canUpdate }: { student: Student; canUpd
   if (!canUpdate) return null;
   const set = async (body: unknown) => {
     setBusy(true);
-    const err = await call(`/api/students/${student.id}/status`, "POST", body);
+    const err = await send(`/api/students/${student.id}/status`, "POST", body);
     setBusy(false);
     if (err) return setError(err);
     setOpen(false);
@@ -87,14 +82,14 @@ export function EditStudentSheet({ student, canUpdate }: { student: Student; can
     setBusy(true);
     const f = new FormData(e.currentTarget);
     const str = (k: string) => (f.get(k) as string | null)?.trim() ?? "";
-    let err = await call(`/api/students/${student.id}`, "PATCH", {
+    let err = await send(`/api/students/${student.id}`, "PATCH", {
       fullName: str("fullName"),
       dateOfBirth: str("dateOfBirth") || null,
       gender: str("gender") || null,
       programInterest: str("programInterest") || null,
     });
     const code = str("code").toUpperCase();
-    if (!err && !student.codeEditedAt && code && code !== student.code) err = await call(`/api/students/${student.id}`, "PATCH", { code });
+    if (!err && !student.codeEditedAt && code && code !== student.code) err = await send(`/api/students/${student.id}`, "PATCH", { code });
     setBusy(false);
     if (err) return setError(err);
     setOpen(false);
@@ -137,7 +132,7 @@ export function PhotoConsentToggle({ studentId, granted, canUpdate }: { studentI
         disabled={!canUpdate || busy}
         onChange={async (e) => {
           setBusy(true);
-          await call(`/api/students/${studentId}/consents`, "POST", { kind: "photo", granted: e.target.checked });
+          await send(`/api/students/${studentId}/consents`, "POST", { kind: "photo", granted: e.target.checked });
           setBusy(false);
           router.refresh();
         }}

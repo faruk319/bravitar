@@ -77,6 +77,6 @@ export const PRESET_ROLES: Record<PresetRoleName, { isSystem: boolean; permissio
   Teacher: { isSystem: false, permissions: ["students:read", "sessions:read", "sessions:note", "attendance:mark"] },
   "Front Desk": {
     isSystem: false,
-    permissions: [...permissionsFor("students"), ...permissionsFor("enquiries"), "fees:collect", "invoices:read", "attendance:mark"],
+    permissions: [...permissionsFor("students"), ...permissionsFor("enquiries"), "enrollments:manage", "fees:collect", "invoices:read", "attendance:mark"],
   },
 };

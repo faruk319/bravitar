@@ -3,11 +3,12 @@ import { assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, formatDate, isIsoDate, startOfWeek, todayIn } from "@/lib/dates";
-import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
+import { addDays, formatDate, isIsoDate, startOfWeek } from "@/lib/dates";
+import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { hasEnrollments } from "@/modules/enrollments/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { canUseBranch, pickBranch } from "@/modules/tenancy/branch-access";
-import { getBranch, getOwnTenant, listResources } from "@/modules/tenancy/repo";
+import { getBranch, listResources, tenantToday } from "@/modules/tenancy/repo";
 import {
   type BatchRow,
   closeRulesFrom,
@@ -33,14 +34,6 @@ import type { Batch, Holiday, Program } from "./schema";
 
 const actor = (ctx: ScopedCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
 
-async function tenantToday(tx: Tx): Promise<string> {
-  return todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata");
-}
-
-const isUniqueViolation = (e: unknown) => {
-  const err = e as { code?: string; cause?: { code?: string } };
-  return (err.cause?.code ?? err.code) === "23505";
-};
 
 // ---------- programs ----------
 
@@ -245,17 +238,10 @@ export async function reopenBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<B
   return after;
 }
 
-// Enrollments (and later sessions with attendance) register here; while any
-// says the batch is in use it can only be closed (docs/06 Prompt 8).
-export type BatchInUseCheck = (tx: Tx, batchId: string) => Promise<boolean>;
-export const BATCH_IN_USE_CHECKS: BatchInUseCheck[] = [];
-
 export async function archiveBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<void> {
   assertCan(ctx, "batches:manage");
   await requireBatch(tx, ctx, id);
-  for (const inUse of BATCH_IN_USE_CHECKS) {
-    if (await inUse(tx, id)) throw new ConflictError("This batch has students. Close it instead.");
-  }
+  if (await hasEnrollments(tx, { batchId: id })) throw new ConflictError("This batch has students. Close it instead.");
   await updateBatch(tx, id, { deletedAt: new Date() });
   await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.archive", entityType: "batch", entityId: id });
@@ -274,7 +260,12 @@ function viewOf(row: BatchRow, rules: Rule[], today: string): BatchView {
 
 export async function batchViews(tx: Tx, ctx: ScopedCtx, opts: { includeEnded?: boolean; branchId?: string; id?: string } = {}): Promise<BatchView[]> {
   assertCan(ctx, "batches:read");
-  const rows = await listBatchRows(tx, ctx.branchIds, opts);
+  return listBatchViews(tx, ctx.branchIds, opts);
+}
+
+// No permission check: callers assert their own (enrollment pickers use enrollments:manage).
+export async function listBatchViews(tx: Tx, branchIds: string[], opts: { includeEnded?: boolean; branchId?: string; id?: string } = {}): Promise<BatchView[]> {
+  const rows = await listBatchRows(tx, branchIds, opts);
   const rules = await rulesFor(tx, rows.map((r) => r.id));
   const today = await tenantToday(tx);
   return rows.map((r) => viewOf(r, rules.filter((x) => x.batchId === r.id), today));

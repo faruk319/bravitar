@@ -15,7 +15,6 @@ import {
   addHoliday,
   addProgram,
   archiveBatch,
-  BATCH_IN_USE_CHECKS,
   batchDetail,
   batchViews,
   changeSchedule,
@@ -75,7 +74,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  BATCH_IN_USE_CHECKS.length = 0;
   await deleteTenantsCompletely([T]);
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
@@ -180,11 +178,8 @@ describe("closing and deleting", () => {
     await expect(withTenant(T, (tx) => closeBatch(tx, owner, b.id, { endDate: addDays(today, -31) }))).rejects.toThrow("before the batch started");
   });
 
-  it("a batch in use can only be closed; otherwise it is soft-deleted (Prompt 10 registers the enrollment check)", async () => {
+  it("a batch without students is soft-deleted (enrollments test covers the refusal)", async () => {
     const b = await create({ name: "Deletable" });
-    BATCH_IN_USE_CHECKS.push(async (_tx, id) => id === b.id);
-    await expect(withTenant(T, (tx) => archiveBatch(tx, owner, b.id))).rejects.toThrow("This batch has students. Close it instead.");
-    BATCH_IN_USE_CHECKS.length = 0;
     await withTenant(T, (tx) => archiveBatch(tx, owner, b.id));
     await expect(withTenant(T, (tx) => requireBatch(tx, owner, b.id))).rejects.toMatchObject({ status: 404 });
     const [row] = await withTenant(T, (tx) => tx.select({ d: batches.deletedAt }).from(batches).where(eq(batches.id, b.id)));

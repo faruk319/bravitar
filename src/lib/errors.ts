@@ -1,5 +1,10 @@
 // Errors that map straight to an HTTP status. Services throw these; the route
 // layer turns them into responses without inspecting messages.
+export const isUniqueViolation = (e: unknown): boolean => {
+  const err = e as { code?: string; cause?: { code?: string } };
+  return (err.cause?.code ?? err.code) === "23505";
+};
+
 export class AppError extends Error {
   constructor(
     message: string,

@@ -34,14 +34,15 @@ describe("preset roles (docs/03 §2)", () => {
     expect([...PRESET_ROLES.Teacher.permissions].sort()).toEqual(["attendance:mark", "sessions:note", "sessions:read", "students:read"]);
   });
 
-  it("Front Desk has students:*, enquiries:*, fees:collect, invoices:read, attendance:mark", () => {
+  it("Front Desk has students:*, enquiries:*, enrollments:manage, fees:collect, invoices:read, attendance:mark", () => {
     const fd = PRESET_ROLES["Front Desk"].permissions;
     for (const k of [...permissionsFor("students"), ...permissionsFor("enquiries")]) expect(fd).toContain(k);
+    expect(fd).toContain("enrollments:manage");
     expect(fd).toContain("fees:collect");
     expect(fd).toContain("invoices:read");
     expect(fd).toContain("attendance:mark");
     expect(fd).not.toContain("fees:refund");
-    expect(fd).toHaveLength(permissionsFor("students").length + permissionsFor("enquiries").length + 3);
+    expect(fd).toHaveLength(permissionsFor("students").length + permissionsFor("enquiries").length + 4);
   });
 
   it("every preset key exists in the catalog", () => {

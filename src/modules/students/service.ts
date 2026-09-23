@@ -3,11 +3,12 @@ import { type AccessContext, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
+import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
+import { endForStudent, hasEnrollments, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
 import { pickBranch } from "@/modules/tenancy/branch-access";
-import { getOwnTenant } from "@/modules/tenancy/repo";
+import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
 import {
   createGuardian,
@@ -199,7 +200,7 @@ export async function setStudentCode(tx: Tx, ctx: StudentCtx, id: string, code: 
   try {
     after = await updateStudent(tx, id, { code: next, codeEditedAt: new Date() });
   } catch (e) {
-    if ((e as { code?: string; cause?: { code?: string } }).cause?.code === "23505") throw new ConflictError("That code is already used");
+    if (isUniqueViolation(e)) throw new ConflictError("That code is already used");
     throw e;
   }
   await writeAudit(tx, { ...actor(ctx), action: "student.code.set", entityType: "student", entityId: id, before: { code: s.code }, after: { code: next } });
@@ -224,16 +225,20 @@ export async function setStudentStatus(tx: Tx, ctx: StudentCtx, id: string, inpu
   const s = await requireStudent(tx, ctx, id);
   const data = statusChangeSchema.parse(input);
   if (!TRANSITIONS[s.status].includes(data.status)) throw new BadRequestError(`Can't go from ${s.status} to ${data.status}`);
+  const today = await tenantToday(tx);
   const patch: Partial<typeof s> = { status: data.status };
   if (data.status === "left") {
     if (!data.reason) throw new BadRequestError("Pick a reason");
     if (data.reason === "other" && !data.note) throw new BadRequestError("Add a short note for 'Other'");
-    Object.assign(patch, { leftOn: new Date().toISOString().slice(0, 10), leftReason: data.reason, leftNote: data.note ?? null });
+    Object.assign(patch, { leftOn: today, leftReason: data.reason, leftNote: data.note ?? null });
   } else if (s.status === "left") {
     Object.assign(patch, { leftOn: null, leftReason: null, leftNote: null });
   }
   const after = await updateStudent(tx, id, patch);
-  await writeAudit(tx, { ...actor(ctx), action: "student.status.set", entityType: "student", entityId: id, before: { status: s.status }, after: { status: data.status, reason: data.reason ?? null } });
+  // Their batches follow (agreed 2026-09-23).
+  const enrollmentIds =
+    data.status === "left" ? await endForStudent(tx, id, today) : data.status === "paused" ? await pauseForStudent(tx, id, today) : s.status === "paused" ? await resumeForStudent(tx, id) : [];
+  await writeAudit(tx, { ...actor(ctx), action: "student.status.set", entityType: "student", entityId: id, before: { status: s.status }, after: { status: data.status, reason: data.reason ?? null, enrollmentIds } });
   return after;
 }
 
@@ -246,21 +251,12 @@ export async function setConsent(tx: Tx, ctx: StudentCtx, id: string, kind: Cons
   await writeAudit(tx, { ...actor(ctx), action: granted ? "consent.grant" : "consent.revoke", entityType: "student", entityId: id, after: { kind } });
 }
 
-// Slices that create history (attendance, invoices, payments) register a
-// check here; while any returns true the student can only be marked as left.
-export type HistoryCheck = (tx: Tx, studentId: string) => Promise<boolean>;
-export const HISTORY_CHECKS: HistoryCheck[] = [];
-
-export async function studentHasHistory(tx: Tx, studentId: string): Promise<boolean> {
-  for (const check of HISTORY_CHECKS) if (await check(tx, studentId)) return true;
-  return false;
-}
-
 // Soft delete (CLAUDE.md rule 7), refused once there is history (docs/03 §3).
+// Attendance and invoices add their checks here when they land.
 export async function archiveStudent(tx: Tx, ctx: StudentCtx, id: string): Promise<void> {
   assertCan(ctx, "students:update");
   await requireStudent(tx, ctx, id);
-  if (await studentHasHistory(tx, id)) throw new ConflictError("This student has attendance or fee history and cannot be removed. Mark them as left instead.");
+  if (await hasEnrollments(tx, { studentId: id })) throw new ConflictError("This student has been in a batch and can't be removed. Mark them as left instead.");
   await updateStudent(tx, id, { deletedAt: new Date() });
   await writeAudit(tx, { ...actor(ctx), action: "student.archive", entityType: "student", entityId: id });
 }

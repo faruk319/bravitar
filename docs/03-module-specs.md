@@ -50,7 +50,7 @@ role editor (tick permissions), deactivate staff.
 | Owner | everything, via `is_owner` bypass; role is not editable or deletable |
 | Manager | everything except `staff:manage`, `integrations:manage`, `fees:refund` |
 | Teacher | `students:read`, `sessions:read`, `attendance:mark`, `sessions:note` |
-| Front Desk | `students:*`, `enquiries:*`, `fees:collect`, `invoices:read`, `attendance:mark` |
+| Front Desk | `students:*`, `enquiries:*`, `enrollments:manage`, `fees:collect`, `invoices:read`, `attendance:mark` |
 
 **Permission catalog** (`src/lib/auth/permissions.ts` is the source of truth and is
 synced into `permissions`; `module` is the `enabled_modules` flag a key belongs to,
@@ -253,6 +253,19 @@ transfer batch, mark left.
   and any credit balance surfaces on the household as an unallocated advance.
 - One student may hold several active enrollments (karate + dance). Each generates
   its own invoice line.
+
+**Agreed 2026-09-23** (`src/modules/enrollments/`)
+
+- Front Desk enrolls from the student page ("Join a batch"); owners and managers
+  also from the batch page ("Add students").
+- Only active students join, from a date (default today) not before the batch
+  starts; closed batches take no one; one enrollment per student per batch at a time.
+- Pause and resume apply today. A move on day D ends the old enrollment D−1 and
+  starts the new one on D; a move on the joining day leaves the old one empty.
+- Leave sets the last day; the student stays on the roster until then.
+- Marking a student Left, Paused or Active on their profile carries to all their
+  batches. A batch or student with enrollments can only be closed or marked left.
+- Fees slice: add `fee_plan_id`, void invoices after a leave date, prorate moves.
 
 **Acceptance**
 

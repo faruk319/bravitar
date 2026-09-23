@@ -67,7 +67,7 @@ describe("tenant creation (docs/03 §1)", () => {
       frontDesk: (await rolePermissionKeys(tx, roles["Front Desk"]?.id ?? "")).length,
       ownerRoles: await staffRoleIds(tx, owner.id),
     }));
-    expect(counts).toMatchObject({ owner: 0, manager: PERMISSION_KEYS.length - 3, teacher: 4, frontDesk: 12 });
+    expect(counts).toMatchObject({ owner: 0, manager: PERMISSION_KEYS.length - 3, teacher: 4, frontDesk: 13 });
     expect(counts.ownerRoles).toEqual([roles.Owner?.id]);
   });
 });

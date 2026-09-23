@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChangeTiming, CloseOrReopen, DeleteBatch, EditBatch } from "@/components/batches/batch-actions";
 import { BatchTabs } from "@/components/batches/batch-tabs";
-import { EmptyState } from "@/components/empty-state";
+import { AddStudents } from "@/components/enrollments/add-students";
 import { Gate } from "@/components/shell/gate";
 import { can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
@@ -11,8 +12,16 @@ import { formatDate, timeIn, todayIn, weekdayOf } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
 import { formatTimeRange, WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { batchDetail, coachChoices } from "@/modules/batches/service";
+import type { RosterRow } from "@/modules/enrollments/repo";
+import { batchRoster } from "@/modules/enrollments/service";
 import { upcomingForBatch } from "@/modules/sessions/repo";
 import { listResources } from "@/modules/tenancy/repo";
+
+function rosterNote(r: RosterRow, today: string): string {
+  if (r.status === "paused") return "Paused";
+  if (r.startDate > today) return `Starts ${formatDate(r.startDate)}`;
+  return r.endDate ? `Last day ${formatDate(r.endDate)}` : "";
+}
 
 export default async function BatchPage({ params }: PageProps<"/batches/[id]">) {
   const { id } = await params;
@@ -25,20 +34,22 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
     rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
     today: todayIn(session.tenant.timezone),
     next: await upcomingForBatch(tx, id, new Date(), 8),
+    roster: await batchRoster(tx, ctx, id),
   })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
   if (!data) notFound();
-  const { batch: b, today } = data;
+  const { batch: b, today, roster } = data;
   const canManage = can(ctx, "batches", "batches:manage");
+  const count = roster.filter((r) => r.startDate <= today).length;
   const lite = { id: b.id, name: b.name, branchId: b.branchId, status: b.status, startDate: b.startDate, coachId: b.coachId, resourceId: b.resourceId, capacity: b.capacity, slots: b.slots };
   const facts: [string, string][] = [
     ["Timing", b.schedule],
     ["Coach", b.coachName ?? "Not decided"],
     ["Room", b.resourceName ?? "—"],
     ["Branch", b.branchName],
-    ["Capacity", b.capacity ? `0 / ${b.capacity}` : "No limit"],
+    ["Capacity", b.capacity ? `${count} / ${b.capacity}` : "No limit"],
     ["Started", formatDate(b.startDate)],
   ];
 
@@ -99,8 +110,28 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
       </section>
 
       <section className="mt-6">
-        <h2 className="text-heading">Roster</h2>
-        <EmptyState title="No students yet" hint="Students join a batch from their profile or from here." action="Add students" soon />
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-heading">
+            Roster <span className="text-muted-foreground tabular-nums">{count}</span>
+          </h2>
+          {can(ctx, "batches", "enrollments:manage") && b.status !== "ended" ? (
+            <AddStudents batchId={b.id} today={today} inBatch={roster.map((r) => r.studentId)} full={Boolean(b.capacity && count >= b.capacity)} />
+          ) : null}
+        </div>
+        {roster.length ? (
+          <ul className="mt-2 divide-y divide-border rounded-xl border border-border">
+            {roster.map((r) => (
+              <li key={r.id} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2">
+                <Link href={`/students/${r.studentId}`} className="text-body hover:underline">
+                  {r.studentName} <span className="text-caption text-muted-foreground tabular-nums">{r.studentCode}</span>
+                </Link>
+                <span className="text-caption text-muted-foreground">{rosterNote(r, today)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-body text-muted-foreground">No students yet.</p>
+        )}
       </section>
     </Gate>
   );

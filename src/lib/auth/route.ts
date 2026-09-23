@@ -8,6 +8,9 @@ import { AppError, UnauthorizedError } from "@/lib/errors";
 
 export type StaffRequest = { req: Request; session: StaffSession; tx: Tx };
 
+export const pathSegment = (req: Request, i: number): string => new URL(req.url).pathname.split("/").filter(Boolean)[i] ?? "";
+export const readJson = async <T>(req: Request): Promise<T> => (await req.json().catch(() => ({}))) as T;
+
 // Access context plus the staff member's branches (empty = all) and IP;
 // what every branch-scoped service takes.
 export type ScopedCtx = AccessContext & { branchIds: string[]; ip?: string };

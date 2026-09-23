@@ -1,32 +1,57 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EmptyState } from "@/components/empty-state";
+import { EnrollmentActions, JoinBatch } from "@/components/enrollments/student-batches";
 import { Gate } from "@/components/shell/gate";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
+import { can } from "@/lib/auth/can";
+import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
-import { formatDate } from "@/lib/dates";
+import { addDays, formatDate, todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
+import type { StudentEnrollment } from "@/modules/enrollments/repo";
+import { batchChoices, studentBatches } from "@/modules/enrollments/service";
 import { studentOverview } from "@/modules/students/service";
 
 const TABS = ["overview", "attendance", "fees", "notes"] as const;
+
+function currentNote(e: StudentEnrollment, today: string): string {
+  if (e.status === "paused") return `Paused since ${formatDate(e.pausedOn)}`;
+  if (e.status === "transferred") return `Moves to ${e.nextBatchName} on ${formatDate(addDays(e.endDate ?? today, 1))}`;
+  if (e.status === "left") return `Last day ${formatDate(e.endDate)}`;
+  return e.startDate > today ? `Starts ${formatDate(e.startDate)}` : `Since ${formatDate(e.startDate)}`;
+}
+
+// A move on the joining day leaves an empty range: show just the day.
+function pastNote(e: StudentEnrollment): string {
+  const days = e.endDate && e.endDate >= e.startDate ? `${formatDate(e.startDate)} – ${formatDate(e.endDate)}` : formatDate(e.startDate);
+  return e.status === "transferred" ? `${days} · moved to ${e.nextBatchName}` : `${days} · left`;
+}
 
 export default async function StudentPage({ params, searchParams }: PageProps<"/students/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
   const tab = (TABS as readonly string[]).includes(String(sp.tab)) ? (sp.tab as (typeof TABS)[number]) : "overview";
   const session = await requireStaffPage();
-  const ctx = { tenantId: session.tenant.id, staffId: session.actor.id, isOwner: session.isOwner, modules: session.modules, permissions: session.permissions, branchIds: session.branchIds };
-  const o = await withTenant(session.tenant.id, (tx) => studentOverview(tx, ctx, id)).catch((e: unknown) => {
+  const ctx = scopedCtx(session);
+  const canEnroll = can(ctx, "batches", "enrollments:manage");
+  const o = await withTenant(session.tenant.id, async (tx) => ({
+    ...(await studentOverview(tx, ctx, id)),
+    batches: await studentBatches(tx, ctx, id),
+    choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
+  })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
   if (!o) notFound();
   const canUpdate = session.isOwner || session.permissions.includes("students:update");
   const s = o.student;
+  const today = todayIn(session.tenant.timezone);
+  const batchLinks = can(ctx, "batches", "batches:read");
 
   return (
     <Gate permission="students:read">
@@ -37,6 +62,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           </h1>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-body text-muted-foreground">
             <StatusBadge status={s.status} />
+            {o.batches.current.length ? <span>· {o.batches.current.map((e) => e.batchName).join(", ")}</span> : null}
             <span>· Joined {formatDate(s.joinedOn)}</span>
             {s.status === "left" ? <span>· Left {formatDate(s.leftOn)} ({s.leftReason?.replace("_", " ")})</span> : null}
           </p>
@@ -61,6 +87,35 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
 
       {tab === "overview" ? (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <section className="rounded-xl border border-border p-4 md:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-heading">Batches</h2>
+              {canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null}
+            </div>
+            {o.batches.current.length || o.batches.past.length ? (
+              <ul className="mt-2 divide-y divide-border">
+                {o.batches.current.map((e) => (
+                  <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                      <p className="text-body">
+                        {batchLinks ? <Link href={`/batches/${e.batchId}`} className="text-accent-600 hover:underline">{e.batchName}</Link> : e.batchName}{" "}
+                        <span className="text-caption text-muted-foreground">{e.programName}</span>
+                      </p>
+                      <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
+                    </div>
+                    {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} /> : null}
+                  </li>
+                ))}
+                {o.batches.past.map((e) => (
+                  <li key={e.id} className="py-3 text-caption text-muted-foreground">
+                    {e.batchName} · {pastNote(e)}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-body text-muted-foreground">Not in a batch yet.</p>
+            )}
+          </section>
           <section className="rounded-xl border border-border p-4">
             <h2 className="text-heading">Family</h2>
             <p className="mt-1 text-body text-muted-foreground">{o.household?.name} · {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}</p>

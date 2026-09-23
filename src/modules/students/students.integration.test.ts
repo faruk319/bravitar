@@ -15,7 +15,6 @@ import {
   archiveStudent,
   createStudent,
   DuplicateGuardianError,
-  HISTORY_CHECKS,
   lookupGuardian,
   requireStudent,
   setStudentCode,
@@ -56,7 +55,6 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  HISTORY_CHECKS.length = 0;
   await deleteTenantsCompletely([T]);
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
@@ -186,11 +184,8 @@ describe("branch scoping", () => {
 });
 
 describe("archive", () => {
-  it("soft-deletes a student with no history, and refuses once a registered history check says otherwise (payments re-point this in Prompt 15)", async () => {
+  it("soft-deletes a student with no history (enrollments test covers the refusal)", async () => {
     const r = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Temp Kid", dateOfBirth: "2014-01-01", guardian: { fullName: "Prakash Rao", phone: P(500), relation: "father" }, consents }));
-    HISTORY_CHECKS.push(async (_tx, id) => id === r.student.id);
-    await expect(withTenant(T, (tx) => archiveStudent(tx, ownerCtx, r.student.id))).rejects.toThrow(/Mark them as left instead/);
-    HISTORY_CHECKS.length = 0;
     await withTenant(T, (tx) => archiveStudent(tx, ownerCtx, r.student.id));
     await expect(withTenant(T, (tx) => requireStudent(tx, ownerCtx, r.student.id))).rejects.toMatchObject({ status: 404 });
     const [row] = await platformDb.select({ d: students.deletedAt }).from(students).where(eq(students.id, r.student.id));

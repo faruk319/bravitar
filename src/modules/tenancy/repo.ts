@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
+import { todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { type Branch, branches, type Resource, resources, type Tenant, tenants } from "./schema";
 
@@ -18,6 +19,10 @@ export async function createTenant(tx: PlatformTx, input: CreateTenantInput): Pr
 export async function findTenantBySlug(tx: PlatformTx, slug: string): Promise<Tenant | undefined> {
   const [row] = await tx.select().from(tenants).where(and(eq(tenants.slug, slug), isNull(tenants.deletedAt)));
   return row;
+}
+
+export async function tenantToday(tx: Tx): Promise<string> {
+  return todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata");
 }
 
 export async function getOwnTenant(tx: Tx): Promise<Tenant | undefined> {

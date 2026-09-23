@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, useState } from "react";
+import { Field } from "@/components/sheet-form";
 import { useBranch, useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { CoachOption } from "@/modules/batches/repo";
 import { emptySchedule, ScheduleEditor, type ScheduleValue, toSlots } from "./schedule-editor";
 
@@ -133,14 +133,5 @@ export function BatchForm({ programs, coaches, rooms, canAddProgram, today }: { 
         {busy ? "Saving…" : `Add ${batch.toLowerCase()}`}
       </Button>
     </form>
-  );
-}
-
-export function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      {children}
-    </div>
   );
 }

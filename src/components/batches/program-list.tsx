@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
+import { send } from "@/lib/send";
 import { Input } from "@/components/ui/input";
 
 type P = { id: string; name: string; isActive: boolean };
@@ -15,15 +16,10 @@ export function ProgramList({ programs, canManage }: { programs: P[]; canManage:
   const [editing, setEditing] = useState<string>();
 
   async function call(path: string, method: string, body: unknown) {
-    setError(undefined);
-    const res = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string; issues?: { message: string }[] };
-      setError(b.issues?.[0]?.message ?? b.error ?? "Could not save");
-      return false;
-    }
-    router.refresh();
-    return true;
+    const err = await send(path, method, body);
+    setError(err);
+    if (!err) router.refresh();
+    return !err;
   }
 
   async function add(e: FormEvent<HTMLFormElement>) {
