@@ -2,7 +2,9 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AuditEntry } from "@/lib/db/audit";
 import { withPlatformAdmin } from "@/lib/db/platform";
-import { isTimeZone } from "@/lib/dates";
+import { isTimeZone, todayIn } from "@/lib/dates";
+import { financialYear } from "@/lib/money/fy";
+import { ensureSeries } from "@/modules/numbering/repo";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { createSubscription } from "@/modules/platform/repo";
 import type { TenantSubscription } from "@/modules/platform/schema";
@@ -52,6 +54,7 @@ export async function createTenantWithDefaults(
     audit.tenantId = tenant.id;
     audit.entityId = tenant.id;
     const branch = await createBranch(tx, { tenantId: tenant.id, name: data.branchName, isDefault: true });
+    await ensureSeries(tx, tenant.id, financialYear(todayIn(tenant.timezone), tenant.fyStartMonth));
     const subscription = await createSubscription(tx, { tenantId: tenant.id, planCode: data.planCode, status: "trial", trialEndsAt });
     await syncPermissions(tx);
     const roles = await createPresetRoles(tx, tenant.id);

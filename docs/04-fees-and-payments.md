@@ -135,6 +135,18 @@ Rules:
 - Indian financial year is 1 April to 31 March. `fin_year` = `'2026-27'`.
 - A job creates next year's series on 1 April automatically.
 
+**Agreed 2026-09-24** (`src/lib/money/`, `src/modules/numbering/`)
+
+- One series per academy per kind per financial year: `INV/2026-27/0042`,
+  `RCT/2026-27/0007`. Columns follow docs/02 (`kind`, `fy`, `next_value`).
+- The number is taken inside the transaction that creates the document, so a
+  rollback returns it. A missing year row is created on first use.
+- Money helpers: `bigint` paise, percentages in basis points, half-up rounding
+  (away from zero), `split` gives leftover paise to the first parts, so parts
+  always add back to the total.
+- `numbers.open_year` runs daily at 00:05 IST and opens the new year's series on
+  the first day of the tenant's financial year (`tenants.fy_start_month`).
+
 ## GST
 
 Most small academies are below the registration threshold and charge no GST.

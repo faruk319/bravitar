@@ -601,6 +601,8 @@ CREATE TABLE number_series (
   next_value  integer NOT NULL DEFAULT 1,
   PRIMARY KEY (tenant_id, branch_id, kind, fy)
 );
+-- Built without branch_id (agreed 2026-09-24): one series per academy,
+-- PRIMARY KEY (tenant_id, kind, fy). A per-branch series is a later migration.
 
 CREATE TABLE invoices (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
