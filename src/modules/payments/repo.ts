@@ -92,17 +92,17 @@ export async function paymentMoney(tx: Tx, paymentId: string): Promise<{ allocat
 }
 
 // What one payment has on each invoice now (net of anything taken back), latest due first.
-export async function paidByPayment(tx: Tx, paymentId: string): Promise<{ invoiceId: string; net: Paise }[]> {
+export async function paidByPayment(tx: Tx, paymentId: string): Promise<{ invoiceId: string; number: string | null; net: Paise }[]> {
   const net = sql<string>`sum(${paymentAllocations.amountPaise})`;
   const rows = await tx
-    .select({ invoiceId: paymentAllocations.invoiceId, net: sql<string>`${net}::text` })
+    .select({ invoiceId: paymentAllocations.invoiceId, number: invoices.number, net: sql<string>`${net}::text` })
     .from(paymentAllocations)
     .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
     .where(eq(paymentAllocations.paymentId, paymentId))
-    .groupBy(paymentAllocations.invoiceId, invoices.dueDate)
+    .groupBy(paymentAllocations.invoiceId, invoices.number, invoices.dueDate)
     .having(sql`${net} > 0`)
     .orderBy(desc(invoices.dueDate), desc(paymentAllocations.invoiceId));
-  return rows.map((r) => ({ invoiceId: r.invoiceId, net: BigInt(r.net) }));
+  return rows.map((r) => ({ invoiceId: r.invoiceId, number: r.number, net: BigInt(r.net) }));
 }
 
 // Each payment's money on one invoice now, net.
@@ -122,6 +122,10 @@ export async function insertRefund(tx: Tx, row: Omit<typeof refunds.$inferInsert
   const [r] = await tx.insert(refunds).values({ id: uuidv7(), ...row }).returning();
   if (!r) throw new Error("refund insert returned no row");
   return r;
+}
+
+export async function refundsOf(tx: Tx, paymentId: string): Promise<Refund[]> {
+  return tx.select().from(refunds).where(eq(refunds.paymentId, paymentId)).orderBy(asc(refunds.refundedAt), asc(refunds.id));
 }
 
 export type ReceiptLine = { invoiceId: string; number: string | null; amountPaise: Paise };

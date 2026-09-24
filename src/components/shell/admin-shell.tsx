@@ -73,7 +73,7 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
 
   return (
     <div className="flex min-h-full">
-      <aside className={cn("sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-neutral-100 bg-sidebar p-2 md:flex", expanded ? "w-[260px]" : "w-16")} data-expanded={expanded}>
+      <aside className={cn("sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r border-neutral-100 bg-sidebar p-2 md:flex print:hidden", expanded ? "w-[260px]" : "w-16")} data-expanded={expanded}>
         <div className={cn("mb-4 flex h-12 items-center", expanded ? "justify-between pl-3" : "justify-center")}>
           {expanded ? <div className="truncate text-heading">{tenantName}</div> : null}
           <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label={expanded ? "Collapse menu" : "Expand menu"}>
@@ -84,7 +84,7 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex h-16 items-center gap-2 border-b border-neutral-100 bg-background px-3 md:gap-4 md:px-6">
+        <header className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex h-16 items-center gap-2 border-b border-neutral-100 bg-background px-3 md:gap-4 md:px-6 print:hidden">
           <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
               <Menu />
@@ -106,8 +106,10 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
             </Link>
           </div>
         </header>
-        <OfflineBanner />
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8">{children}</main>
+        <div className="print:hidden">
+          <OfflineBanner />
+        </div>
+        <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 print:p-0">{children}</main>
       </div>
     </div>
   );

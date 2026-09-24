@@ -33,6 +33,7 @@ import {
   receiptLines,
   receiptNames,
   receiptsOnInvoice,
+  refundsOf,
   refundsOn,
   type SheetPayment,
   type SheetRefund,
@@ -87,11 +88,27 @@ export const paymentSchema = z.object({
 });
 export type PaymentInput = z.input<typeof paymentSchema>;
 
-// Today, or up to 7 days back within this financial year.
+// Today, or up to 7 days back within this financial year. The collect screen's
+// date picker uses the same range.
+export function receivedOnRange(today: string, fyStartMonth: number): { earliest: string; latest: string } {
+  const back = addDays(today, -BACKDATE_DAYS);
+  const fyStart = `${financialYear(today, fyStartMonth).slice(0, 4)}-${String(fyStartMonth).padStart(2, "0")}-01`;
+  return { earliest: back > fyStart ? back : fyStart, latest: today };
+}
+
 function checkReceivedOn(receivedOn: string, today: string, fyStartMonth: number): void {
   if (receivedOn > today) throw new BadRequestError("The received date can't be in the future");
   if (receivedOn < addDays(today, -BACKDATE_DAYS)) throw new BadRequestError(`Only up to ${BACKDATE_DAYS} days back`);
-  if (financialYear(receivedOn, fyStartMonth) !== financialYear(today, fyStartMonth)) throw new BadRequestError("Not before this financial year began");
+  if (receivedOn < receivedOnRange(today, fyStartMonth).earliest) throw new BadRequestError("Not before this financial year began");
+}
+
+export type CollectScreen = { account: FamilyAccount; householdName: string; branchName: string; today: string; earliest: string };
+
+// Everything the collect screen needs for one family at one branch.
+export async function collectScreen(tx: Tx, ctx: ScopedCtx, householdId: string, branchId: string, opts: { now?: Date } = {}): Promise<CollectScreen> {
+  assertCan(ctx, "fees:collect");
+  const [account, household, branch, { today, fyStartMonth }] = await Promise.all([familyAccount(tx, ctx, householdId, branchId), getHousehold(tx, householdId), getBranch(tx, branchId), clock(tx, opts.now)]);
+  return { account, householdName: household?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
 }
 
 // Oldest invoice first unless invoices are picked; what is left is the family's
@@ -294,14 +311,39 @@ export async function familyAccount(tx: Tx, ctx: ScopedCtx, householdId: string,
   };
 }
 
-export type Receipt = { payment: Payment; householdName: string; collectorName: string | null; lines: ReceiptLine[]; advancePaise: Paise };
+export type Receipt = {
+  payment: Payment;
+  householdName: string;
+  collectorName: string | null;
+  lines: ReceiptLine[];
+  advancePaise: Paise;
+  academy: { name: string; gstin: string | null; branch: string; address: string | null };
+};
 
 // The receipt as recorded: refunds, voids and later advance use never change it.
 export async function receipt(tx: Tx, ctx: ScopedCtx, id: string): Promise<Receipt> {
   if (!allows(ctx, "payments:read") && !allows(ctx, "fees:collect")) throw new ForbiddenError("Not allowed: payments");
   const payment = await requirePayment(tx, ctx, id);
-  const [lines, names] = await Promise.all([receiptLines(tx, id), receiptNames(tx, payment)]);
-  return { payment, ...names, lines, advancePaise: payment.amountPaise - sum(lines.map((l) => l.amountPaise)) };
+  const [lines, names, tenant, branch] = await Promise.all([receiptLines(tx, id), receiptNames(tx, payment), getOwnTenant(tx), getBranch(tx, payment.branchId)]);
+  return {
+    payment,
+    ...names,
+    lines,
+    advancePaise: payment.amountPaise - sum(lines.map((l) => l.amountPaise)),
+    academy: { name: tenant?.name ?? "", gstin: tenant?.gstin ?? null, branch: branch?.name ?? "", address: branch?.address ?? null },
+  };
+}
+
+export type PaymentState = { refunds: Refund[]; refundablePaise: Paise; onInvoices: { invoiceId: string; number: string | null; net: Paise }[]; today: string };
+
+// What has happened to a payment since: its refunds, what can still be refunded
+// and which invoices its money is on now. Not part of the receipt.
+export async function paymentState(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<PaymentState> {
+  if (!allows(ctx, "payments:read") && !allows(ctx, "fees:collect")) throw new ForbiddenError("Not allowed: payments");
+  const p = await requirePayment(tx, ctx, id);
+  const [given, onInvoices, { today }] = await Promise.all([refundsOf(tx, id), paidByPayment(tx, id), clock(tx, opts.now)]);
+  const refundablePaise = p.status === "confirmed" ? p.amountPaise - sum(given.map((r) => r.amountPaise)) : 0n;
+  return { refunds: given, refundablePaise, onInvoices, today };
 }
 
 // ---- the daily collection sheet (docs/04 "The daily reconciliation screen")
