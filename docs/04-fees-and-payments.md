@@ -313,9 +313,9 @@ unless marked.
 
 **Razorpay (Prompt 16, slice 17)**, rules in docs/03 §9 agreed 2026-09-25
 
-- [ ] Keys sealed at rest: no secret in plain text in the database; a sealed blob
+- [x] Keys sealed at rest: no secret in plain text in the database; a sealed blob
       copied to another academy's row does not open
-- [ ] Saving keys checks them with Razorpay first; wrong keys refused; only
+- [x] Saving keys checks them with Razorpay first; wrong keys refused; only
       `integrations:manage`; audited without the secrets
 - [ ] Payment link for the balance; the same balance reuses it; a changed balance
       cancels the old link and makes a new one; paid, void and draft invoices
@@ -330,7 +330,7 @@ unless marked.
       refund or cancel an online payment
 - [ ] Reconciliation: a link paid while its webhook was lost is recorded on the
       next run, once
-- [ ] The academy's credential resolver never falls back to anything but its own row
+- [x] The academy's credential resolver never falls back to anything but its own row
 
 **Later**
 
