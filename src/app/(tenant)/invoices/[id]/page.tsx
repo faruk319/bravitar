@@ -1,10 +1,12 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { IssueInvoices, VoidInvoice } from "@/components/fees/invoice-actions";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
-import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
@@ -15,6 +17,7 @@ import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import type { LineRow } from "@/modules/fees/repo";
 import { invoiceDetail } from "@/modules/fees/service";
+import { invoiceReceipts } from "@/modules/payments/service";
 
 const period = (l: Pick<LineRow, "periodStart" | "periodEnd">) =>
   l.periodStart ? (l.periodEnd && l.periodEnd !== l.periodStart ? `${formatDate(l.periodStart)} – ${formatDate(l.periodEnd)}` : formatDate(l.periodStart)) : "";
@@ -36,7 +39,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
-  const d = await withTenant(session.tenant.id, (tx) => invoiceDetail(tx, ctx, id)).catch((e: unknown) => {
+  const d = await withTenant(session.tenant.id, async (tx) => ({ ...(await invoiceDetail(tx, ctx, id)), receipts: await invoiceReceipts(tx, ctx, id) })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
@@ -44,6 +47,8 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
   const inv = d.invoice;
   const draft = inv.status === "draft";
   const canManage = allows(ctx, "invoices:manage") && inv.status !== "void";
+  const canCollect = allows(ctx, "fees:collect") && (inv.status === "issued" || inv.status === "part_paid");
+  const receiptLinks = allows(ctx, "payments:read") || allows(ctx, "fees:collect");
   // docs/04: without a GSTIN the invoice says nothing about GST.
   const gst = Boolean(d.academy.gstin) || inv.taxPaise > 0n;
   const facts: [string, string][] = [
@@ -59,10 +64,15 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
         title={inv.number ?? "Draft invoice"}
         crumbs={[{ label: "Invoices", href: "/invoices" }]}
         actions={
-          canManage ? (
+          canManage || canCollect ? (
             <>
-              {draft ? <IssueInvoices ids={[inv.id]} count={1} total={formatPaise(inv.totalPaise)} /> : null}
-              {inv.paidPaise === 0n ? <VoidInvoice id={inv.id} draft={draft} open={openVoid} /> : null}
+              {canCollect ? (
+                <Button nativeButton={false} render={<Link href={`/payments/new?invoice=${inv.id}`} />}>
+                  Collect
+                </Button>
+              ) : null}
+              {canManage && draft ? <IssueInvoices ids={[inv.id]} count={1} total={formatPaise(inv.totalPaise)} /> : null}
+              {canManage ? <VoidInvoice id={inv.id} draft={draft} open={openVoid} {...(inv.paidPaise > 0n ? { paid: formatPaise(inv.paidPaise) } : {})} /> : null}
             </>
           ) : undefined
         }
@@ -107,6 +117,26 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
             <Total label="Total" paise={inv.totalPaise} strong />
             {inv.paidPaise > 0n ? <Total label="Balance" paise={inv.totalPaise - inv.paidPaise} strong /> : null}
           </dl>
+          {d.receipts.length ? (
+            <>
+              <CardHeader title="Paid" className="mt-5" />
+              <ul className="divide-y divide-neutral-100">
+                {d.receipts.map((r) => (
+                  <li key={r.paymentId} className="flex min-h-12 items-center justify-between gap-3">
+                    {receiptLinks ? (
+                      <Link href={`/payments/${r.paymentId}`} className="text-body tabular-nums text-accent-600 hover:underline">
+                        {r.receiptNumber}
+                      </Link>
+                    ) : (
+                      <span className="text-body tabular-nums">{r.receiptNumber}</span>
+                    )}
+                    <span className="text-caption text-muted-foreground">{formatDate(r.receivedOn)}</span>
+                    <Money paise={r.net} className="text-body" />
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
         </Card>
         <Card>
           <p className="text-body font-medium">{d.academy.name}</p>

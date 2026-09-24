@@ -58,7 +58,8 @@ export function IssueInvoices({ ids, count, total }: { ids: string[] | "all"; co
 }
 
 // Void keeps the number. "Bill it again" drafts the same charges from today's plans and discounts.
-export function VoidInvoice({ id, draft, open }: { id: string; draft: boolean; open?: boolean }) {
+// Money already paid on it goes back to the family's advance (docs/03 §6).
+export function VoidInvoice({ id, draft, open, paid }: { id: string; draft: boolean; open?: boolean; paid?: string }) {
   const a = useAction(open);
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
@@ -76,6 +77,7 @@ export function VoidInvoice({ id, draft, open }: { id: string; draft: boolean; o
           void a.run(() => send(`/api/invoices/${id}`, "POST", { action: "void", reason: String(f.get("reason") ?? "").trim(), rebill: f.get("rebill") === "on" }));
         }}
       >
+        {paid ? <p className="text-body">{paid} paid on it goes back to the family&apos;s advance, for their next invoice or a refund.</p> : null}
         <Field label="Reason" id="void-reason">
           <Input id="void-reason" name="reason" required placeholder="e.g. Wrong fee plan" autoComplete="off" />
         </Field>

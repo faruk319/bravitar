@@ -1,10 +1,13 @@
 import { pathToFileURL } from "node:url";
-import { and, asc, lt, ne } from "drizzle-orm";
+import { and, asc, inArray, lt, ne } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { todayIn } from "@/lib/dates";
+import { ConflictError } from "@/lib/errors";
+import { uuidv7 } from "@/lib/ids";
+import { split } from "@/lib/money/paise";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
@@ -13,7 +16,9 @@ import { addStaff, createStaffMember, loadAccessContext } from "@/modules/staff/
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { generateInvoices } from "@/modules/fees/invoicing";
-import { createDiscount, createPlan, giveDiscount, type PlanInput } from "@/modules/fees/service";
+import { invoices } from "@/modules/fees/schema";
+import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput } from "@/modules/fees/service";
+import { recordPayment } from "@/modules/payments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -107,6 +112,35 @@ async function seedFees(tx: Tx, ctx: StudentCtx, studentIds: Map<string, string>
   await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now: new Date(`${firstOfMonth}T04:00:00Z`) });
 }
 
+// This month's invoices issued and three paid (cash in full, UPI in part, a
+// cheque), so the collection sheet and receipts have a day to show.
+async function seedPayments(tx: Tx, ctx: StudentCtx): Promise<void> {
+  await issueInvoices(tx, ctx, "all").catch((e: unknown) => {
+    if (!(e instanceof ConflictError)) throw e; // nothing to issue this month
+  });
+  const open = await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number)).limit(3);
+  const how = [
+    { method: "cash" as const, half: false },
+    { method: "upi" as const, half: true, reference: "UPI 4471 0923" },
+    { method: "cheque" as const, half: false, reference: "000451" },
+  ];
+  for (const [i, inv] of open.entries()) {
+    const h = how[i];
+    if (!h) break;
+    const balance = inv.totalPaise - inv.paidPaise;
+    const amount = h.half ? (split(balance, 2)[0] ?? balance) : balance;
+    await recordPayment(tx, ctx, {
+      requestId: uuidv7(),
+      householdId: inv.householdId,
+      branchId: inv.branchId,
+      amountPaise: String(amount),
+      method: h.method,
+      ...(h.reference ? { reference: h.reference } : {}),
+      allocations: [{ invoiceId: inv.id, amountPaise: String(amount) }],
+    });
+  }
+}
+
 const DEMO_HOLIDAYS = [
   { date: "2026-10-02", name: "Gandhi Jayanti" },
   { date: "2026-12-25", name: "Christmas" },
@@ -177,8 +211,9 @@ export async function seed(): Promise<SeedResult> {
       await seedHistory(tx, sctx);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
       await seedFees(tx, sctx, studentIds);
+      await seedPayments(tx, sctx);
     });
-    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches`);
+    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, this month's invoices issued, 3 payments`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
     result.tenantsCreated.push(input.slug);
   }

@@ -14,6 +14,7 @@ import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
+import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows, can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
@@ -25,11 +26,13 @@ import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
+import { sum } from "@/lib/money/paise";
 import { formatPhone } from "@/lib/phone";
 import type { StudentEnrollment } from "@/modules/enrollments/repo";
 import { batchChoices, studentBatches } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
 import { discountChoices, installmentsDue, planChoices, studentFees } from "@/modules/fees/service";
+import { familyAccount } from "@/modules/payments/service";
 import { studentOverview } from "@/modules/students/service";
 
 const TABS = ["overview", "attendance", "fees", "notes"] as const;
@@ -58,16 +61,21 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const tab = tabs.find((t) => t === sp.tab) ?? "overview";
   const canEnroll = can(ctx, "batches", "enrollments:manage");
   const canDiscount = allows(ctx, "invoices:manage");
-  const o = await withTenant(session.tenant.id, async (tx) => ({
-    ...(await studentOverview(tx, ctx, id)),
-    batches: await studentBatches(tx, ctx, id),
-    choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
-    attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
-    plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
-    fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
-    discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
-    due: showFees ? await installmentsDue(tx, ctx, id) : [],
-  })).catch((e: unknown) => {
+  const o = await withTenant(session.tenant.id, async (tx) => {
+    const overview = await studentOverview(tx, ctx, id);
+    return {
+      ...overview,
+      // docs/03 §9: the family's advance is visible on the family.
+      account: showFees ? await familyAccount(tx, ctx, overview.student.householdId, overview.student.branchId) : undefined,
+      batches: await studentBatches(tx, ctx, id),
+      choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
+      attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
+      plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
+      fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
+      discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
+      due: showFees ? await installmentsDue(tx, ctx, id) : [],
+    };
+  }).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
@@ -88,7 +96,20 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
 
   return (
     <Gate permission="students:read">
-      <PageHeader title={s.fullName} crumbs={[{ label: "{student.many}", href: "/students" }]} actions={<EditStudentSheet student={s} canUpdate={canUpdate} />} />
+      <PageHeader
+        title={s.fullName}
+        crumbs={[{ label: "{student.many}", href: "/students" }]}
+        actions={
+          <>
+            {allows(ctx, "fees:collect") ? (
+              <Button nativeButton={false} render={<Link href={`/payments/new?student=${s.id}`} />}>
+                Collect
+              </Button>
+            ) : null}
+            <EditStudentSheet student={s} canUpdate={canUpdate} />
+          </>
+        }
+      />
       <div className="grid items-start gap-5 lg:grid-cols-[340px_1fr]">
           <Card className="flex flex-col items-center text-center">
             <Avatar name={s.fullName} size="lg" />
@@ -249,6 +270,26 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
             <p className="-mt-2 text-caption text-muted-foreground">
               {o.household?.name} · {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}
             </p>
+            {o.account && (o.account.open.length || o.account.advancePaise > 0n) ? (
+              <dl className="mt-2 divide-y divide-neutral-100 border-y border-neutral-100">
+                {o.account.open.length ? (
+                  <div className="flex min-h-12 items-center justify-between gap-3">
+                    <dt className="text-label text-muted-foreground">Due</dt>
+                    <dd>
+                      <Money paise={sum(o.account.open.map((i) => i.balancePaise))} className="text-body font-medium" />
+                    </dd>
+                  </div>
+                ) : null}
+                {o.account.advancePaise > 0n ? (
+                  <div className="flex min-h-12 items-center justify-between gap-3">
+                    <dt className="text-label text-muted-foreground">Advance</dt>
+                    <dd>
+                      <Money paise={o.account.advancePaise} className="text-body font-medium" />
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            ) : null}
             <ul className="mt-2 divide-y divide-neutral-100">
               {o.guardians.map((g) => (
                 <li key={g.id} className="flex min-h-14 items-center justify-between gap-3">
