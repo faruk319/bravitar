@@ -4,6 +4,7 @@ import type { Tx } from "@/lib/db/client";
 import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
+import { todayIn } from "@/lib/dates";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
@@ -11,6 +12,8 @@ import { listRoles } from "@/modules/staff/repo";
 import { addStaff, createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
+import { generateInvoices } from "@/modules/fees/invoicing";
+import { createDiscount, createPlan, giveDiscount, type PlanInput } from "@/modules/fees/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -41,26 +44,39 @@ function demoStudents(vertical: string): (NewStudentInput & { paused?: boolean }
   ];
 }
 
-type DemoBatch = { name: string; program: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[] };
+type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[] };
 const days = (weekdays: number[], startTime: string, endTime: string) => weekdays.map((weekday) => ({ weekday, startTime, endTime }));
 
 // Early Morning (5:30 AM) is there for Prompt 9's timezone test.
-function demoBatches(vertical: string): { programs: string[]; batches: DemoBatch[] } {
+function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]; batches: DemoBatch[] } {
   if (vertical === "karate") {
     return {
       programs: ["Karate"],
+      plans: [{ name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000" }],
       batches: [
-        { name: "Beginners B", program: "Karate", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 3, 5], "18:00", "19:00"), students: ["Aarav Deshmukh", "Anaya Deshmukh", "Ishaan Patil", "Rohan Joshi"] },
-        { name: "Advanced A", program: "Karate", coach: "coach", withRoom: true, capacity: 20, startDate: "2026-06-01", slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh"] },
-        { name: "Early Morning", program: "Karate", coach: "owner", capacity: 15, startDate: "2026-06-01", slots: days([2, 4], "05:30", "06:30"), students: ["Meher Kaur"] },
+        { name: "Beginners B", program: "Karate", plan: "Karate Monthly", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 3, 5], "18:00", "19:00"), students: ["Aarav Deshmukh", "Anaya Deshmukh", "Ishaan Patil", "Rohan Joshi"] },
+        { name: "Advanced A", program: "Karate", plan: "Karate Monthly", coach: "coach", withRoom: true, capacity: 20, startDate: "2026-06-01", slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh"] },
+        { name: "Early Morning", program: "Karate", plan: "Karate Monthly", coach: "owner", capacity: 15, startDate: "2026-06-01", slots: days([2, 4], "05:30", "06:30"), students: ["Meher Kaur"] },
       ],
     };
   }
   return {
     programs: ["Class 9 Maths", "Class 10 Science"],
+    plans: [
+      { name: "Maths Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "120000" },
+      {
+        name: "Science Term",
+        kind: "term",
+        installments: [
+          { label: "1st installment", amountPaise: "600000", dueOffsetDays: 0 },
+          { label: "2nd installment", amountPaise: "500000", dueOffsetDays: 90 },
+          { label: "3rd installment", amountPaise: "500000", dueOffsetDays: 180 },
+        ],
+      },
+    ],
     batches: [
-      { name: "Maths 9 A", program: "Class 9 Maths", coach: "coach", withRoom: true, capacity: 25, startDate: "2026-07-01", slots: [...days([1, 3], "16:00", "17:00"), ...days([6], "10:00", "11:30")], students: ["Aarav Deshmukh", "Zoya Shaikh", "Ishaan Patil", "Rohan Joshi"] },
-      { name: "Science 10", program: "Class 10 Science", coach: "coach", inExtraBranch: true, capacity: 20, startDate: "2026-07-01", slots: days([2, 4], "17:00", "18:30"), students: ["Zoya Shaikh", "Meher Kaur"] },
+      { name: "Maths 9 A", program: "Class 9 Maths", plan: "Maths Monthly", coach: "coach", withRoom: true, capacity: 25, startDate: "2026-07-01", slots: [...days([1, 3], "16:00", "17:00"), ...days([6], "10:00", "11:30")], students: ["Aarav Deshmukh", "Zoya Shaikh", "Ishaan Patil", "Rohan Joshi"] },
+      { name: "Science 10", program: "Class 10 Science", plan: "Science Term", coach: "coach", inExtraBranch: true, capacity: 20, startDate: "2026-07-01", slots: days([2, 4], "17:00", "18:30"), students: ["Zoya Shaikh", "Meher Kaur"] },
     ],
   };
 }
@@ -80,6 +96,15 @@ async function seedHistory(tx: Tx, ctx: StudentCtx): Promise<void> {
       .map((e, i) => ({ studentId: e.studentId, status: (i + day) % 9 === 0 ? ("absent" as const) : (i + day) % 13 === 0 ? ("late" as const) : ("present" as const) }));
     if (marks.length) await saveAttendance(tx, ctx, c.id, { marks }, { now: at });
   }
+}
+
+// A sibling discount and this month's invoices as drafts, waiting for review.
+async function seedFees(tx: Tx, ctx: StudentCtx, studentIds: Map<string, string>): Promise<void> {
+  const sibling = await createDiscount(tx, ctx, { name: "Sibling 10%", kind: "percent", value: 10 });
+  await createDiscount(tx, ctx, { name: "Scholarship", kind: "percent", value: 100 });
+  await giveDiscount(tx, ctx, studentIds.get("Anaya Deshmukh") ?? "", { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
+  const firstOfMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
+  await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now: new Date(`${firstOfMonth}T04:00:00Z`) });
 }
 
 const DEMO_HOLIDAYS = [
@@ -131,6 +156,8 @@ export async function seed(): Promise<SeedResult> {
       const plan = demoBatches(input.verticalPreset ?? "general");
       const programIds = new Map<string, string>();
       for (const name of plan.programs) programIds.set(name, (await addProgram(tx, sctx, { name })).id);
+      const feePlanIds = new Map<string, string>();
+      for (const p of plan.plans) feePlanIds.set(p.name, (await createPlan(tx, sctx, p)).id);
       for (const b of plan.batches) {
         const batch = await createBatch(tx, sctx, {
           name: b.name,
@@ -139,6 +166,7 @@ export async function seed(): Promise<SeedResult> {
           ...(b.withRoom ? { resourceId: room.id } : {}),
           ...(b.inExtraBranch && second ? { branchId: second.id } : { branchId: branch.id }),
           capacity: b.capacity,
+          defaultFeePlanId: feePlanIds.get(b.plan) ?? null,
           startDate: b.startDate,
           slots: b.slots,
         });
@@ -148,6 +176,7 @@ export async function seed(): Promise<SeedResult> {
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
       await seedHistory(tx, sctx);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
+      await seedFees(tx, sctx, studentIds);
     });
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);

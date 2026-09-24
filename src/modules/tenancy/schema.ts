@@ -28,6 +28,8 @@ export const tenants = app.table("tenants", {
   labelOverrides: jsonb("label_overrides").$type<Record<string, string>>().notNull().default({}),
   status: text("status", { enum: ["active", "suspended", "closed"] }).notNull().default("active"),
   codePrefix: text("code_prefix").notNull().default("STU"),
+  gstin: text("gstin"),
+  proration: text("proration", { enum: ["full", "daily"] }).notNull().default("full"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

@@ -50,6 +50,35 @@ export function JoinBatch({ studentId, choices, today }: { studentId: string; ch
   );
 }
 
+// Applies from the next charge; an archived plan stays listed while it's in use.
+export function PlanSelect({ enrollmentId, current, plans }: { enrollmentId: string; current: { id: string; name: string } | null; plans: { id: string; name: string }[] }) {
+  const a = useAction();
+  const options = current && !plans.some((p) => p.id === current.id) ? [current, ...plans] : plans;
+  return (
+    <label className="flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
+      Fee plan
+      <select
+        defaultValue={current?.id ?? ""}
+        disabled={a.busy}
+        onChange={(e) => void a.run(() => send(`/api/enrollments/${enrollmentId}`, "POST", { action: "plan", feePlanId: e.target.value || null }))}
+        className="h-10 rounded-lg border border-border bg-background px-2 text-label text-foreground"
+      >
+        <option value="">None</option>
+        {options.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      {a.error ? (
+        <span role="alert" className="text-danger-600">
+          {a.error}
+        </span>
+      ) : null}
+    </label>
+  );
+}
+
 type Current = { id: string; status: string; batchId: string; startDate: string };
 
 export function EnrollmentActions({ enrollment: e, choices, today }: { enrollment: Current; choices: BatchChoice[]; today: string }) {

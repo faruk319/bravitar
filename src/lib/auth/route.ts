@@ -49,8 +49,9 @@ export function withStaffRequest(permission: PermissionKey | null, handler: (r: 
   };
 }
 
+// Paise are bigint; they travel as digit strings.
 export function json(body: unknown, init: ResponseInit = {}): Response {
-  return new Response(JSON.stringify(body), { ...init, headers: { "content-type": "application/json", ...init.headers } });
+  return new Response(JSON.stringify(body, (_, v: unknown) => (typeof v === "bigint" ? v.toString() : v)), { ...init, headers: { "content-type": "application/json", ...init.headers } });
 }
 
 export function jsonError(err: unknown): Response {

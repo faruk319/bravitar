@@ -3,13 +3,14 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
+import { feePlans } from "@/modules/fees/schema";
 import { students } from "@/modules/students/schema";
 import { type Enrollment, enrollments } from "./schema";
 
 // Still on the batch's list on or after `day`; an empty range never is.
 const reaches = (day: string): SQL => sql`(${enrollments.endDate} IS NULL OR ${enrollments.endDate} >= GREATEST(${enrollments.startDate}, ${day}::date))`;
 
-export async function insertEnrollment(tx: Tx, row: Pick<Enrollment, "tenantId" | "studentId" | "batchId" | "startDate">): Promise<Enrollment> {
+export async function insertEnrollment(tx: Tx, row: Pick<Enrollment, "tenantId" | "studentId" | "batchId" | "startDate" | "feePlanId">): Promise<Enrollment> {
   const [e] = await tx.insert(enrollments).values({ id: uuidv7(), ...row }).returning();
   if (!e) throw new Error("enrollment insert returned no row");
   return e;
@@ -97,21 +98,32 @@ export async function rosterCounts(tx: Tx, batchIds: string[], day: string): Pro
   return new Map(rows.map((r) => [r.batchId, r.n]));
 }
 
-export type StudentEnrollment = Enrollment & { batchName: string; programName: string; nextBatchName: string | null };
+export type StudentEnrollment = Enrollment & { batchName: string; programName: string; nextBatchName: string | null; planName: string | null };
 
 export async function enrollmentsOfStudent(tx: Tx, studentId: string): Promise<StudentEnrollment[]> {
   const next = alias(enrollments, "next");
   const nextBatch = alias(batches, "next_batch");
   const rows = await tx
-    .select({ e: enrollments, batchName: batches.name, programName: programs.name, nextBatchName: nextBatch.name })
+    .select({ e: enrollments, batchName: batches.name, programName: programs.name, nextBatchName: nextBatch.name, planName: feePlans.name })
     .from(enrollments)
     .innerJoin(batches, eq(batches.id, enrollments.batchId))
     .innerJoin(programs, eq(programs.id, batches.programId))
     .leftJoin(next, eq(next.id, enrollments.transferredToEnrollmentId))
     .leftJoin(nextBatch, eq(nextBatch.id, next.batchId))
+    .leftJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
     .where(eq(enrollments.studentId, studentId))
     .orderBy(asc(enrollments.startDate), asc(enrollments.createdAt));
-  return rows.map((r) => ({ ...r.e, batchName: r.batchName, programName: r.programName, nextBatchName: r.nextBatchName }));
+  return rows.map((r) => ({ ...r.e, batchName: r.batchName, programName: r.programName, nextBatchName: r.nextBatchName, planName: r.planName }));
+}
+
+// Current students of a batch who have no fee plan get this one.
+export async function setMissingPlans(tx: Tx, batchId: string, feePlanId: string): Promise<string[]> {
+  const rows = await tx
+    .update(enrollments)
+    .set({ feePlanId })
+    .where(and(eq(enrollments.batchId, batchId), inArray(enrollments.status, ["active", "paused"]), isNull(enrollments.feePlanId)))
+    .returning({ id: enrollments.id });
+  return rows.map((r) => r.id);
 }
 
 // A student's own status carries to their batches (agreed 2026-09-23).

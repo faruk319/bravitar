@@ -4,14 +4,17 @@ import { notFound } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { MARK_STYLE, MarkBadge } from "@/components/attendance/mark-badge";
 import { EmptyState } from "@/components/empty-state";
-import { EnrollmentActions, JoinBatch } from "@/components/enrollments/student-batches";
+import { EnrollmentActions, JoinBatch, PlanSelect } from "@/components/enrollments/student-batches";
+import { EndDiscount, GiveDiscount } from "@/components/fees/discounts";
+import { InvoiceStatus } from "@/components/fees/invoice-status";
+import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
 import { Card, CardHeader } from "@/components/ui/card";
-import { can } from "@/lib/auth/can";
+import { allows, can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { addDays, formatDate, todayIn, weekdayOf } from "@/lib/dates";
@@ -20,9 +23,12 @@ import { studentAttendance } from "@/modules/attendance/service";
 import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
+import { formatPaise } from "@/lib/money/format";
 import { formatPhone } from "@/lib/phone";
 import type { StudentEnrollment } from "@/modules/enrollments/repo";
 import { batchChoices, studentBatches } from "@/modules/enrollments/service";
+import { isOverdue } from "@/modules/fees/billing";
+import { discountChoices, planChoices, studentFees } from "@/modules/fees/service";
 import { studentOverview } from "@/modules/students/service";
 
 const TABS = ["overview", "attendance", "fees", "notes"] as const;
@@ -46,14 +52,19 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   // docs/07 §7.3: no fee information without a fees permission.
-  const tabs = TABS.filter((t) => t !== "fees" || can(ctx, "fees", "invoices:read"));
+  const showFees = can(ctx, "fees", "invoices:read");
+  const tabs = TABS.filter((t) => t !== "fees" || showFees);
   const tab = tabs.find((t) => t === sp.tab) ?? "overview";
   const canEnroll = can(ctx, "batches", "enrollments:manage");
+  const canDiscount = allows(ctx, "invoices:manage");
   const o = await withTenant(session.tenant.id, async (tx) => ({
     ...(await studentOverview(tx, ctx, id)),
     batches: await studentBatches(tx, ctx, id),
     choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
     attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
+    plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
+    fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
+    discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
   })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
@@ -123,6 +134,11 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                           <span className="text-caption text-muted-foreground">{e.programName}</span>
                         </p>
                         <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
+                        {o.plans.length && (e.status === "active" || e.status === "paused") ? (
+                          <PlanSelect enrollmentId={e.id} current={e.feePlanId ? { id: e.feePlanId, name: e.planName ?? "" } : null} plans={o.plans} />
+                        ) : showFees && e.planName ? (
+                          <p className="text-caption text-muted-foreground">Fee plan · {e.planName}</p>
+                        ) : null}
                       </div>
                       {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} /> : null}
                     </li>
@@ -165,8 +181,59 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 ) : (
                   <EmptyState title="No classes yet" hint="Marks appear here once this student's classes are taken." />
                 )
-              ) : tab === "fees" ? (
-                <EmptyState title="No fees yet" hint="Invoices and receipts appear here." action="Collect payment" soon />
+              ) : tab === "fees" && o.fees ? (
+                <>
+                  <CardHeader
+                    title="Discounts"
+                    action={canDiscount && o.discounts.length ? <GiveDiscount studentId={s.id} today={today} discounts={o.discounts.map((d) => ({ id: d.id, label: `${d.name} · ${d.kind === "percent" ? `${d.value}%` : formatPaise(BigInt(d.value))}` }))} /> : null}
+                  />
+                  {o.fees.discounts.length ? (
+                    <ul className="divide-y divide-neutral-100">
+                      {o.fees.discounts.map((g) => {
+                        const running = !g.validTo || g.validTo >= today;
+                        return (
+                          <li key={g.id} className={cn("flex min-h-14 items-center justify-between gap-3 py-2", !running && "text-neutral-500")}>
+                            <div>
+                              <p className="text-body">
+                                {g.name} <span className="text-caption text-muted-foreground">· {g.kind === "percent" ? `${g.value}%` : formatPaise(BigInt(g.value))}</span>
+                              </p>
+                              <p className="text-caption text-muted-foreground">
+                                {g.reason} · {g.validTo ? `${formatDate(g.validFrom)} – ${formatDate(g.validTo)}` : `from ${formatDate(g.validFrom)}`}
+                                {g.approvedByName ? ` · by ${g.approvedByName}` : ""}
+                              </p>
+                            </div>
+                            {canDiscount && running ? <EndDiscount id={g.id} /> : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-body text-muted-foreground">No discounts.</p>
+                  )}
+                  <CardHeader title="Invoices" className="mt-5" />
+                  {o.fees.invoices.length ? (
+                    <ul className="divide-y divide-neutral-100">
+                      {o.fees.invoices.map((i) => (
+                        <li key={i.id}>
+                          <Link href={`/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
+                            <span>
+                              <span className="block text-body">{i.number ?? "Draft"}</span>
+                              <span className="block text-caption text-muted-foreground">
+                                {formatDate(i.issueDate)} · due {formatDate(i.dueDate)}
+                              </span>
+                            </span>
+                            <span className="flex flex-col items-end gap-1">
+                              <Money paise={i.totalPaise} className="text-body font-medium" />
+                              <InvoiceStatus status={i.status} overdue={isOverdue(i, o.fees?.today ?? today)} />
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-body text-muted-foreground">No invoices yet.</p>
+                  )}
+                </>
               ) : (
                 <EmptyState title="No notes yet" hint="Anything the family should be remembered for." action="Add note" soon />
               )}

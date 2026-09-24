@@ -281,7 +281,8 @@ transfer batch, mark left.
 - Leave sets the last day; the student stays on the roster until then.
 - Marking a student Left, Paused or Active on their profile carries to all their
   batches. A batch or student with enrollments can only be closed or marked left.
-- Fees slice: add `fee_plan_id`, void invoices after a leave date, prorate moves.
+- Fees (slice 15): `fee_plan_id` comes from the batch's plan; leaving voids later
+  invoices; a move keeps the cycle in progress (no proration, see §8).
 
 **Acceptance**
 
@@ -378,6 +379,31 @@ invoice creation, bulk invoice generation preview.
   recorded and the number retained.
 - **Always show a preview before bulk generation.** An owner who accidentally
   invoices 400 families wrongly will stop trusting the system permanently.
+
+**Agreed 2026-09-24** (`src/modules/fees/`)
+
+- Plans: recurring (monthly, quarterly, half-yearly, yearly), term (installments in
+  `metadata`, docs/04 format) and one-time. Package is stored, not billed (V2).
+- `invoices.generate` runs at 02:00 IST and makes **drafts**: one per family,
+  branch and billing day; each term installment gets its own. Cycles that began in
+  the last 7 days are caught up; a billing key per charge means nothing is billed
+  twice. "Generate now" runs it on demand.
+- To review shows the drafts' count and total; the owner issues them, and only then
+  is the number taken. Parents see nothing before that.
+- A new student gets the batch's plan; it can be changed per student, and a batch's
+  plan can be given to students already in it.
+- Joining mid-cycle pays the full cycle or only the days left (academy setting).
+  Long cycles run from the join month. A batch move keeps the cycle in progress;
+  the new plan starts next cycle (this replaces "prorated" in §6 acceptance).
+- Due = billing day + the plan's days to pay. Overdue is worked out when read.
+- Admission: once, with the first charge of a student's first batch in a program.
+- A student's discount always has a reason, applies to fee lines before tax, never
+  goes past the fee, and prints as its own line. Ending one stops it from today.
+- GST only with a GSTIN, per line on the fee after discount.
+- Void keeps the number; the charges stay billed unless "Bill it again" is ticked.
+  Leaving a batch voids unpaid invoices for later periods and drafts the rest
+  again. Term installments are left alone (open question). A ₹0 invoice is paid on
+  issue.
 
 **Acceptance**
 

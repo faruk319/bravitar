@@ -9,6 +9,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { todayIn } from "@/lib/dates";
 import { listPrograms } from "@/modules/batches/repo";
 import { coachChoices } from "@/modules/batches/service";
+import { planChoices } from "@/modules/fees/service";
 import { getOwnTenant, listResources } from "@/modules/tenancy/repo";
 
 export default async function NewBatchPage() {
@@ -20,6 +21,7 @@ export default async function NewBatchPage() {
         programs: (await listPrograms(tx, { activeOnly: true })).map((p) => ({ id: p.id, name: p.name })),
         coaches: await coachChoices(tx, ctx),
         rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
+        plans: (await planChoices(tx, ctx)).map((p) => ({ id: p.id, name: p.name })),
         today: todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata"),
       }))
     : undefined;

@@ -16,6 +16,7 @@ export const enrollments = app.table("enrollments", {
   endDate: date("end_date"),
   pausedOn: date("paused_on"),
   transferredToEnrollmentId: uuid("transferred_to_enrollment_id").references((): AnyPgColumn => enrollments.id),
+  feePlanId: uuid("fee_plan_id"), // FK to fee_plans in 0014
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

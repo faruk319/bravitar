@@ -9,9 +9,10 @@ import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { send } from "@/lib/send";
 import type { CoachOption } from "@/modules/batches/repo";
 import type { Slot } from "@/modules/batches/schedule";
+import { FeePlanField } from "./batch-form";
 import { fromSlots, ScheduleEditor, type ScheduleValue, toSlots } from "./schedule-editor";
 
-type BatchLite = { id: string; name: string; branchId: string; status: string; startDate: string; coachId: string | null; resourceId: string | null; capacity: number | null; slots: Slot[] };
+type BatchLite = { id: string; name: string; branchId: string; status: string; startDate: string; coachId: string | null; resourceId: string | null; capacity: number | null; defaultFeePlanId: string | null; slots: Slot[] };
 
 export function ChangeTiming({ batch, today }: { batch: BatchLite; today: string }) {
   const a = useAction();
@@ -43,7 +44,7 @@ export function ChangeTiming({ batch, today }: { batch: BatchLite; today: string
   );
 }
 
-export function EditBatch({ batch, coaches, rooms }: { batch: BatchLite; coaches: CoachOption[]; rooms: { id: string; name: string; branchId: string }[] }) {
+export function EditBatch({ batch, coaches, rooms, plans }: { batch: BatchLite; coaches: CoachOption[]; rooms: { id: string; name: string; branchId: string }[]; plans: { id: string; name: string }[] }) {
   const a = useAction();
   const staff = useLabel("staff");
   const branchCoaches = coaches.filter((c) => !c.branchIds.length || c.branchIds.includes(batch.branchId));
@@ -61,7 +62,8 @@ export function EditBatch({ batch, coaches, rooms }: { batch: BatchLite; coaches
           const f = new FormData(e.currentTarget);
           const str = (k: string) => ((f.get(k) as string | null) ?? "").trim();
           const capacity = str("capacity");
-          void a.run(() => send(`/api/batches/${batch.id}`, "PATCH", { name: str("name"), coachId: str("coachId") || null, resourceId: str("resourceId") || null, capacity: capacity ? Number(capacity) : null }));
+          const plan = plans.length ? { defaultFeePlanId: str("defaultFeePlanId") || null, applyPlanToCurrent: f.get("applyPlan") === "on" } : {};
+          void a.run(() => send(`/api/batches/${batch.id}`, "PATCH", { name: str("name"), coachId: str("coachId") || null, resourceId: str("resourceId") || null, capacity: capacity ? Number(capacity) : null, ...plan }));
         }}
       >
         <Field label="Name" id="name">
@@ -94,6 +96,15 @@ export function EditBatch({ batch, coaches, rooms }: { batch: BatchLite; coaches
             </select>
           </Field>
         </div>
+        {plans.length ? (
+          <>
+            <FeePlanField plans={plans} value={batch.defaultFeePlanId} />
+            <label className="-mt-2 flex min-h-12 items-center gap-3 text-body">
+              <input type="checkbox" name="applyPlan" className="size-5 accent-accent-600" />
+              Also for students already here without a plan
+            </label>
+          </>
+        ) : null}
       </SheetForm>
     </Sheet>
   );

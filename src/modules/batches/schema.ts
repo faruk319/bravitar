@@ -26,6 +26,7 @@ export const batches = app.table("batches", {
   coachId: uuid("coach_id").references(() => staffUsers.id),
   resourceId: uuid("resource_id").references(() => resources.id),
   capacity: integer("capacity"),
+  defaultFeePlanId: uuid("default_fee_plan_id"), // FK to fee_plans in 0014
   enrollmentMode: text("enrollment_mode", { enum: ["roster", "booking"] }).notNull().default("roster"),
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),

@@ -5,7 +5,8 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, isIsoDate, startOfWeek } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
-import { hasEnrollments } from "@/modules/enrollments/repo";
+import { hasEnrollments, setMissingPlans } from "@/modules/enrollments/repo";
+import { getPlan } from "@/modules/fees/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { canUseBranch, pickBranch } from "@/modules/tenancy/branch-access";
 import { getBranch, listResources, tenantToday } from "@/modules/tenancy/repo";
@@ -115,10 +116,15 @@ export const newBatchSchema = z.object({
   coachId: z.uuid().nullable().optional(),
   resourceId: z.uuid().nullable().optional(),
   capacity: z.number().int().min(1, "Capacity must be at least 1").max(10000).nullable().optional(),
+  defaultFeePlanId: z.uuid().nullable().optional(),
   startDate: z.string().optional(),
   slots: z.array(slotInput).max(7),
 });
 export type NewBatchInput = z.input<typeof newBatchSchema>;
+
+async function checkPlan(tx: Tx, id: string | null | undefined): Promise<void> {
+  if (id && !(await getPlan(tx, id))?.isActive) throw new NotFoundError("Fee plan");
+}
 
 async function resolveProgram(tx: Tx, ctx: ScopedCtx, data: z.infer<typeof newBatchSchema>): Promise<string> {
   if (data.programId) {
@@ -144,6 +150,7 @@ export async function createBatch(tx: Tx, ctx: ScopedCtx, input: NewBatchInput):
   const programId = await resolveProgram(tx, ctx, data);
   if (data.coachId) await checkCoach(tx, data.coachId, branchId);
   if (data.resourceId) await checkResource(tx, data.resourceId, branchId);
+  await checkPlan(tx, data.defaultFeePlanId);
   const batch = await insertBatch(tx, {
     tenantId: ctx.tenantId,
     branchId,
@@ -152,6 +159,7 @@ export async function createBatch(tx: Tx, ctx: ScopedCtx, input: NewBatchInput):
     coachId: data.coachId ?? null,
     resourceId: data.resourceId ?? null,
     capacity: data.capacity ?? null,
+    defaultFeePlanId: data.defaultFeePlanId ?? null,
     startDate,
   });
   await insertRules(tx, ctx.tenantId, batch.id, slots, startDate);
@@ -173,21 +181,26 @@ export const batchPatchSchema = z.object({
   coachId: z.uuid().nullable().optional(),
   resourceId: z.uuid().nullable().optional(),
   capacity: z.number().int().min(1, "Capacity must be at least 1").max(10000).nullable().optional(),
+  defaultFeePlanId: z.uuid().nullable().optional(),
+  applyPlanToCurrent: z.boolean().optional(), // students already in the batch without a plan get it too
 });
 
 export async function editBatch(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof batchPatchSchema>): Promise<Batch> {
   assertCan(ctx, "batches:manage");
   const before = await requireBatch(tx, ctx, id);
-  const data = batchPatchSchema.parse(input);
+  const { applyPlanToCurrent, ...data } = batchPatchSchema.parse(input);
+  if (applyPlanToCurrent) assertCan(ctx, "enrollments:manage");
   if (data.programId) {
     const p = await getProgram(tx, data.programId);
     if (!p || !p.isActive) throw new NotFoundError("Program");
   }
   if (data.coachId) await checkCoach(tx, data.coachId, before.branchId);
   if (data.resourceId) await checkResource(tx, data.resourceId, before.branchId);
+  await checkPlan(tx, data.defaultFeePlanId);
   const patch = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
   const after = await updateBatch(tx, id, patch);
-  await writeAudit(tx, { ...actor(ctx), action: "batch.update", entityType: "batch", entityId: id, before: { name: before.name, coachId: before.coachId, capacity: before.capacity }, after: patch });
+  const planned = applyPlanToCurrent && after.defaultFeePlanId ? await setMissingPlans(tx, id, after.defaultFeePlanId) : [];
+  await writeAudit(tx, { ...actor(ctx), action: "batch.update", entityType: "batch", entityId: id, before: { name: before.name, coachId: before.coachId, capacity: before.capacity, defaultFeePlanId: before.defaultFeePlanId }, after: { ...patch, ...(planned.length ? { plannedEnrollments: planned } : {}) } });
   return after;
 }
 

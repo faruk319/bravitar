@@ -7,6 +7,7 @@ import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
 import { endForStudent, hasEnrollments, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
+import { endCharges } from "@/modules/fees/invoicing";
 import { pickBranch } from "@/modules/tenancy/branch-access";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
@@ -238,6 +239,7 @@ export async function setStudentStatus(tx: Tx, ctx: StudentCtx, id: string, inpu
   // Their batches follow (agreed 2026-09-23).
   const enrollmentIds =
     data.status === "left" ? await endForStudent(tx, id, today) : data.status === "paused" ? await pauseForStudent(tx, id, today) : s.status === "paused" ? await resumeForStudent(tx, id) : [];
+  if (data.status === "left") await endCharges(tx, actor(ctx), enrollmentIds);
   await writeAudit(tx, { ...actor(ctx), action: "student.status.set", entityType: "student", entityId: id, before: { status: s.status }, after: { status: data.status, reason: data.reason ?? null, enrollmentIds } });
   return after;
 }

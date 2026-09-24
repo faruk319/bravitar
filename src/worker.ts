@@ -1,5 +1,6 @@
 import { assertDatabaseSafety } from "@/lib/db/assert-safe";
 import { createBoss } from "@/lib/jobs/boss";
+import { INVOICES_GENERATE, workInvoicesGenerate } from "@/modules/fees/job";
 import { NUMBERS_OPEN_YEAR, workOpenYear } from "@/modules/numbering/job";
 import { SESSIONS_GENERATE, workSessionsGenerate } from "@/modules/sessions/job";
 
@@ -15,7 +16,10 @@ async function main(): Promise<void> {
   await workOpenYear(boss);
   await boss.schedule(NUMBERS_OPEN_YEAR, "5 0 * * *", null, { tz: "Asia/Kolkata" });
   await boss.send(NUMBERS_OPEN_YEAR);
-  console.log(`worker: ${SESSIONS_GENERATE} nightly at 01:30, ${NUMBERS_OPEN_YEAR} daily at 00:05 (Asia/Kolkata)`);
+  await workInvoicesGenerate(boss);
+  await boss.schedule(INVOICES_GENERATE, "0 2 * * *", null, { tz: "Asia/Kolkata" });
+  await boss.send(INVOICES_GENERATE);
+  console.log(`worker: ${SESSIONS_GENERATE} nightly at 01:30, ${INVOICES_GENERATE} at 02:00, ${NUMBERS_OPEN_YEAR} daily at 00:05 (Asia/Kolkata)`);
   const stop = () => void boss.stop().then(() => process.exit(0));
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);

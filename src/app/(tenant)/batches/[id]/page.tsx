@@ -6,7 +6,7 @@ import { AddStudents } from "@/components/enrollments/add-students";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
 import { Card, CardHeader } from "@/components/ui/card";
-import { can } from "@/lib/auth/can";
+import { allows, can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -16,6 +16,8 @@ import { formatTimeRange, WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { batchDetail, coachChoices } from "@/modules/batches/service";
 import type { RosterRow } from "@/modules/enrollments/repo";
 import { batchRoster } from "@/modules/enrollments/service";
+import { getPlan } from "@/modules/fees/repo";
+import { planChoices } from "@/modules/fees/service";
 import { upcomingForBatch } from "@/modules/sessions/repo";
 import { listResources } from "@/modules/tenancy/repo";
 
@@ -30,22 +32,28 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!can(ctx, "batches", "batches:read")) return <Gate permission="batches:read">{null}</Gate>;
-  const data = await withTenant(session.tenant.id, async (tx) => ({
-    batch: await batchDetail(tx, ctx, id),
-    coaches: await coachChoices(tx, ctx),
-    rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
-    today: todayIn(session.tenant.timezone),
-    next: await upcomingForBatch(tx, id, new Date(), 8),
-    roster: await batchRoster(tx, ctx, id),
-  })).catch((e: unknown) => {
+  const canManage = can(ctx, "batches", "batches:manage");
+  const seesFees = allows(ctx, "invoices:read") || allows(ctx, "fee_plans:manage");
+  const data = await withTenant(session.tenant.id, async (tx) => {
+    const batch = await batchDetail(tx, ctx, id);
+    return {
+      batch,
+      plans: canManage && seesFees ? (await planChoices(tx, ctx)).map((p) => ({ id: p.id, name: p.name })) : [],
+      planName: seesFees && batch.defaultFeePlanId ? ((await getPlan(tx, batch.defaultFeePlanId))?.name ?? null) : null,
+      coaches: await coachChoices(tx, ctx),
+      rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
+      today: todayIn(session.tenant.timezone),
+      next: await upcomingForBatch(tx, id, new Date(), 8),
+      roster: await batchRoster(tx, ctx, id),
+    };
+  }).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
   if (!data) notFound();
   const { batch: b, today, roster } = data;
-  const canManage = can(ctx, "batches", "batches:manage");
   const count = roster.filter((r) => r.startDate <= today).length;
-  const lite = { id: b.id, name: b.name, branchId: b.branchId, status: b.status, startDate: b.startDate, coachId: b.coachId, resourceId: b.resourceId, capacity: b.capacity, slots: b.slots };
+  const lite = { id: b.id, name: b.name, branchId: b.branchId, status: b.status, startDate: b.startDate, coachId: b.coachId, resourceId: b.resourceId, capacity: b.capacity, defaultFeePlanId: b.defaultFeePlanId, slots: b.slots };
   const facts: [string, string][] = [
     ["Timing", b.schedule],
     ["Coach", b.coachName ?? "Not decided"],
@@ -53,6 +61,7 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
     ["Branch", b.branchName],
     ["Capacity", b.capacity ? `${count} / ${b.capacity}` : "No limit"],
     ["Started", formatDate(b.startDate)],
+    ...(seesFees ? ([["Fee plan", data.planName ?? "None"]] as [string, string][]) : []),
   ];
 
   return (
@@ -64,7 +73,7 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
           canManage ? (
             <>
               {b.status !== "ended" ? <ChangeTiming batch={lite} today={today} /> : null}
-              <EditBatch batch={lite} coaches={data.coaches} rooms={data.rooms} />
+              <EditBatch batch={lite} coaches={data.coaches} rooms={data.rooms} plans={data.plans} />
               <CloseOrReopen batch={lite} today={today} />
               <DeleteBatch batch={lite} />
             </>

@@ -8,6 +8,8 @@ import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from
 import { getBatch } from "@/modules/batches/repo";
 import type { Batch } from "@/modules/batches/schema";
 import { type BatchView, listBatchViews } from "@/modules/batches/service";
+import { endCharges } from "@/modules/fees/invoicing";
+import { getPlan } from "@/modules/fees/repo";
 import { requireStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { enrollmentsOfStudent, findOverlap, getEnrollment, insertEnrollment, type RosterRow, rosterOf, type StudentEnrollment, updateEnrollment } from "./repo";
@@ -34,8 +36,9 @@ async function requireOpen(tx: Tx, ctx: ScopedCtx, id: string): Promise<Enrollme
 async function join(tx: Tx, ctx: ScopedCtx, studentId: string, batch: Batch, start: string): Promise<Enrollment> {
   if (start < batch.startDate) throw new BadRequestError(`${batch.name} starts on ${formatDate(batch.startDate)}`);
   if (await findOverlap(tx, studentId, batch.id, start)) throw new ConflictError(`Already in ${batch.name}`);
+  const plan = batch.defaultFeePlanId ? await getPlan(tx, batch.defaultFeePlanId) : undefined;
   try {
-    return await insertEnrollment(tx, { tenantId: ctx.tenantId, studentId, batchId: batch.id, startDate: start });
+    return await insertEnrollment(tx, { tenantId: ctx.tenantId, studentId, batchId: batch.id, startDate: start, feePlanId: plan?.isActive ? plan.id : null });
   } catch (e) {
     if (isUniqueViolation(e)) throw new ConflictError(`Already in ${batch.name}`);
     throw e;
@@ -86,6 +89,7 @@ export async function transferEnrollment(tx: Tx, ctx: ScopedCtx, id: string, inp
   if (date < old.startDate) throw new BadRequestError("The move can't be before they joined");
   const next = await join(tx, ctx, old.studentId, target, date);
   await updateEnrollment(tx, old.id, { status: "transferred", endDate: addDays(date, -1), pausedOn: null, transferredToEnrollmentId: next.id });
+  await endCharges(tx, actor(ctx), [old.id]);
   await writeAudit(tx, { ...actor(ctx), action: "enrollment.transfer", entityType: "enrollment", entityId: old.id, after: { toEnrollmentId: next.id, batchId: target.id, date } });
   return next;
 }
@@ -99,7 +103,21 @@ export async function leaveEnrollment(tx: Tx, ctx: ScopedCtx, id: string, input:
   const last = leaveSchema.parse(input).date ?? (e.startDate > today ? addDays(e.startDate, -1) : today);
   if (last < addDays(e.startDate, -1)) throw new BadRequestError("The last day can't be before they joined");
   const after = await updateEnrollment(tx, id, { status: "left", endDate: last, pausedOn: null });
+  await endCharges(tx, actor(ctx), [id]);
   await writeAudit(tx, { ...actor(ctx), action: "enrollment.leave", entityType: "enrollment", entityId: id, after: { endDate: last } });
+  return after;
+}
+
+export const planChangeSchema = z.object({ feePlanId: z.uuid().nullable() });
+
+// Applies from the next charge; what's billed stays.
+export async function setEnrollmentPlan(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof planChangeSchema>): Promise<Enrollment> {
+  assertCan(ctx, "enrollments:manage");
+  const { feePlanId } = planChangeSchema.parse(input);
+  const e = await requireOpen(tx, ctx, id);
+  if (feePlanId && !(await getPlan(tx, feePlanId))?.isActive) throw new NotFoundError("Fee plan");
+  const after = await updateEnrollment(tx, id, { feePlanId });
+  await writeAudit(tx, { ...actor(ctx), action: "enrollment.fee_plan", entityType: "enrollment", entityId: id, before: { feePlanId: e.feePlanId }, after: { feePlanId } });
   return after;
 }
 
