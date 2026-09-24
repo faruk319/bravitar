@@ -227,6 +227,8 @@ Keep scope narrow and boring:
 
 Nothing else works offline in V1. Not fees, not enrollment.
 
+How it is built: docs/03 §7 "Offline, agreed 2026-09-24".
+
 ## File storage
 
 `StorageAdapter` interface with two implementations: local disk (dev) and

@@ -1,5 +1,4 @@
 import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Roster } from "@/components/attendance/roster";
 import { Gate } from "@/components/shell/gate";
@@ -40,7 +39,7 @@ export default async function ClassPage({ params }: PageProps<"/sessions/[id]">)
   return (
     <Gate permission="sessions:read">
       <div className="mb-4 flex items-center gap-2">
-        <Button variant="ghost" size="icon" nativeButton={false} render={<Link href={coach ? "/today?all=1" : "/today"} aria-label="Back" />}>
+        <Button variant="ghost" size="icon" nativeButton={false} render={<a href={coach ? "/today?all=1" : "/today"} aria-label="Back" />}>
           <ArrowLeft />
         </Button>
         <div className="min-w-0">

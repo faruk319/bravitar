@@ -4,6 +4,7 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
 import { type Session, sessions } from "@/modules/sessions/schema";
+import { staffUsers } from "@/modules/staff/schema";
 import { students } from "@/modules/students/schema";
 import { resources } from "@/modules/tenancy/schema";
 import { type AttendanceRow, attendance, type Mark } from "./schema";
@@ -45,7 +46,7 @@ export async function marksFor(tx: Tx, sessionIds: string[]): Promise<Attendance
   return tx.select().from(attendance).where(inArray(attendance.sessionId, sessionIds));
 }
 
-export type NewMark = { tenantId: string; sessionId: string; studentId: string; status: Mark; note: string | null; markedBy: string; markedAt: Date };
+export type NewMark = { tenantId: string; sessionId: string; studentId: string; status: Mark; note: string | null; markedBy: string; markedAt: Date; source: AttendanceRow["source"] };
 
 // (session_id, student_id) is the idempotency key: a second device updates, never duplicates.
 export async function upsertMarks(tx: Tx, rows: NewMark[]): Promise<void> {
@@ -55,7 +56,7 @@ export async function upsertMarks(tx: Tx, rows: NewMark[]): Promise<void> {
     .values(rows.map((r) => ({ id: uuidv7(), ...r })))
     .onConflictDoUpdate({
       target: [attendance.sessionId, attendance.studentId],
-      set: { status: sql`excluded.status`, note: sql`excluded.note`, markedBy: sql`excluded.marked_by`, markedAt: sql`excluded.marked_at` },
+      set: { status: sql`excluded.status`, note: sql`excluded.note`, markedBy: sql`excluded.marked_by`, markedAt: sql`excluded.marked_at`, source: sql`excluded.source` },
     });
 }
 
@@ -121,4 +122,10 @@ export async function studentNames(tx: Tx, ids: string[]): Promise<Map<string, {
   if (!ids.length) return new Map();
   const rows = await tx.select({ id: students.id, name: students.fullName, code: students.code }).from(students).where(inArray(students.id, ids));
   return new Map(rows.map((r) => [r.id, { name: r.name, code: r.code }]));
+}
+
+export async function staffNames(tx: Tx, ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const rows = await tx.select({ id: staffUsers.id, name: staffUsers.fullName }).from(staffUsers).where(inArray(staffUsers.id, ids));
+  return new Map(rows.map((r) => [r.id, r.name]));
 }

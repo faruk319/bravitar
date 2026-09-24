@@ -9,7 +9,7 @@ import { getBatch } from "@/modules/batches/repo";
 import { onRoster } from "@/modules/enrollments/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
-import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, studentClasses, studentNames, upsertMarks } from "./repo";
+import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, staffNames, studentClasses, studentNames, upsertMarks } from "./repo";
 import { MARKS, type Mark } from "./schema";
 
 // docs/03 §7 (agreed 2026-09-23): corrections lock 48 hours after the class starts.
@@ -46,7 +46,7 @@ export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
   };
 }
 
-export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; mark: Mark | null; note: string | null };
+export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; mark: Mark | null; note: string | null; markedBy: string | null };
 export type Lock = "cancelled" | "future" | "locked";
 export type ClassView = ClassRow & { timeZone: string; entries: RosterEntry[]; lock: Lock | null; canMark: boolean };
 
@@ -66,11 +66,11 @@ async function requireClass(tx: Tx, ctx: ScopedCtx, id: string): Promise<ClassRo
 // Enrolled on the class date, plus anyone already marked (history survives moves).
 async function entriesFor(tx: Tx, c: ClassRow): Promise<RosterEntry[]> {
   const [roster, marks] = await Promise.all([onRoster(tx, [c.session.batchId], c.session.sessionDate), marksFor(tx, [c.session.id])]);
-  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, mark: null, note: null }]));
+  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, mark: null, note: null, markedBy: null }]));
   const extra = await studentNames(tx, marks.filter((m) => !entries.has(m.studentId)).map((m) => m.studentId));
   for (const m of marks) {
-    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, mark: null, note: null };
-    entries.set(m.studentId, { ...e, mark: m.status, note: m.note });
+    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, mark: null, note: null, markedBy: null };
+    entries.set(m.studentId, { ...e, mark: m.status, note: m.note, markedBy: m.markedBy });
   }
   return [...entries.values()].sort((a, b) => Number(a.paused) - Number(b.paused) || a.name.localeCompare(b.name));
 }
@@ -89,9 +89,13 @@ export const saveSchema = z.object({
     .array(z.object({ studentId: z.uuid(), status: z.enum(MARKS), note: z.string().trim().max(300).nullable().optional() }))
     .min(1)
     .max(500),
+  source: z.enum(["staff", "offline_sync"]).default("staff"),
 });
 
-export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof saveSchema>, opts: { now?: Date } = {}): Promise<{ savedAt: Date; changed: number }> {
+// A mark that replaced someone else's: last write wins, but the screen says so.
+export type Conflict = { studentId: string; name: string; from: Mark; to: Mark; by: string };
+
+export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof saveSchema>, opts: { now?: Date } = {}): Promise<{ savedAt: Date; changed: number; conflicts: Conflict[] }> {
   assertCan(ctx, "attendance:mark");
   const now = opts.now ?? new Date();
   const data = saveSchema.parse(input);
@@ -102,22 +106,25 @@ export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: 
   if (lock === "locked") throw new ForbiddenError("Marks lock 48 hours after the class. Ask a manager to change them.");
 
   const entries = new Map((await entriesFor(tx, c)).map((e) => [e.studentId, e]));
-  const changes: { studentId: string; from: Mark | null; to: Mark; note: string | null }[] = [];
+  const changes: { studentId: string; from: Mark | null; to: Mark; note: string | null; by: string | null }[] = [];
   for (const m of data.marks) {
     const e = entries.get(m.studentId);
     if (!e || (e.paused && !e.mark)) throw new BadRequestError(e ? `${e.name} is paused` : "That student isn't on this class's roster");
     const note = m.note === undefined ? e.note : m.note || null;
-    if (e.mark !== m.status || e.note !== note) changes.push({ studentId: m.studentId, from: e.mark, to: m.status, note });
+    if (e.mark !== m.status || e.note !== note) changes.push({ studentId: m.studentId, from: e.mark, to: m.status, note, by: e.markedBy });
   }
   await upsertMarks(
     tx,
-    changes.map((ch) => ({ tenantId: ctx.tenantId, sessionId: id, studentId: ch.studentId, status: ch.to, note: ch.note, markedBy: ctx.staffId, markedAt: now })),
+    changes.map((ch) => ({ tenantId: ctx.tenantId, sessionId: id, studentId: ch.studentId, status: ch.to, note: ch.note, markedBy: ctx.staffId, markedAt: now, source: data.source })),
   );
   await markSessionHeld(tx, id);
   if (changes.length) {
     await writeAudit(tx, { ...actor(ctx), action: "attendance.save", entityType: "session", entityId: id, after: { changes: changes.map(({ studentId, from, to }) => ({ studentId, from, to })) } });
   }
-  return { savedAt: now, changed: changes.length };
+  const overwritten = changes.filter((ch) => ch.from && ch.from !== ch.to && ch.by && ch.by !== ctx.staffId);
+  const names = await staffNames(tx, [...new Set(overwritten.map((ch) => ch.by ?? ""))]);
+  const conflicts = overwritten.map((ch) => ({ studentId: ch.studentId, name: entries.get(ch.studentId)?.name ?? "—", from: ch.from as Mark, to: ch.to, by: names.get(ch.by ?? "") ?? "someone" }));
+  return { savedAt: now, changed: changes.length, conflicts };
 }
 
 export type MonthGrid = {

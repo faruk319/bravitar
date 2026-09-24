@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MarkBadge } from "@/components/attendance/mark-badge";
+import { describeConflicts, markOffline, syncNow, useSyncState } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { send } from "@/lib/send";
+import { QUEUE_EVENT, queue } from "@/lib/offline/queue";
+import { type Conflict, withQueued } from "@/lib/offline/sync";
+import { request } from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 type Mark = "present" | "absent" | "late" | "excused";
@@ -25,6 +28,26 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
   const [error, setError] = useState<string>();
   const [savedAt, setSavedAt] = useState<string>();
   const [noteFor, setNoteFor] = useState<Entry>();
+  const [waiting, setWaiting] = useState(0); // this class's marks still on the phone
+  const [replaced, setReplaced] = useState<string[]>([]);
+  const { offline } = useSyncState();
+
+  // Marks saved on this phone while offline win over the page as it was cached.
+  useEffect(() => {
+    let first = true;
+    const load = () =>
+      void queue.forSession(sessionId).then((q) => {
+        setWaiting(q.filter((m) => !m.error).length);
+        if (!first || !q.length) return;
+        first = false;
+        const merged = Object.fromEntries(withQueued(entries, q).map((e) => [e.studentId, { mark: e.mark, note: e.note }]));
+        setMarks((m) => ({ ...m, ...merged }));
+        setSaved((m) => ({ ...m, ...merged }));
+      });
+    load();
+    window.addEventListener(QUEUE_EVENT, load);
+    return () => window.removeEventListener(QUEUE_EVENT, load);
+  }, [sessionId, entries]);
   const press = useRef<{ timer?: ReturnType<typeof setTimeout>; long: boolean }>({ long: false });
 
   const markable = entries.filter((e) => !e.paused || saved[e.studentId]?.mark);
@@ -52,12 +75,17 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
   }
   async function save() {
     setPhase("saving");
-    const err = await send(`/api/sessions/${sessionId}/attendance`, "PUT", {
-      marks: dirty.map((e) => ({ studentId: e.studentId, status: marks[e.studentId]?.mark, note: marks[e.studentId]?.note ?? null })),
-    });
-    if (err) {
-      setError(err);
+    const payload = dirty.map((e) => ({ studentId: e.studentId, status: marks[e.studentId]?.mark ?? "present", note: marks[e.studentId]?.note ?? null }));
+    await syncNow().catch(() => {}); // older marks from this phone go first
+    const r = await request<{ conflicts: Conflict[] }>(`/api/sessions/${sessionId}/attendance`, "PUT", { marks: payload });
+    if (r.error !== undefined && r.offline) {
+      await queue.add(sessionId, payload);
+      markOffline();
+    } else if (r.error !== undefined) {
+      setError(r.error);
       return setPhase("error");
+    } else {
+      setReplaced(describeConflicts(r.data.conflicts));
     }
     setSaved(marks);
     setUndo(undefined);
@@ -115,6 +143,12 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
         })}
       </ul>
 
+      {replaced.map((line) => (
+        <p key={line} className="mt-3 text-label text-warning-600">
+          ⚠ {line}
+        </p>
+      ))}
+
       {canMark ? (
         <div className={cn("sticky z-10 -mx-4 mt-4 border-t border-neutral-100 bg-background px-4 py-3 md:mx-0 md:rounded-2xl md:border", stickyBottom)}>
           <div className="flex items-center justify-between gap-3">
@@ -125,6 +159,8 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
                 <span className="text-danger-600">Couldn&apos;t save · {error}</span>
               ) : dirty.length ? (
                 `${dirty.length} unsaved`
+              ) : waiting ? (
+                <span className="text-warning-600">{offline ? `Offline — ${waiting} ${waiting === 1 ? "mark" : "marks"} will sync` : `✓ Saved on this phone · ${waiting} to sync`}</span>
               ) : savedAt ? (
                 <span className="text-success-600">✓ Saved {savedAt}</span>
               ) : null}

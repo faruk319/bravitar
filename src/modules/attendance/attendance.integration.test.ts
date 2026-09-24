@@ -170,6 +170,34 @@ describe("marking a class", () => {
   });
 });
 
+describe("offline sync", () => {
+  it("30 marks replayed twice land exactly once, stored as offline_sync", async () => {
+    const E = await batch(null);
+    const kids: string[] = [];
+    for (let i = 0; i < 30; i++) kids.push(await student(`Sync ${String(i).padStart(2, "0")} ${stamp}`));
+    for (const k of kids) await join(k, E);
+    const id = await classOn(E, "2026-10-05");
+    const marks = kids.map((k) => ({ studentId: k, status: "present" as const }));
+    const replay = () => withTenant(T, (tx) => saveAttendance(tx, owner, id, { marks, source: "offline_sync" }, { now: at("2026-10-05T14:00:00Z") }));
+    expect((await replay()).changed).toBe(30);
+    expect((await replay()).changed).toBe(0);
+    const saved = await rows(id);
+    expect(saved.length).toBe(30);
+    expect(new Set(saved.map((r) => r.source))).toEqual(new Set(["offline_sync"]));
+  });
+
+  it("replacing another staff member's mark is reported with their name; your own is not", async () => {
+    const F = await batch(teacherA.staffId);
+    const kid = await student(`Conflict ${stamp}`);
+    await join(kid, F);
+    const id = await classOn(F, "2026-10-05");
+    const mark = (ctx: ScopedCtx, status: Mark) => withTenant(T, (tx) => saveAttendance(tx, ctx, id, { marks: [{ studentId: kid, status }] }, { now: at("2026-10-05T14:00:00Z") }));
+    expect((await mark(owner, "present")).conflicts).toEqual([]);
+    expect((await mark(teacherA, "absent")).conflicts).toEqual([{ studentId: kid, name: `Conflict ${stamp}`, from: "present", to: "absent", by: "Owner" }]);
+    expect((await mark(teacherA, "late")).conflicts).toEqual([]); // their own mark
+  });
+});
+
 describe("reading attendance back", () => {
   it("the monthly register for 40 students is right and quick", async () => {
     const C = await batch(null);

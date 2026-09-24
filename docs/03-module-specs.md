@@ -331,6 +331,22 @@ attendance history per student, monthly attendance grid per batch.
 - % attendance = (present + late) / (present + late + absent); unmarked and
   excused don't count.
 
+**Offline, agreed 2026-09-24** (`public/sw.js`, `src/lib/offline/`)
+
+- A hand-written service worker (production only) caches `/_next/static` and the
+  pages `/today` and `/sessions/*` (network first). Opening Today also caches every
+  roster of the day. Any other page offline shows "Only attendance works offline".
+- Save with no signal keeps the marks on the phone (IndexedDB, one row per class
+  and student, latest mark wins) and says "Offline — N marks will sync".
+- Sync runs on load, on reconnect, when the app comes back to the foreground and
+  every 30 s while anything waits: one PUT per class, `source = offline_sync`.
+  Replays are harmless (the upsert key). A refused class (e.g. the 48 h lock) is
+  kept as "couldn't sync" with the reason and a Discard button.
+- The header shows "3 unsynced" while marks wait. A save that replaced another
+  staff member's mark still wins, and the screen says whose marks it replaced.
+- Sign out sends waiting marks first and refuses while any remain; then it clears
+  the cached pages and the queue.
+
 **Acceptance**
 
 - [ ] Marking a 30-student roster takes under 15 seconds on a mid-range Android

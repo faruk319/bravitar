@@ -4,6 +4,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/avatar";
+import { OfflineBanner, SyncBadge } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { NavGroup } from "@/lib/auth/nav";
@@ -98,12 +99,14 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
           <div className="min-w-0 flex-1 truncate text-heading md:hidden">{tenantName}</div>
           <CommandSearch />
           <div className="flex items-center gap-2 md:ml-auto">
+            <SyncBadge />
             <BranchSwitcher />
             <Link href="/me" aria-label="My account" className="rounded-full">
               <Avatar name={me} size="sm" />
             </Link>
           </div>
         </header>
+        <OfflineBanner />
         <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8">{children}</main>
       </div>
     </div>
