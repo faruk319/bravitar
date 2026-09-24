@@ -4,6 +4,7 @@ import { addDays, formatDate, todayIn } from "@/lib/dates";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { Paise } from "@/lib/money/paise";
 import type { Enrollment } from "@/modules/enrollments/schema";
+import { releaseInvoice } from "@/modules/payments/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { type Cycle, invoiceTotals, type LineDiscount, lineAmounts, recurringCharges } from "./billing";
 import {
@@ -208,16 +209,17 @@ async function retotal(tx: Tx, inv: Invoice, due: string): Promise<void> {
   });
 }
 
-// Void keeps the number (docs/04). With rebill, its charges are drafted again
-// from today's plans and discounts; without, they stay billed.
+// Void keeps the number (docs/04). Money on it goes back to the family's
+// advance (docs/03 §6). With rebill, its charges are drafted again from today's
+// plans and discounts; without, they stay billed.
 export async function voidAndRebill(tx: Tx, actor: Actor, id: string, reason: string, rebill: boolean, now?: Date): Promise<Invoice> {
   await lockInvoicing(tx, actor.tenantId);
   const inv = await getInvoice(tx, [], id);
   if (!inv) throw new NotFoundError("Invoice");
   if (inv.status === "void") throw new ConflictError("Already void");
-  if (inv.paidPaise > 0n) throw new ConflictError("This invoice has payments");
+  const released = await releaseInvoice(tx, actor, inv);
   const after = await updateInvoice(tx, id, { status: "void", voidReason: reason });
-  await writeAudit(tx, { ...actor, action: "invoice.void", entityType: "invoice", entityId: id, before: { status: inv.status, number: inv.number }, after: { reason, rebill } });
+  await writeAudit(tx, { ...actor, action: "invoice.void", entityType: "invoice", entityId: id, before: { status: inv.status, number: inv.number }, after: { reason, rebill, releasedPaise: String(released) } });
   const lines = rebill ? await linesOf(tx, [id]) : [];
   const keys = new Set(lines.flatMap((l) => (l.billingKey ? [l.billingKey] : [])));
   if (keys.size) {
@@ -227,8 +229,9 @@ export async function voidAndRebill(tx: Tx, actor: Actor, id: string, reason: st
   return after;
 }
 
-// After a batch is left or moved: unpaid invoices billing it for after the last
-// day are voided and drafted again without it. Term installments stay.
+// After a batch is left or moved: invoices billing it for after the last day are
+// voided, their money going to the family's advance, and drafted again without
+// it. Term installments stay (docs/03 §6).
 export async function endCharges(tx: Tx, actor: Actor, enrollmentIds: string[], now?: Date): Promise<void> {
   for (const hit of await invoicesAfterEnd(tx, enrollmentIds)) {
     const reason = `${hit.studentName} ${hit.moved ? "moved from" : "left"} ${hit.batchName}, last day ${formatDate(hit.lastDay)}`;

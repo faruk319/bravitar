@@ -253,52 +253,57 @@ unless marked.
 
 **Recording and allocation**
 
-- [ ] ₹1,500 invoice, pay ₹800 then ₹700 → paid, zero balance
-- [ ] ₹1,000 against a ₹1,500 invoice → `part_paid`, ₹500 outstanding
-- [ ] ₹3,000 payment across two ₹1,500 invoices for two siblings
-- [ ] ₹2,000 payment on a ₹1,500 invoice → ₹500 household advance
-- [ ] ₹5,000 against ₹3,000 of invoices → ₹2,000 advance, visible on the family
-- [ ] No allocation given → oldest due date first, then invoice number
-- [ ] Invoices picked by hand → only those; the rest is advance
-- [ ] Allocations above the payment, or above an invoice's balance → refused
-- [ ] A draft, void, paid, other family's or other branch's invoice → refused
-- [ ] Received date: today back to 7 days; future or before the financial year → refused
-- [ ] Advance auto-applied to next month's invoice when it is issued
-- [ ] Voiding an invoice with ₹800 on it → ₹800 advance, receipt unchanged, audited
-- [ ] The same request id twice, also at the same moment → one payment, one number
-- [ ] Two payments for one invoice at the same moment → never paid above its total
+- [x] ₹1,500 invoice, pay ₹800 then ₹700 → paid, zero balance
+- [x] ₹1,000 against a ₹1,500 invoice → `part_paid`, ₹500 outstanding
+- [x] ₹3,000 payment across two ₹1,500 invoices for two siblings
+- [x] ₹2,000 payment on a ₹1,500 invoice → ₹500 household advance
+- [x] ₹5,000 against ₹3,000 of invoices → ₹2,000 advance, visible on the family
+- [x] No allocation given → oldest due date first, then invoice number
+- [x] Invoices picked by hand → only those; the rest is advance
+- [x] Allocations above the payment, or above an invoice's balance → refused
+- [x] A draft, void, paid, other family's or other branch's invoice → refused
+- [x] Received date: today back to 7 days; future or before the financial year → refused
+- [x] Advance auto-applied to next month's invoice when it is issued
+- [x] Voiding an invoice with ₹800 on it → ₹800 advance, receipt unchanged, audited
+- [x] Leaving after the family paid → that invoice is voided all the same, its
+      money becomes advance and pays the sibling's redraft when issued (fees tests)
+- [x] The same request id twice, also at the same moment → one payment, one number
+- [x] Two payments for one invoice at the same moment → never paid above its total
 
 **Receipts and numbering**
 
-- [ ] Concurrent receipt creation from two sessions → no duplicate number
-- [ ] 50 concurrent payments → numbers 0001–0050, no gaps, no duplicates
-- [ ] A payment that fails and rolls back leaves no gap
-- [ ] The receipt shows what the payment paid when it was recorded
+- [x] Concurrent receipt creation from two sessions → no duplicate number
+- [x] 50 concurrent payments → 50 consecutive numbers, no duplicates; the year's
+      receipts run from 0001 with no gap, cancelled ones included
+- [x] A payment that fails and rolls back leaves no gap
+- [x] The receipt shows what the payment paid when it was recorded
 
 **Cancel and refund**
 
-- [ ] Cancel on the day → number kept, invoices reopened, off the day's total, audited
-- [ ] Cancel on a later day → refused; someone else's needs `fees:refund`
-- [ ] Refund of ₹500 on a paid ₹1,500 invoice → status back to `part_paid`
-- [ ] A refund comes out of the unused advance first
-- [ ] A refund above what is left on the payment → refused
-- [ ] Refunding does not change the original receipt
-- [ ] Refund without `fees:refund` → 403
+- [x] Cancel on the day → number kept, invoices reopened, audited
+- [x] Cancel on a later day → refused; someone else's needs `fees:refund`
+- [x] Cancel once part of it is refunded → refused
+- [x] Refund of ₹500 on a paid ₹1,500 invoice → status back to `part_paid`
+- [x] A refund comes out of the unused advance first, then a picked invoice
+- [x] A refund above what is left on the payment → refused
+- [x] Refunding does not change the original receipt
+- [x] Refund without `fees:refund` → 403
 
 **Collection sheet**
 
 - [ ] Day's collection total equals the sum of payments to the paisa
 - [ ] Split by method and by collector; cancelled receipts listed, not counted
+      (a cancel takes the payment off the day's total)
 - [ ] Cash in hand = cash collected − cash refunded that day
 - [ ] A payment at 23:50 IST counts on that IST day, not the UTC one
 - [ ] A back-dated payment counts on the day it was recorded
 
 **After every scenario above**
 
-- [ ] `invoices.paid_paise` = the sum of that invoice's allocations
-- [ ] A payment's allocations plus refunds ≤ its amount
-- [ ] Status matches paid against total (also a database check)
-- [ ] Payments, allocations and refunds: tenant isolation (`pnpm test:isolation`)
+- [x] `invoices.paid_paise` = the sum of that invoice's allocations
+- [x] A payment's allocations plus refunds ≤ its amount
+- [x] Status matches paid against total (also a database check)
+- [x] Payments, allocations and refunds: tenant isolation (`pnpm test:isolation`)
 - [x] At the database: a payment's amount, method, dates and number cannot be
       updated; allocations and refunds are append-only; checks on sign, reason,
       cancel and invoice status (migration 0015)

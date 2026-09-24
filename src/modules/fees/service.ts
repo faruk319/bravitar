@@ -9,6 +9,7 @@ import { type Paise, sum } from "@/lib/money/paise";
 import { getProgram, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
+import { applyAdvance } from "@/modules/payments/service";
 import { getHousehold } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
@@ -282,6 +283,9 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
     await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise) } });
     issued.push(inv);
   }
+  // A family's advance pays what was just issued, oldest first (docs/03 §9).
+  const families = new Map(issued.map((i) => [`${i.householdId}|${i.branchId}`, i] as const));
+  for (const i of families.values()) await applyAdvance(tx, actor(ctx), i.householdId, i.branchId);
   return issued;
 }
 
@@ -297,12 +301,12 @@ export async function voidInvoice(tx: Tx, ctx: ScopedCtx, id: string, input: z.i
 export type DueInstallment = OpenInstallment & { voidable: boolean };
 
 // Installments stay due when a student leaves (docs/03 §6); the leave screens list
-// them. Until payments land (Prompt 15), only an unpaid one can be voided.
+// them. Voiding one with money on it moves the money to the family's advance.
 export async function installmentsDue(tx: Tx, ctx: ScopedCtx, studentId: string): Promise<DueInstallment[]> {
   assertCan(ctx, "invoices:read");
   await requireStudent(tx, ctx, studentId);
   const canVoid = allows(ctx, "invoices:manage");
-  return (await openInstallments(tx, ctx.branchIds, studentId)).map((i) => ({ ...i, voidable: canVoid && i.paidPaise === 0n }));
+  return (await openInstallments(tx, ctx.branchIds, studentId)).map((i) => ({ ...i, voidable: canVoid }));
 }
 
 export async function studentFees(tx: Tx, ctx: ScopedCtx, studentId: string, opts: { now?: Date } = {}): Promise<{ today: string; discounts: GivenDiscount[]; invoices: InvoiceRow[] }> {

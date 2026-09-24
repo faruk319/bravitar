@@ -204,9 +204,8 @@ export async function clearKeys(tx: Tx, invoiceId: string): Promise<void> {
   await tx.update(invoiceLines).set({ billingKey: null }).where(eq(invoiceLines.invoiceId, invoiceId));
 }
 
-// Unpaid invoices billing a recurring plan for after an enrollment's last day.
-// Installments are never voided here (docs/03 §6). TODO(Prompt 15): paid ones
-// too, their money going to the household advance.
+// Invoices billing a recurring plan for after an enrollment's last day, paid or
+// not. Installments are never voided here (docs/03 §6).
 export async function invoicesAfterEnd(tx: Tx, enrollmentIds: string[]): Promise<{ invoice: Invoice; studentName: string; batchName: string; moved: boolean; lastDay: string }[]> {
   if (!enrollmentIds.length) return [];
   const rows = await tx
@@ -223,8 +222,7 @@ export async function invoicesAfterEnd(tx: Tx, enrollmentIds: string[]): Promise
         eq(feePlans.kind, "recurring"),
         isNotNull(enrollments.endDate),
         gt(invoiceLines.periodStart, enrollments.endDate),
-        inArray(invoices.status, ["draft", "issued"]),
-        eq(invoices.paidPaise, 0n),
+        inArray(invoices.status, ["draft", "issued", "part_paid", "paid"]),
       ),
     )
     .orderBy(invoices.id);

@@ -417,8 +417,8 @@ invoice creation, bulk invoice generation preview.
   goes past the fee, and prints as its own line. Ending one stops it from today.
 - GST only with a GSTIN, per line on the fee after discount.
 - Void keeps the number; the charges stay billed unless "Bill it again" is ticked.
-  Leaving a batch voids unpaid invoices for later periods and drafts the rest
-  again; installments stay due (§6). Voiding an invoice with money on it moves
+  Leaving a batch voids invoices for later periods, paid or not, and drafts the
+  rest again; installments stay due (§6). Voiding an invoice with money on it moves
   that money to the household advance (§6). A ₹0 invoice is paid on issue.
 
 **Acceptance**

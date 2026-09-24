@@ -7,11 +7,13 @@ import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
+import { uuidv7 } from "@/lib/ids";
 import { financialYear } from "@/lib/money/fy";
 import { roundHalfUp, sum } from "@/lib/money/paise";
 import { addProgram, createBatch, editBatch } from "@/modules/batches/service";
 import { enrollments } from "@/modules/enrollments/schema";
 import { enroll, leaveEnrollment, pauseEnrollment, setEnrollmentPlan, transferEnrollment } from "@/modules/enrollments/service";
+import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
@@ -300,6 +302,29 @@ describe("leaving and moving", () => {
     expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Zaid"]);
   });
 
+  it("leaving voids a paid invoice all the same: its money becomes the family's advance and pays the redraft when that is issued", async () => {
+    const f = await family("Meera", "Arjun");
+    const [meera, arjun] = [await join(f.ids[0] ?? "", "Karate A", addMonths(M0, -1)), await join(f.ids[1] ?? "", "Karate A", addMonths(M0, -1))];
+    expect(await gen(M0, [meera, arjun])).toEqual({ invoices: 1, lines: 2 });
+    const [inv] = await withTenant(T, async (tx) => issueInvoices(tx, owner, [(await invoicesOf(f.householdId))[0]?.id ?? ""], { now: at(M0) }));
+    const branchId = inv?.branchId ?? "";
+    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "160000" }));
+    expect((await invoicesOf(f.householdId))[0]).toMatchObject({ status: "paid", paidPaise: 160000n });
+    const advance = async () => (await withTenant(T, (tx) => familyAccount(tx, owner, f.householdId, branchId))).advancePaise;
+
+    await withTenant(T, (tx) => leaveEnrollment(tx, owner, meera, { date: addDays(M0, -1) }));
+    const [voided, redraft] = await invoicesOf(f.householdId);
+    expect(voided).toMatchObject({ id: inv?.id, status: "void", paidPaise: 0n, number: inv?.number });
+    expect(redraft).toMatchObject({ status: "draft", totalPaise: 80000n });
+    expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Arjun"]);
+    expect(await advance()).toBe(160000n);
+    expect(await actions(inv?.id ?? "")).toEqual(expect.arrayContaining(["invoice.void", "payment.release"]));
+
+    await withTenant(T, (tx) => issueInvoices(tx, owner, [redraft?.id ?? ""]));
+    expect((await invoicesOf(f.householdId))[1]).toMatchObject({ id: redraft?.id, status: "paid", paidPaise: 80000n });
+    expect(await advance()).toBe(80000n);
+  });
+
   it("a term student who leaves after paying installment 1 keeps 2 and 3 issued and unchanged; the leave screen lists both as voidable", async () => {
     const f = await family("Tanvi");
     const student = f.ids[0] ?? "";
@@ -307,8 +332,11 @@ describe("leaving and moving", () => {
     await gen(M0, [e]);
     await withTenant(T, async (tx) => issueInvoices(tx, owner, (await invoicesOf(f.householdId)).map((i) => i.id), { now: at(M0) }));
     const [first, second, third] = await invoicesOf(f.householdId);
-    // Stand-in until payments exist (Prompt 15): installment 1 paid in full.
-    await withTenant(T, (tx) => tx.update(invoices).set({ paidPaise: first?.totalPaise ?? 0n, status: "paid" }).where(eq(invoices.id, first?.id ?? "")));
+    // Installment 1 paid in full.
+    const full = String(first?.totalPaise ?? 0n);
+    await withTenant(T, (tx) =>
+      recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId: first?.branchId ?? "", amountPaise: full, allocations: [{ invoiceId: first?.id ?? "", amountPaise: full }] }),
+    );
     const snapshot = async () => Promise.all([second, third].map(async (i) => ({ invoice: (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, i?.id ?? ""))))[0], lines: await linesOn(i?.id ?? "") })));
     const before = await snapshot();
 
