@@ -328,7 +328,7 @@ unless marked.
       the link closed
 - [x] `refund.processed` → refund recorded once, invoice reopens; staff can't
       refund or cancel an online payment
-- [ ] Reconciliation: a link paid while its webhook was lost is recorded on the
+- [x] Reconciliation: a link paid while its webhook was lost is recorded on the
       next run, once
 - [x] The academy's credential resolver never falls back to anything but its own row
 

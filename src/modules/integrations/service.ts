@@ -27,7 +27,7 @@ export function razorpayMessage(e: unknown): string {
   if (!(e instanceof RazorpayError)) throw e;
   if (e.kind === "auth") return "Razorpay didn't accept these keys. Check the key id and secret in your Razorpay dashboard.";
   if (e.kind === "network") return "Couldn't reach Razorpay. Try again in a minute.";
-  return `Razorpay: ${e.message}`;
+  return `Razorpay said: ${e.message}`;
 }
 
 export type RazorpayStatus = { connected: boolean; keyId: string | null; mode: "test" | "live" | null; connectedAt: Date | null; lastError: string | null; lastWebhookAt: Date | null };

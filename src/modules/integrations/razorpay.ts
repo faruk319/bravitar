@@ -64,7 +64,7 @@ export const httpRazorpay: RazorpayApi = ({ keyId, keySecret }) => {
     }
     if (res.status === 401) throw new RazorpayError("auth", "Razorpay didn't accept these keys");
     const json = (await res.json().catch(() => ({}))) as T & { error?: { description?: string } };
-    if (!res.ok) throw new RazorpayError("api", json.error?.description ?? `Razorpay answered ${res.status}`);
+    if (!res.ok) throw new RazorpayError("api", json.error?.description ?? `the request was refused (HTTP ${res.status})`);
     return json;
   }
   return {

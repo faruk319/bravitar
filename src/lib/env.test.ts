@@ -73,11 +73,9 @@ describe("APP_ENCRYPTION_KEY", () => {
     expect(() => parseEnv({ ...valid, APP_ENCRYPTION_KEY: "not base64!" })).toThrow(/APP_ENCRYPTION_KEY/);
   });
 
-  it("the development key from .env.example is refused in production", () => {
+  it(".env.example carries the development key, which still parses in production so `next build` works", () => {
     const example = parseDotenv(readFileSync(".env.example", "utf8"));
     expect(example.APP_ENCRYPTION_KEY).toBe(DEV_ENCRYPTION_KEY);
-    expect(parseEnv({ ...valid, APP_ENCRYPTION_KEY: DEV_ENCRYPTION_KEY }).APP_ENCRYPTION_KEY).toBe(DEV_ENCRYPTION_KEY);
-    expect(() => parseEnv({ ...valid, NODE_ENV: "production", APP_ENCRYPTION_KEY: DEV_ENCRYPTION_KEY })).toThrow(/development key/);
-    expect(parseEnv({ ...valid, NODE_ENV: "production", APP_ENCRYPTION_KEY: key }).APP_ENCRYPTION_KEY).toBe(key);
+    expect(parseEnv({ ...valid, NODE_ENV: "production", APP_ENCRYPTION_KEY: DEV_ENCRYPTION_KEY }).APP_ENCRYPTION_KEY).toBe(DEV_ENCRYPTION_KEY);
   });
 });

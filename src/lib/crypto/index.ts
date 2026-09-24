@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { getEnv } from "@/lib/env";
+import { DEV_ENCRYPTION_KEY, getEnv } from "@/lib/env";
 
 // CLAUDE.md rule 9: an academy's Razorpay and WhatsApp secrets are sealed at
 // rest with the app key. AES-256-GCM, with the owner (tenant and kind) bound as
@@ -9,14 +9,16 @@ import { getEnv } from "@/lib/env";
 const VERSION = 1;
 const HEAD = 1 + 12 + 16;
 
-export function keyFrom(base64: string | undefined): Buffer {
+// The development key from .env.example never seals a real academy's secrets.
+export function keyFrom(base64: string | undefined, nodeEnv = "development"): Buffer {
   if (!base64) throw new Error("APP_ENCRYPTION_KEY is not set; it is needed to store an academy's integration keys");
+  if (nodeEnv === "production" && base64 === DEV_ENCRYPTION_KEY) throw new Error("APP_ENCRYPTION_KEY is the development key from .env.example; set a real one for production");
   const key = Buffer.from(base64, "base64");
   if (key.length !== 32) throw new Error("APP_ENCRYPTION_KEY must be 32 bytes, base64");
   return key;
 }
 
-const appKey = () => keyFrom(getEnv().APP_ENCRYPTION_KEY);
+const appKey = () => keyFrom(getEnv().APP_ENCRYPTION_KEY, getEnv().NODE_ENV);
 
 // `owner` names whose secret it is, e.g. "tenant:<uuid>:razorpay".
 export function seal(plain: string, owner: string, key: Buffer = appKey()): Buffer {

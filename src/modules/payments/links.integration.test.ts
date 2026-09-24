@@ -17,8 +17,9 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { reconcileLinks, runPaymentsReconcile } from "./job";
 import { paymentLinkFor } from "./links";
-import { paymentLinks } from "./schema";
+import { paymentLinks, payments } from "./schema";
 import { recordPayment } from "./service";
 
 // docs/04 test list, Razorpay: payment links (docs/03 §9, agreed 2026-09-25).
@@ -143,5 +144,50 @@ describe("payment links", () => {
   it("another academy's invoice is not found", async () => {
     const other = await bill(await family(U, ownerU), 800, U);
     await expect(link(other.id)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("the hourly check for lost webhooks", () => {
+  const later = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+  const reconcile = (minutes: number) => withTenant(T, (tx) => reconcileLinks(tx, { api: rzp.api, now: later(minutes) }));
+
+  it("records a link paid while its webhook was lost, once, and closes it", async () => {
+    const inv = await bill(await family(), 1100);
+    await link(inv.id);
+    const [row] = await linksOf(inv.id);
+    rzp.pay(row?.gatewayLinkId ?? "", `pay_lost_${stamp}`);
+    const first = await reconcile(31);
+    expect(first.recorded).toBeGreaterThanOrEqual(1);
+    const [p] = await withTenant(T, (tx) => tx.select().from(payments).where(eq(payments.gatewayPaymentId, `pay_lost_${stamp}`)));
+    expect(p).toMatchObject({ method: "online", amountPaise: 110000n });
+    const [inv2] = await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, inv.id)));
+    expect(inv2?.status).toBe("paid");
+    expect((await linksOf(inv.id)).map((l) => l.status)).toEqual(["paid"]);
+    expect((await reconcile(90)).recorded).toBe(0);
+  });
+
+  it("leaves links younger than 30 minutes alone, and closes ones Razorpay cancelled", async () => {
+    const inv = await bill(await family(), 600);
+    await link(inv.id);
+    const [row] = await linksOf(inv.id);
+    const calls = rzp.calls.length;
+    await reconcile(5);
+    expect(rzp.calls.slice(calls)).not.toContain("fetchLink");
+    const l = rzp.links.get(row?.gatewayLinkId ?? "");
+    if (l) l.status = "expired";
+    await reconcile(45);
+    expect((await linksOf(inv.id)).map((x) => x.status)).toEqual(["expired"]);
+  });
+
+  it("keeps going when Razorpay can't be reached, and runs per academy", async () => {
+    const inv = await bill(await family(), 650);
+    await link(inv.id);
+    rzp.down = true;
+    const r = await reconcile(40);
+    rzp.down = false;
+    expect(r.unreachable).toBeGreaterThanOrEqual(1);
+    expect((await linksOf(inv.id)).map((x) => x.status)).toEqual(["created"]);
+    const run = await runPaymentsReconcile({ api: rzp.api, now: later(40), tenantIds: [T, U] });
+    expect(run).toMatchObject({ tenants: 2, ok: 2, failed: [] });
   });
 });

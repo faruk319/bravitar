@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { DEV_ENCRYPTION_KEY } from "@/lib/env";
 import { keyFrom, open, seal, signatureMatches } from "./index";
 
 const key = randomBytes(32);
@@ -31,6 +32,12 @@ describe("seal and open", () => {
     expect(() => keyFrom(undefined)).toThrow("APP_ENCRYPTION_KEY is not set");
     expect(() => keyFrom(randomBytes(16).toString("base64"))).toThrow("32 bytes");
     expect(keyFrom(key.toString("base64")).equals(key)).toBe(true);
+  });
+
+  it("won't use the development key from .env.example in production", () => {
+    expect(keyFrom(DEV_ENCRYPTION_KEY, "development")).toHaveLength(32);
+    expect(() => keyFrom(DEV_ENCRYPTION_KEY, "production")).toThrow("development key");
+    expect(keyFrom(key.toString("base64"), "production").equals(key)).toBe(true);
   });
 });
 

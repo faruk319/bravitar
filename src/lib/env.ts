@@ -4,7 +4,8 @@ import { z } from "zod";
 // bypass RLS, app_platform is exempt and used only inside withPlatformAdmin().
 const pgUrl = z.url({ protocol: /^postgres(ql)?$/ });
 
-// The key in .env.example: fine on a laptop and in CI, refused in production.
+// The key in .env.example: fine on a laptop, in CI and for `next build`; src/lib/crypto
+// refuses to seal or open with it in production.
 export const DEV_ENCRYPTION_KEY = "A5LvtfaJNQU/QxUY21sSd81bAclD0fIUaNhDnXhjuF4=";
 const base64Key = z
   .string()
@@ -42,20 +43,8 @@ const distinctUrls = (e: { [K in UrlKeys]?: string | undefined }, ctx: z.Refinem
   }
 };
 
-const noDevKeyInProduction = (e: { NODE_ENV: string; APP_ENCRYPTION_KEY?: string | undefined }, ctx: z.RefinementCtx) => {
-  if (e.NODE_ENV === "production" && e.APP_ENCRYPTION_KEY === DEV_ENCRYPTION_KEY) {
-    ctx.addIssue({ code: "custom", path: ["APP_ENCRYPTION_KEY"], message: "is the development key from .env.example; generate a new one for production" });
-  }
-};
-
-const appSchema = z
-  .object(shape)
-  .superRefine(distinctUrls)
-  .superRefine(noDevKeyInProduction);
-const migratorSchema = z
-  .object({ ...shape, DATABASE_URL_MIGRATOR: pgUrl })
-  .superRefine(distinctUrls)
-  .superRefine(noDevKeyInProduction);
+const appSchema = z.object(shape).superRefine(distinctUrls);
+const migratorSchema = z.object({ ...shape, DATABASE_URL_MIGRATOR: pgUrl }).superRefine(distinctUrls);
 
 export type Env = z.infer<typeof appSchema>;
 export type MigratorEnv = z.infer<typeof migratorSchema>;
