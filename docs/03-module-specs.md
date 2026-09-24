@@ -489,6 +489,35 @@ advance), payment list, daily collection sheet, receipt PDF, refund.
   WhatsApp (Prompt 17), the UPI screenshot (needs file storage), and adjustment
   entries that move money between a family's invoices.
 
+**Agreed 2026-09-25** (Razorpay, `src/modules/integrations/`, slice 17)
+
+- The owner (`integrations:manage`) pastes the academy's own key id, key secret
+  and webhook secret in Settings. Saving checks the keys with Razorpay first. The
+  secrets are sealed with the app key (`src/lib/crypto`), never shown again and
+  never logged. Test keys (`rzp_test_`) are labelled test mode.
+- Anyone who can collect (`fees:collect`) makes a payment link from an invoice,
+  for its balance, paid in full (no part payments on a link). One live link per
+  invoice: the same balance reuses it; a changed balance cancels it in Razorpay
+  and makes a new one.
+- Staff share the link: Copy, or Share on WhatsApp, which opens WhatsApp on their
+  phone with the message filled in. Sending it for them comes with Prompt 17.
+- Razorpay's webhook comes to `/api/webhooks/razorpay/<academy>`. The signature
+  is checked with that academy's webhook secret before anything is read; each
+  event is stored once per academy by Razorpay's event id and handled in the same
+  transaction.
+- A paid link becomes a payment: method Online, no collector, the next receipt
+  number, received on the day Razorpay captured it and counted on the day it is
+  recorded. It pays the link's invoice up to its balance; anything over is the
+  family's advance. `payment.captured` and `payment_link.paid` may come in either
+  order: the Razorpay payment id makes it one payment.
+- Online payments are refunded in the Razorpay dashboard; its refund webhook
+  records the refund here (advance first, then the invoice reopens), once per
+  Razorpay refund id. They are never cancelled or refunded from this app.
+- Every hour, links still unpaid after 30 minutes are checked with Razorpay, so a
+  lost webhook still records the payment.
+- None of this is our own SaaS billing: it only ever reads the academy's own
+  integration row, never a key from the environment.
+
 **Acceptance**
 
 - [ ] ₹1,000 paid against a ₹1,500 invoice leaves status `part_paid` and

@@ -4,6 +4,12 @@ import { z } from "zod";
 // bypass RLS, app_platform is exempt and used only inside withPlatformAdmin().
 const pgUrl = z.url({ protocol: /^postgres(ql)?$/ });
 
+// The key in .env.example: fine on a laptop and in CI, refused in production.
+export const DEV_ENCRYPTION_KEY = "A5LvtfaJNQU/QxUY21sSd81bAclD0fIUaNhDnXhjuF4=";
+const base64Key = z
+  .string()
+  .refine((k) => /^[A-Za-z0-9+/]+={0,2}$/.test(k) && Buffer.from(k, "base64").length === 32, "must be 32 random bytes, base64");
+
 const shape = {
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: pgUrl,
@@ -13,6 +19,9 @@ const shape = {
   APP_PLATFORM_PASSWORD: z.string().optional(),
   // Host tenants log in on: <slug>.<APP_DOMAIN>
   APP_DOMAIN: z.string().default("localhost:3000"),
+  // Seals each academy's integration secrets (src/lib/crypto). Needed only once
+  // someone connects Razorpay; the app starts without it.
+  APP_ENCRYPTION_KEY: base64Key.optional(),
 };
 
 type UrlKeys = "DATABASE_URL" | "DATABASE_URL_PLATFORM" | "DATABASE_URL_MIGRATOR";
@@ -33,8 +42,20 @@ const distinctUrls = (e: { [K in UrlKeys]?: string | undefined }, ctx: z.Refinem
   }
 };
 
-const appSchema = z.object(shape).superRefine(distinctUrls);
-const migratorSchema = z.object({ ...shape, DATABASE_URL_MIGRATOR: pgUrl }).superRefine(distinctUrls);
+const noDevKeyInProduction = (e: { NODE_ENV: string; APP_ENCRYPTION_KEY?: string | undefined }, ctx: z.RefinementCtx) => {
+  if (e.NODE_ENV === "production" && e.APP_ENCRYPTION_KEY === DEV_ENCRYPTION_KEY) {
+    ctx.addIssue({ code: "custom", path: ["APP_ENCRYPTION_KEY"], message: "is the development key from .env.example; generate a new one for production" });
+  }
+};
+
+const appSchema = z
+  .object(shape)
+  .superRefine(distinctUrls)
+  .superRefine(noDevKeyInProduction);
+const migratorSchema = z
+  .object({ ...shape, DATABASE_URL_MIGRATOR: pgUrl })
+  .superRefine(distinctUrls)
+  .superRefine(noDevKeyInProduction);
 
 export type Env = z.infer<typeof appSchema>;
 export type MigratorEnv = z.infer<typeof migratorSchema>;

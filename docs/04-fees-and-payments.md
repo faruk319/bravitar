@@ -311,11 +311,29 @@ unless marked.
       updated; allocations and refunds are append-only; checks on sign, reason,
       cancel and invoice status (migration 0015)
 
+**Razorpay (Prompt 16, slice 17)**, rules in docs/03 §9 agreed 2026-09-25
+
+- [ ] Keys sealed at rest: no secret in plain text in the database; a sealed blob
+      copied to another academy's row does not open
+- [ ] Saving keys checks them with Razorpay first; wrong keys refused; only
+      `integrations:manage`; audited without the secrets
+- [ ] Payment link for the balance; the same balance reuses it; a changed balance
+      cancels the old link and makes a new one; paid, void and draft invoices
+      refused; needs `fees:collect` and a connected account
+- [ ] Webhook with a bad or missing signature → refused, nothing stored
+- [ ] Duplicate webhook → exactly one payment
+- [ ] `payment.captured` arriving before `payment_link.paid` → one payment
+- [ ] Tenant A's Razorpay webhook cannot create a payment in tenant B
+- [ ] A paid link: receipt numbered, invoice paid, anything over kept as advance,
+      the link closed
+- [ ] `refund.processed` → refund recorded once, invoice reopens; staff can't
+      refund or cancel an online payment
+- [ ] Reconciliation: a link paid while its webhook was lost is recorded on the
+      next run, once
+- [ ] The academy's credential resolver never falls back to anything but its own row
+
 **Later**
 
-- [ ] Duplicate webhook → exactly one payment (Prompt 16)
-- [ ] `payment.captured` arriving before `payment_link.paid` → one payment (Prompt 16)
-- [ ] Tenant A's Razorpay webhook cannot create a payment in tenant B (Prompt 16)
 - [ ] Late fee applied once, not once per reminder run. Not scheduled: late fees
       aren't built, and docs/03 §8 adds a line to an issued invoice, which §8
       also forbids. Decide that first.

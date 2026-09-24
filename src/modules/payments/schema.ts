@@ -53,6 +53,7 @@ export const refunds = app.table("refunds", {
   refundedOn: date("refunded_on").notNull(),
   approvedBy: uuid("approved_by").references(() => staffUsers.id),
   refundedAt: timestamp("refunded_at", { withTimezone: true }).notNull().defaultNow(),
+  gatewayRefundId: text("gateway_refund_id"), // rfnd_..., for refunds made in Razorpay (migration 0016)
 });
 
 export const paymentAllocations = app.table("payment_allocations", {
@@ -67,6 +68,24 @@ export const paymentAllocations = app.table("payment_allocations", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const LINK_STATUSES = ["created", "paid", "cancelled", "expired"] as const;
+export type LinkStatus = (typeof LINK_STATUSES)[number];
+
+// A Razorpay payment link for an invoice (migration 0016); our id is its reference_id.
+export const paymentLinks = app.table("payment_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id),
+  gatewayLinkId: text("gateway_link_id").notNull(),
+  shortUrl: text("short_url").notNull(),
+  amountPaise: paise("amount_paise").notNull(),
+  status: text("status", { enum: LINK_STATUSES }).notNull().default("created"),
+  createdBy: uuid("created_by").references(() => staffUsers.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+});
+
 export type Payment = typeof payments.$inferSelect;
+export type PaymentLink = typeof paymentLinks.$inferSelect;
 export type Refund = typeof refunds.$inferSelect;
 export type PaymentAllocation = typeof paymentAllocations.$inferSelect;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { assertNoServiceRoleKey, parseEnv, parseMigratorEnv } from "./env";
+import { readFileSync } from "node:fs";
+import { parseEnv as parseDotenv } from "node:util";
+import { assertNoServiceRoleKey, DEV_ENCRYPTION_KEY, parseEnv, parseMigratorEnv } from "./env";
 
 const valid = {
   DATABASE_URL: "postgresql://app_runtime.pooler-dev:x@127.0.0.1:54329/postgres",
@@ -58,5 +60,24 @@ describe("parseMigratorEnv", () => {
     const env = parseMigratorEnv({ ...valid, APP_RUNTIME_PASSWORD: "a", APP_PLATFORM_PASSWORD: "b" });
     expect(env.APP_RUNTIME_PASSWORD).toBe("a");
     expect(env.APP_PLATFORM_PASSWORD).toBe("b");
+  });
+});
+
+describe("APP_ENCRYPTION_KEY", () => {
+  const key = Buffer.alloc(32, 7).toString("base64");
+
+  it("is optional, and when given must be 32 bytes of base64", () => {
+    expect(parseEnv(valid).APP_ENCRYPTION_KEY).toBeUndefined();
+    expect(parseEnv({ ...valid, APP_ENCRYPTION_KEY: key }).APP_ENCRYPTION_KEY).toBe(key);
+    expect(() => parseEnv({ ...valid, APP_ENCRYPTION_KEY: Buffer.alloc(16).toString("base64") })).toThrow(/APP_ENCRYPTION_KEY/);
+    expect(() => parseEnv({ ...valid, APP_ENCRYPTION_KEY: "not base64!" })).toThrow(/APP_ENCRYPTION_KEY/);
+  });
+
+  it("the development key from .env.example is refused in production", () => {
+    const example = parseDotenv(readFileSync(".env.example", "utf8"));
+    expect(example.APP_ENCRYPTION_KEY).toBe(DEV_ENCRYPTION_KEY);
+    expect(parseEnv({ ...valid, APP_ENCRYPTION_KEY: DEV_ENCRYPTION_KEY }).APP_ENCRYPTION_KEY).toBe(DEV_ENCRYPTION_KEY);
+    expect(() => parseEnv({ ...valid, NODE_ENV: "production", APP_ENCRYPTION_KEY: DEV_ENCRYPTION_KEY })).toThrow(/development key/);
+    expect(parseEnv({ ...valid, NODE_ENV: "production", APP_ENCRYPTION_KEY: key }).APP_ENCRYPTION_KEY).toBe(key);
   });
 });

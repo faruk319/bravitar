@@ -776,6 +776,11 @@ CREATE TABLE webhook_events (
   error         text,
   UNIQUE (provider, provider_event_id)   -- this unique index IS the idempotency
 );
+-- Built with tenant_id (agreed 2026-09-25, migration 0016): a payload is the
+-- academy's data, so RLS applies; unique (tenant_id, provider, provider_event_id);
+-- only processed_at and error are ever updated. Came with it: payment_links (one
+-- live Razorpay link per invoice; only status and closed_at change) and
+-- refunds.gateway_refund_id (a Razorpay refund recorded once).
 
 CREATE TABLE files (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

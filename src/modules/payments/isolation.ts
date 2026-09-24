@@ -4,7 +4,7 @@ import { uuidv7 } from "@/lib/ids";
 import { insertInvoice } from "@/modules/fees/repo";
 import { createHousehold } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
-import { type Payment, paymentAllocations, payments, refunds } from "./schema";
+import { type Payment, paymentAllocations, paymentLinks, payments, refunds } from "./schema";
 
 const stamp = () => Math.random().toString(36).slice(2, 8);
 
@@ -27,5 +27,10 @@ export const paymentFixtures: IsolationFixtures = {
     const p = await payment(tx, tenantId);
     const inv = await insertInvoice(tx, { tenantId, branchId: p.branchId, householdId: p.householdId, issueDate: "2026-01-01", dueDate: "2026-01-08" });
     return tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId, paymentId: p.id, invoiceId: inv.id, kind: "receipt", amountPaise: 100n });
+  },
+  payment_links: async (tx, tenantId) => {
+    const p = await payment(tx, tenantId);
+    const inv = await insertInvoice(tx, { tenantId, branchId: p.branchId, householdId: p.householdId, issueDate: "2026-01-01", dueDate: "2026-01-08" });
+    return tx.insert(paymentLinks).values({ id: uuidv7(), tenantId, invoiceId: inv.id, gatewayLinkId: `plink_${stamp()}`, shortUrl: "https://rzp.io/i/iso", amountPaise: 100n });
   },
 };
