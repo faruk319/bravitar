@@ -267,3 +267,18 @@ export async function familyContact(tx: Tx, householdId: string): Promise<Contac
   const [h] = await tx.select({ name: households.name }).from(households).where(eq(households.id, householdId));
   return { name: h?.name ?? "", phone: null };
 }
+
+export async function paymentByGatewayId(tx: Tx, gatewayPaymentId: string): Promise<Payment | undefined> {
+  const [p] = await tx.select().from(payments).where(eq(payments.gatewayPaymentId, gatewayPaymentId));
+  return p;
+}
+
+export async function refundByGatewayId(tx: Tx, gatewayRefundId: string): Promise<Refund | undefined> {
+  const [r] = await tx.select().from(refunds).where(eq(refunds.gatewayRefundId, gatewayRefundId));
+  return r;
+}
+
+export async function linkById(tx: Tx, id: string): Promise<PaymentLink | undefined> {
+  const [l] = await tx.select().from(paymentLinks).where(eq(paymentLinks.id, id));
+  return l;
+}

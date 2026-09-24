@@ -24,6 +24,7 @@ import {
   moveMoney,
   openInvoices,
   paidByPayment,
+  paymentByGatewayId,
   paymentByRequest,
   paymentMoney,
   paymentsOnInvoice,
@@ -33,6 +34,7 @@ import {
   receiptLines,
   receiptNames,
   receiptsOnInvoice,
+  refundByGatewayId,
   refundsOf,
   refundsOn,
   type SheetPayment,
@@ -51,6 +53,9 @@ const paise = z
   .transform((s) => BigInt(s))
   .refine((p) => p > 0n, "Enter an amount");
 const text = (p: Paise) => p.toString(); // audit JSON has no bigint
+
+// Agreed 2026-09-25: online payments are refunded in Razorpay and recorded from its webhook.
+export const ONLINE_REFUND = "Online payments are refunded in your Razorpay dashboard; the refund shows here by itself.";
 
 // What staff record by hand. Card and online payments come from the gateway (Prompt 16).
 export const HAND_METHODS = ["cash", "upi", "bank_transfer", "cheque"] as const;
@@ -187,6 +192,7 @@ export async function cancelPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
   await lockFamily(tx, found.householdId);
   const p = await lockPayment(tx, id);
   if (p.status === "cancelled") throw new ConflictError("Already cancelled");
+  if (p.method === "online") throw new ConflictError(ONLINE_REFUND);
   if (p.status !== "confirmed") throw new ConflictError("Only a confirmed payment can be cancelled");
   const { now, today } = await clock(tx, opts.now);
   if (p.recordedOn !== today) throw new ConflictError("Only on the day it was recorded. Refund it instead.");
@@ -224,6 +230,7 @@ export async function refundPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
   await lockFamily(tx, found.householdId);
   const p = await lockPayment(tx, id);
   if (p.status === "cancelled") throw new ConflictError("A cancelled payment can't be refunded");
+  if (p.method === "online") throw new ConflictError(ONLINE_REFUND);
   if (p.status !== "confirmed") throw new ConflictError("Nothing is left on this payment");
   const [{ allocated, refunded }, paid] = await Promise.all([paymentMoney(tx, id), paidByPayment(tx, id)]);
   if (data.invoiceId && !paid.some((x) => x.invoiceId === data.invoiceId)) throw new BadRequestError("This payment has nothing on that invoice");
@@ -414,4 +421,104 @@ export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string)
   assertCan(ctx, "invoices:read");
   if (!(await getInvoice(tx, ctx.branchIds, invoiceId))) throw new NotFoundError("Invoice");
   return receiptsOnInvoice(tx, invoiceId);
+}
+
+// ---- payments and refunds through Razorpay (docs/04 "Razorpay payment link flow")
+
+const system = (tenantId: string) => ({ actorType: "system" as const, tenantId });
+
+// A paid link, recorded once per Razorpay payment id whichever event brings it:
+// method Online, no collector, the next receipt number, received on the day
+// Razorpay captured it, counted on the day recorded. It pays the invoice up to
+// its balance; anything over is the family's advance.
+export async function recordGatewayPayment(
+  tx: Tx,
+  input: { invoiceId: string; gatewayPaymentId: string; amountPaise: Paise; capturedAt: Date },
+  opts: { now?: Date } = {},
+): Promise<{ payment: Payment; created: boolean }> {
+  const found = await getInvoice(tx, [], input.invoiceId);
+  if (!found) throw new NotFoundError("Invoice");
+  await lockFamily(tx, found.householdId);
+  const again = await paymentByGatewayId(tx, input.gatewayPaymentId);
+  if (again) return { payment: again, created: false };
+  if (input.amountPaise <= 0n) throw new BadRequestError("A payment needs an amount");
+  const inv = (await getInvoice(tx, [], input.invoiceId)) ?? found;
+  const { today, fyStartMonth } = await clock(tx, opts.now);
+  const { today: capturedOn } = await clock(tx, input.capturedAt);
+  const receivedOn = capturedOn < today ? capturedOn : today;
+  const open = inv.status === "issued" || inv.status === "part_paid" ? [{ invoiceId: inv.id, balance: inv.totalPaise - inv.paidPaise }] : [];
+  const split = oldestFirst(input.amountPaise, open);
+  const fy = financialYear(receivedOn, fyStartMonth);
+  const receiptNumber = await allocateNumber(tx, inv.tenantId, "receipt", fy);
+  const payment = await insertPayment(tx, {
+    tenantId: inv.tenantId,
+    branchId: inv.branchId,
+    householdId: inv.householdId,
+    receiptNumber,
+    fy,
+    method: "online",
+    amountPaise: input.amountPaise,
+    receivedOn,
+    recordedOn: today,
+    receivedBy: null,
+    reference: input.gatewayPaymentId,
+    gatewayPaymentId: input.gatewayPaymentId,
+  });
+  for (const s of split.shares) await moveMoney(tx, { tenantId: inv.tenantId, paymentId: payment.id, invoiceId: s.invoiceId, kind: "receipt", amountPaise: s.amountPaise, createdBy: null });
+  await writeAudit(tx, {
+    ...system(inv.tenantId),
+    action: "payment.create",
+    entityType: "payment",
+    entityId: payment.id,
+    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
+  });
+  return { payment, created: true };
+}
+
+// A refund made in the Razorpay dashboard, recorded once per Razorpay refund id:
+// out of the payment's advance first, then its invoices, which reopen. Returns
+// why nothing was recorded when the refund doesn't fit the books.
+export async function recordGatewayRefund(
+  tx: Tx,
+  input: { gatewayPaymentId: string; gatewayRefundId: string; amountPaise: Paise; refundedAt: Date },
+  opts: { now?: Date } = {},
+): Promise<{ refund?: Refund; problem?: string }> {
+  const found = await paymentByGatewayId(tx, input.gatewayPaymentId);
+  if (!found) return { problem: "not a payment recorded here" };
+  await lockFamily(tx, found.householdId);
+  const again = await refundByGatewayId(tx, input.gatewayRefundId);
+  if (again) return { refund: again };
+  const p = await lockPayment(tx, found.id);
+  if (p.status !== "confirmed") return { problem: `the payment is ${p.status}` };
+  const [{ allocated, refunded }, paid] = await Promise.all([paymentMoney(tx, p.id), paidByPayment(tx, p.id)]);
+  let from: ReturnType<typeof refundFrom>;
+  try {
+    from = refundFrom(input.amountPaise, p.amountPaise - allocated - refunded, paid);
+  } catch (e) {
+    if (e instanceof BadRequestError) return { problem: e.message };
+    throw e;
+  }
+  const { today } = await clock(tx, opts.now);
+  const refund = await insertRefund(tx, {
+    tenantId: p.tenantId,
+    paymentId: p.id,
+    amountPaise: input.amountPaise,
+    method: "online",
+    reference: input.gatewayRefundId,
+    reason: "Refunded in Razorpay",
+    refundedOn: today,
+    approvedBy: null,
+    refundedAt: input.refundedAt,
+    gatewayRefundId: input.gatewayRefundId,
+  });
+  for (const s of from.fromInvoices) await moveMoney(tx, { tenantId: p.tenantId, paymentId: p.id, invoiceId: s.invoiceId, kind: "refund", amountPaise: -s.amountPaise, refundId: refund.id, createdBy: null });
+  if (refunded + input.amountPaise === p.amountPaise) await updatePayment(tx, p.id, { status: "refunded" });
+  await writeAudit(tx, {
+    ...system(p.tenantId),
+    action: "payment.refund",
+    entityType: "payment",
+    entityId: p.id,
+    after: { refundId: refund.id, gatewayRefundId: input.gatewayRefundId, amountPaise: text(input.amountPaise), fromAdvancePaise: text(from.fromAdvance), fromInvoices: from.fromInvoices.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })) },
+  });
+  return { refund };
 }

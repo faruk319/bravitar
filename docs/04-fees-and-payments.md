@@ -320,13 +320,13 @@ unless marked.
 - [x] Payment link for the balance; the same balance reuses it; a changed balance
       cancels the old link and makes a new one; paid, void and draft invoices
       refused; needs `fees:collect` and a connected account
-- [ ] Webhook with a bad or missing signature → refused, nothing stored
-- [ ] Duplicate webhook → exactly one payment
-- [ ] `payment.captured` arriving before `payment_link.paid` → one payment
-- [ ] Tenant A's Razorpay webhook cannot create a payment in tenant B
-- [ ] A paid link: receipt numbered, invoice paid, anything over kept as advance,
+- [x] Webhook with a bad or missing signature → refused, nothing stored
+- [x] Duplicate webhook → exactly one payment
+- [x] `payment.captured` arriving before `payment_link.paid` → one payment
+- [x] Tenant A's Razorpay webhook cannot create a payment in tenant B
+- [x] A paid link: receipt numbered, invoice paid, anything over kept as advance,
       the link closed
-- [ ] `refund.processed` → refund recorded once, invoice reopens; staff can't
+- [x] `refund.processed` → refund recorded once, invoice reopens; staff can't
       refund or cancel an online payment
 - [ ] Reconciliation: a link paid while its webhook was lost is recorded on the
       next run, once

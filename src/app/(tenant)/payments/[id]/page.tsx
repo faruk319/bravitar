@@ -40,8 +40,10 @@ export default async function PaymentPage({ params }: PageProps<"/payments/[id]"
   const { r, state } = d;
   const p = r.payment;
   const cancelled = p.status === "cancelled";
-  const canCancel = allows(ctx, "fees:collect") && p.status === "confirmed" && p.recordedOn === state.today && !state.refunds.length && (p.receivedBy === session.actor.id || allows(ctx, "fees:refund"));
-  const canRefund = allows(ctx, "fees:refund") && state.refundablePaise > 0n;
+  // Agreed 2026-09-25: online payments are refunded in Razorpay and show up here by themselves.
+  const online = p.method === "online";
+  const canCancel = !online && allows(ctx, "fees:collect") && p.status === "confirmed" && p.recordedOn === state.today && !state.refunds.length && (p.receivedBy === session.actor.id || allows(ctx, "fees:refund"));
+  const canRefund = !online && allows(ctx, "fees:refund") && state.refundablePaise > 0n;
   const invoiceLinks = allows(ctx, "invoices:read");
 
   return (
@@ -60,6 +62,9 @@ export default async function PaymentPage({ params }: PageProps<"/payments/[id]"
         />
       </div>
 
+      {online && state.refundablePaise > 0n && allows(ctx, "fees:refund") ? (
+        <p className="mx-auto mb-3 max-w-xl text-caption text-muted-foreground print:hidden">Paid online through Razorpay. To refund it, use your Razorpay dashboard; the refund shows here by itself.</p>
+      ) : null}
       <Card className="mx-auto max-w-xl print:max-w-none print:border-0 print:p-0 print:shadow-none">
         {cancelled ? (
           <p role="status" className="mb-4 rounded-lg border border-danger-600 px-3 py-2 text-center text-label text-danger-600">

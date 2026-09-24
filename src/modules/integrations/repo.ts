@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
-import { type IntegrationKind, type TenantIntegration, tenantIntegrations, webhookEvents } from "./schema";
+import { type IntegrationKind, type TenantIntegration, tenantIntegrations, type WebhookEvent, webhookEvents } from "./schema";
 
 // RLS limits every read and write here to the academy on the transaction.
 export async function getIntegration(tx: Tx, kind: IntegrationKind): Promise<TenantIntegration | undefined> {
@@ -30,4 +30,18 @@ export async function setIntegrationError(tx: Tx, id: string, lastError: string 
 export async function lastWebhookAt(tx: Tx): Promise<Date | null> {
   const [r] = await tx.select({ at: sql<Date | null>`max(${webhookEvents.receivedAt})` }).from(webhookEvents);
   return r?.at ? new Date(r.at) : null;
+}
+
+// The unique index is the idempotency (docs/02 §11): undefined means seen before.
+export async function storeEvent(tx: Tx, row: Omit<typeof webhookEvents.$inferInsert, "id">): Promise<WebhookEvent | undefined> {
+  const [stored] = await tx
+    .insert(webhookEvents)
+    .values({ id: uuidv7(), ...row })
+    .onConflictDoNothing({ target: [webhookEvents.tenantId, webhookEvents.provider, webhookEvents.providerEventId] })
+    .returning();
+  return stored;
+}
+
+export async function markEvent(tx: Tx, id: string, processedAt: Date, error: string | null): Promise<void> {
+  await tx.update(webhookEvents).set({ processedAt, error }).where(eq(webhookEvents.id, id));
 }
