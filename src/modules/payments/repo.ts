@@ -142,3 +142,82 @@ export async function receiptNames(tx: Tx, p: Payment): Promise<{ householdName:
   const [s] = p.receivedBy ? await tx.select({ name: staffUsers.fullName }).from(staffUsers).where(eq(staffUsers.id, p.receivedBy)) : [];
   return { householdName: h?.name ?? "", collectorName: s?.name ?? null };
 }
+
+// ---- the collection sheet (docs/04 "The daily reconciliation screen")
+
+export type SheetPayment = Pick<Payment, "id" | "receiptNumber" | "amountPaise" | "method" | "reference" | "receivedOn" | "recordedOn" | "status" | "cancelReason" | "receivedBy" | "createdAt"> & {
+  householdName: string;
+  collectorName: string | null;
+};
+
+// One branch's payments recorded on a day, cancelled ones too, in the order taken.
+export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string): Promise<SheetPayment[]> {
+  return tx
+    .select({
+      id: payments.id,
+      receiptNumber: payments.receiptNumber,
+      amountPaise: payments.amountPaise,
+      method: payments.method,
+      reference: payments.reference,
+      receivedOn: payments.receivedOn,
+      recordedOn: payments.recordedOn,
+      status: payments.status,
+      cancelReason: payments.cancelReason,
+      receivedBy: payments.receivedBy,
+      createdAt: payments.createdAt,
+      householdName: households.name,
+      collectorName: staffUsers.fullName,
+    })
+    .from(payments)
+    .innerJoin(households, eq(households.id, payments.householdId))
+    .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
+    .where(and(eq(payments.branchId, branchId), eq(payments.recordedOn, day)))
+    .orderBy(asc(payments.createdAt), asc(payments.id));
+}
+
+export type SheetRefund = Pick<Refund, "id" | "paymentId" | "amountPaise" | "method" | "reason" | "refundedAt"> & { receiptNumber: string; householdName: string };
+
+// Money paid back on a day against one branch's payments.
+export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<SheetRefund[]> {
+  return tx
+    .select({
+      id: refunds.id,
+      paymentId: refunds.paymentId,
+      amountPaise: refunds.amountPaise,
+      method: refunds.method,
+      reason: refunds.reason,
+      refundedAt: refunds.refundedAt,
+      receiptNumber: payments.receiptNumber,
+      householdName: households.name,
+    })
+    .from(refunds)
+    .innerJoin(payments, eq(payments.id, refunds.paymentId))
+    .innerJoin(households, eq(households.id, payments.householdId))
+    .where(and(eq(payments.branchId, branchId), eq(refunds.refundedOn, day)))
+    .orderBy(asc(refunds.refundedAt), asc(refunds.id));
+}
+
+// Money taken in on a day across branches (empty = all): what the dashboard shows.
+export async function collectedOn(tx: Tx, branchIds: string[], day: string): Promise<{ count: number; total: Paise }> {
+  const [r] = await tx
+    .select({ count: sql<number>`count(*)::int`, total: sql<string>`coalesce(sum(${payments.amountPaise}), 0)::text` })
+    .from(payments)
+    .where(and(eq(payments.recordedOn, day), inArray(payments.status, ["confirmed", "refunded"]), paymentScope(branchIds)));
+  return { count: r?.count ?? 0, total: BigInt(r?.total ?? "0") };
+}
+
+export type InvoiceReceipt = Pick<Payment, "receiptNumber" | "receivedOn" | "method"> & { paymentId: string; net: Paise };
+
+// The payments that have money on an invoice now, oldest first.
+export async function receiptsOnInvoice(tx: Tx, invoiceId: string): Promise<InvoiceReceipt[]> {
+  const net = sql<string>`sum(${paymentAllocations.amountPaise})`;
+  const rows = await tx
+    .select({ paymentId: payments.id, receiptNumber: payments.receiptNumber, receivedOn: payments.receivedOn, method: payments.method, net: sql<string>`${net}::text` })
+    .from(paymentAllocations)
+    .innerJoin(payments, eq(payments.id, paymentAllocations.paymentId))
+    .where(eq(paymentAllocations.invoiceId, invoiceId))
+    .groupBy(payments.id, payments.receiptNumber, payments.receivedOn, payments.method)
+    .having(sql`${net} > 0`)
+    .orderBy(asc(payments.receivedOn), asc(payments.id));
+  return rows.map((r) => ({ ...r, net: BigInt(r.net) }));
+}

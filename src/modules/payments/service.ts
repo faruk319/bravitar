@@ -8,12 +8,14 @@ import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from
 import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
 import type { Actor } from "@/modules/fees/invoicing";
+import { getInvoice } from "@/modules/fees/repo";
 import type { Invoice } from "@/modules/fees/schema";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { getHousehold } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
+  collectedOn,
   getPayment,
   insertPayment,
   insertRefund,
@@ -25,13 +27,19 @@ import {
   paymentByRequest,
   paymentMoney,
   paymentsOnInvoice,
+  type InvoiceReceipt,
+  paymentsRecordedOn,
   type ReceiptLine,
   receiptLines,
   receiptNames,
+  receiptsOnInvoice,
+  refundsOn,
+  type SheetPayment,
+  type SheetRefund,
   unusedPayments,
   updatePayment,
 } from "./repo";
-import type { Payment, Refund } from "./schema";
+import { PAYMENT_METHODS, type Payment, type PaymentMethod, type Refund } from "./schema";
 
 const actor = (ctx: ScopedCtx): Actor => ({ actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId });
 const isoDate = z.string().refine(isIsoDate, "Pick a date");
@@ -294,4 +302,74 @@ export async function receipt(tx: Tx, ctx: ScopedCtx, id: string): Promise<Recei
   const payment = await requirePayment(tx, ctx, id);
   const [lines, names] = await Promise.all([receiptLines(tx, id), receiptNames(tx, payment)]);
   return { payment, ...names, lines, advancePaise: payment.amountPaise - sum(lines.map((l) => l.amountPaise)) };
+}
+
+// ---- the daily collection sheet (docs/04 "The daily reconciliation screen")
+
+export type MethodTotal = { method: PaymentMethod; count: number; totalPaise: Paise };
+export type CollectorTotal = { staffId: string | null; name: string; count: number; totalPaise: Paise };
+export type CollectionSheet = {
+  day: string;
+  today: string;
+  branch: { id: string; name: string };
+  total: { count: number; totalPaise: Paise };
+  byMethod: MethodTotal[];
+  byCollector: CollectorTotal[];
+  refunds: { totalPaise: Paise; byMethod: MethodTotal[]; rows: SheetRefund[] };
+  cashInHandPaise: Paise;
+  payments: SheetPayment[]; // cancelled ones are listed, not counted
+};
+
+// Money that came in: a later refund doesn't undo that it was received that day.
+const COUNTED = new Set<Payment["status"]>(["confirmed", "refunded"]);
+
+function byMethod(rows: { method: PaymentMethod; amountPaise: Paise }[]): MethodTotal[] {
+  return PAYMENT_METHODS.map((method) => {
+    const of = rows.filter((r) => r.method === method);
+    return { method, count: of.length, totalPaise: sum(of.map((r) => r.amountPaise)) };
+  }).filter((m) => m.count > 0);
+}
+
+// One branch, one day, counted by the day a payment was recorded in the
+// academy's timezone, so a day already checked never changes (docs/03 §9).
+export async function collectionSheet(tx: Tx, ctx: ScopedCtx, input: { branchId: string; day?: string }, opts: { now?: Date } = {}): Promise<CollectionSheet> {
+  assertCan(ctx, "payments:read");
+  await requireBranch(tx, ctx, input.branchId);
+  const { today } = await clock(tx, opts.now);
+  const day = input.day ?? today;
+  if (!isIsoDate(day)) throw new BadRequestError("Pick a date");
+  const [branch, rows, refunded] = await Promise.all([getBranch(tx, input.branchId), paymentsRecordedOn(tx, input.branchId, day), refundsOn(tx, input.branchId, day)]);
+  const counted = rows.filter((p) => COUNTED.has(p.status));
+  const collectors = new Map<string, CollectorTotal>();
+  for (const p of counted) {
+    const key = p.receivedBy ?? "";
+    const c = collectors.get(key) ?? { staffId: p.receivedBy, name: p.collectorName ?? "Online", count: 0, totalPaise: 0n };
+    collectors.set(key, { ...c, count: c.count + 1, totalPaise: c.totalPaise + p.amountPaise });
+  }
+  const cash = (xs: { method: PaymentMethod; amountPaise: Paise }[]) => sum(xs.filter((x) => x.method === "cash").map((x) => x.amountPaise));
+  return {
+    day,
+    today,
+    branch: { id: input.branchId, name: branch?.name ?? "" },
+    total: { count: counted.length, totalPaise: sum(counted.map((p) => p.amountPaise)) },
+    byMethod: byMethod(counted),
+    byCollector: [...collectors.values()].sort((a, b) => (a.totalPaise === b.totalPaise ? a.name.localeCompare(b.name) : a.totalPaise > b.totalPaise ? -1 : 1)),
+    refunds: { totalPaise: sum(refunded.map((r) => r.amountPaise)), byMethod: byMethod(refunded), rows: refunded },
+    cashInHandPaise: cash(counted) - cash(refunded),
+    payments: rows,
+  };
+}
+
+// For the dashboard: what came in today in the viewer's branches.
+export async function collectedToday(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } = {}): Promise<{ count: number; total: Paise }> {
+  assertCan(ctx, "payments:read");
+  const { today } = await clock(tx, opts.now);
+  return collectedOn(tx, ctx.branchIds, today);
+}
+
+// The receipts that paid an invoice, for the invoice page.
+export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string): Promise<InvoiceReceipt[]> {
+  assertCan(ctx, "invoices:read");
+  if (!(await getInvoice(tx, ctx.branchIds, invoiceId))) throw new NotFoundError("Invoice");
+  return receiptsOnInvoice(tx, invoiceId);
 }

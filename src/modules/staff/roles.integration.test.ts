@@ -136,7 +136,7 @@ describe("the dashboard follows permissions", () => {
     const teacher = await ctxFor((await hire("dash-teacher", [role.Teacher ?? ""])).staff.id);
     const desk = await ctxFor((await hire("dash-desk", [role["Front Desk"] ?? ""])).staff.id);
     const blocks = async (ctx: ScopedCtx) => Object.keys(await withTenant(T, (tx) => dashboardData(tx, ctx))).sort();
-    expect(await blocks(owner)).toEqual(["batches", "classes", "present", "staff", "students"]);
+    expect(await blocks(owner)).toEqual(["batches", "classes", "collected", "present", "staff", "students"]);
     expect(await blocks(teacher)).toEqual(["classes", "present", "students"]); // Teacher got attendance:read above
     expect(await blocks(desk)).toEqual(["students"]);
   });

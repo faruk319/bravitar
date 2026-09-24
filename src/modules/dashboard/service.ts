@@ -6,6 +6,7 @@ import { marksFor } from "@/modules/attendance/repo";
 import { type ClassCard, todaysClasses } from "@/modules/attendance/service";
 import { listBatchViews } from "@/modules/batches/service";
 import { rosterCounts } from "@/modules/enrollments/repo";
+import { collectedToday } from "@/modules/payments/service";
 import { staffDirectory } from "@/modules/staff/service";
 import { countByStatus, countJoinedSince } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
@@ -16,6 +17,7 @@ export type Dashboard = {
   present?: { here: number; marked: number };
   batches?: { running: number; enrolled: number };
   staff?: { active: number; waiting: number };
+  collected?: { count: number; total: bigint };
 };
 
 // Built from permissions: each block is queried only if the viewer may see it.
@@ -46,5 +48,7 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
     const staff = await staffDirectory(tx, ctx, now);
     out.staff = { active: staff.filter((s) => s.status === "active").length, waiting: staff.filter((s) => s.status === "invited" || s.status === "needs-link").length };
   }
+  // docs/03 §9: the collection sheet is one tap from here.
+  if (allows(ctx, "payments:read")) out.collected = await collectedToday(tx, ctx, { now });
   return out;
 }

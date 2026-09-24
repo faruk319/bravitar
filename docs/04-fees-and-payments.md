@@ -291,12 +291,15 @@ unless marked.
 
 **Collection sheet**
 
-- [ ] Day's collection total equals the sum of payments to the paisa
-- [ ] Split by method and by collector; cancelled receipts listed, not counted
+- [x] Day's collection total equals the sum of payments to the paisa
+- [x] Split by method and by collector; cancelled receipts listed, not counted
       (a cancel takes the payment off the day's total)
-- [ ] Cash in hand = cash collected − cash refunded that day
-- [ ] A payment at 23:50 IST counts on that IST day, not the UTC one
-- [ ] A back-dated payment counts on the day it was recorded
+- [x] Cash in hand = cash collected − cash refunded that day
+- [x] A payment at 23:50 IST counts on that IST day, not the UTC one
+- [x] A back-dated payment counts on the day it was recorded
+- [x] The dashboard's "Collected today" is the sheet's total
+- [x] Routes: recording needs `fees:collect`, refunding `fees:refund`; a
+      repeated request returns the same payment
 
 **After every scenario above**
 

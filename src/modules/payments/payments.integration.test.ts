@@ -2,11 +2,13 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
+import { SESSION_COOKIE } from "@/lib/auth/cookie";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
+import { login, setPassword } from "@/modules/auth/service";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
@@ -17,8 +19,9 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
-import { cancelPayment, familyAccount, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
+import { cancelPayment, collectedToday, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
 
 // docs/04 "Test list": the database guards under the payments code
 // (migration 0015) in academy G, and the payments service in academy T, where
@@ -557,6 +560,138 @@ describe("payments", () => {
       const h = await family();
       const p = await pay(h, 500);
       await expect(refund(p.id, 100, {}, desk)).rejects.toMatchObject({ status: 403 });
+    });
+  });
+
+  describe("the collection sheet", () => {
+    let branch = "";
+    const payHere = (h: string, amount: number, extra: Partial<PaymentInput> = {}, as: ScopedCtx = desk, now = NOW) => pay(h, amount, { branchId: branch, ...extra }, as, now);
+    const sheetFor = (day?: string, now = NOW) => withTenant(T, (tx) => collectionSheet(tx, owner, { branchId: branch, ...(day ? { day } : {}) }, { now }));
+
+    beforeAll(async () => {
+      branch = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Sheet branch" }))).id;
+    });
+
+    it("adds up the day by method and by collector, to the paisa, and matches the payments table", async () => {
+      const [h1, h2, h3] = [await family(), await family(), await family()];
+      await payHere(h1, 1500);
+      await payHere(h2, 0, { amountPaise: "83333", method: "upi", reference: "UPI 1" }, desk2);
+      await payHere(h3, 2000, { method: "cheque", reference: "000123" }, desk2);
+      const wrong = await payHere(h3, 999);
+      await cancel(wrong.id, desk);
+      const s = await sheetFor();
+      expect([s.day, s.branch.name]).toEqual(["2026-09-24", "Sheet branch"]);
+      expect(s.total).toEqual({ count: 3, totalPaise: rupees(1500) + 83333n + rupees(2000) });
+      expect(s.byMethod.map((m) => [m.method, m.count, m.totalPaise])).toEqual([
+        ["cash", 1, rupees(1500)],
+        ["upi", 1, 83333n],
+        ["cheque", 1, rupees(2000)],
+      ]);
+      expect(s.byCollector.map((c) => [c.name, c.count, c.totalPaise])).toEqual([
+        ["Amit", 2, 83333n + rupees(2000)],
+        ["Priya", 1, rupees(1500)],
+      ]);
+      expect(s.payments.map((p) => [p.receiptNumber, p.status])).toContainEqual([wrong.receiptNumber, "cancelled"]);
+      const [row] = await withTenant(T, (tx) =>
+        tx.execute<{ total: string }>(sql`SELECT coalesce(sum(amount_paise), 0)::text AS total FROM app.payments WHERE branch_id = ${branch} AND recorded_on = '2026-09-24' AND status <> 'cancelled'`),
+      );
+      expect(BigInt(row?.total ?? "-1")).toBe(s.total.totalPaise);
+    });
+
+    it("cash in hand is the cash collected less the cash refunded that day", async () => {
+      const day = new Date("2026-09-22T06:00:00Z");
+      const h = await family();
+      const p = await payHere(h, 1000, {}, desk, day);
+      await payHere(h, 500, { method: "upi" }, desk, day);
+      await withTenant(T, (tx) => refundPayment(tx, owner, p.id, { amountPaise: "20000", reason: "Missed classes" }, { now: day }));
+      const s = await sheetFor("2026-09-22", day);
+      expect([s.total.totalPaise, s.refunds.totalPaise, s.cashInHandPaise]).toEqual([rupees(1500), rupees(200), rupees(800)]);
+      expect(s.refunds.rows.map((r) => [r.receiptNumber, r.method, r.amountPaise])).toEqual([[p.receiptNumber, "cash", rupees(200)]]);
+    });
+
+    it("a payment at 23:50 in India counts on that Indian day, not the UTC one", async () => {
+      const late = new Date("2026-09-20T18:20:00Z"); // 23:50 IST, 20 Sep
+      const early = new Date("2026-09-20T18:40:00Z"); // 00:10 IST, 21 Sep
+      const h = await family();
+      const a = await payHere(h, 100, {}, desk, late);
+      const b = await payHere(h, 200, {}, desk, early);
+      expect([a.recordedOn, b.recordedOn]).toEqual(["2026-09-20", "2026-09-21"]);
+      expect((await sheetFor("2026-09-20", early)).payments.map((p) => p.id)).toEqual([a.id]);
+      expect((await sheetFor("2026-09-21", early)).payments.map((p) => p.id)).toEqual([b.id]);
+    });
+
+    it("a back-dated payment counts on the day it was recorded and shows the day it was received", async () => {
+      const h = await family();
+      const p = await payHere(h, 300, { receivedOn: "2026-09-19" });
+      expect((await sheetFor("2026-09-19")).payments.map((x) => x.id)).not.toContain(p.id);
+      const row = (await sheetFor()).payments.find((x) => x.id === p.id);
+      expect([row?.recordedOn, row?.receivedOn]).toEqual(["2026-09-24", "2026-09-19"]);
+    });
+
+    it("the dashboard's figure for today is the sheet's total", async () => {
+      const s = await sheetFor();
+      expect(await withTenant(T, (tx) => collectedToday(tx, { ...owner, branchIds: [branch] }, { now: NOW }))).toEqual({ count: s.total.count, total: s.total.totalPaise });
+    });
+
+    it("needs payments:read", async () => {
+      await expect(withTenant(T, (tx) => collectionSheet(tx, desk, { branchId: branch }, { now: NOW }))).rejects.toMatchObject({ status: 403 });
+    });
+  });
+
+  it("an invoice lists the receipts that paid it", async () => {
+    const h = await family();
+    const inv = await bill(h, 1500);
+    const [a, b] = [await pay(h, 800), await pay(h, 700)];
+    expect((await withTenant(T, (tx) => invoiceReceipts(tx, owner, inv.id))).map((r) => [r.receiptNumber, r.net])).toEqual([
+      [a.receiptNumber, rupees(800)],
+      [b.receiptNumber, rupees(700)],
+    ]);
+  });
+
+  describe("routes", () => {
+    const PASSWORD = "Correct-Horse-9";
+    const cookie: Record<string, string> = {};
+    const call = (route: (req: Request) => Promise<Response>, path: string, as: string, body: unknown) =>
+      route(new Request(`http://pay-t-${stamp}.localhost:3000${path}`, { method: "POST", headers: { "content-type": "application/json", cookie: cookie[as] ?? "" }, body: JSON.stringify(body) }));
+
+    beforeAll(async () => {
+      const people: [string, ScopedCtx, string][] = [
+        ["owner", owner, `pay-t-${stamp}@example.test`],
+        ["desk", desk, `Priya-${stamp}@example.test`],
+        ["teacher", teacher, `Coach-${stamp}@example.test`],
+      ];
+      for (const [key, ctx, email] of people) {
+        await withTenant(T, (tx) => setPassword(tx, owner, ctx.staffId, PASSWORD));
+        cookie[key] = `${SESSION_COOKIE}=${(await login({ slug: `pay-t-${stamp}`, email, password: PASSWORD })).token}`;
+      }
+    });
+
+    it("recording needs fees:collect, returns the payment, and a repeat returns the same one", async () => {
+      const h = await family();
+      await bill(h, 1500);
+      const body = { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "150000" };
+      expect((await call(recordPaymentRoute, "/api/payments", "teacher", body)).status).toBe(403);
+      const res = await call(recordPaymentRoute, "/api/payments", "desk", body);
+      expect(res.status).toBe(201);
+      const p = (await res.json()) as { id: string; receiptNumber: string; amountPaise: string; method: string };
+      expect([p.amountPaise, p.method]).toEqual(["150000", "cash"]);
+      expect(((await (await call(recordPaymentRoute, "/api/payments", "desk", body)).json()) as { id: string }).id).toBe(p.id);
+      expect((await call(recordPaymentRoute, "/api/payments", "desk", { ...body, requestId: uuidv7(), amountPaise: "0" })).status).toBe(400);
+    });
+
+    it("refunding needs fees:refund at the route", async () => {
+      const h = await family();
+      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "50000" })).json()) as { id: string };
+      expect((await call(refundPaymentRoute, `/api/payments/${p.id}/refund`, "desk", { amountPaise: "10000", reason: "Overpaid" })).status).toBe(403);
+      expect((await call(refundPaymentRoute, `/api/payments/${p.id}/refund`, "owner", { amountPaise: "10000", reason: "Overpaid" })).status).toBe(201);
+    });
+
+    it("the collector cancels their own payment on the day", async () => {
+      const h = await family();
+      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "5000" })).json()) as { id: string };
+      const out = await call(cancelPaymentRoute, `/api/payments/${p.id}/cancel`, "desk", { reason: "Typed the wrong family" });
+      expect(out.status).toBe(200);
+      expect(((await out.json()) as { status: string }).status).toBe("cancelled");
     });
   });
 

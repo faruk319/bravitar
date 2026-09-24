@@ -1,4 +1,4 @@
-import { ClipboardCheck, Layers, UserCog, UserPlus, Users } from "lucide-react";
+import { ClipboardCheck, IndianRupee, Layers, UserCog, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { ClassStatus } from "@/components/attendance/class-status";
 import { EmptyState } from "@/components/empty-state";
@@ -8,6 +8,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { timeIn } from "@/lib/dates";
+import { formatPaise } from "@/lib/money/format";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatTimeRange } from "@/modules/batches/schedule";
 import { dashboardData } from "@/modules/dashboard/service";
@@ -21,6 +22,7 @@ export default async function DashboardPage() {
   const d = await withTenant(session.tenant.id, (tx) => dashboardData(tx, ctx));
   const stats = [
     d.present ? <StatCard key="p" label="Present today" value={d.present.marked ? `${d.present.here}/${d.present.marked}` : "—"} icon={ClipboardCheck} href="/attendance" /> : null,
+    d.collected ? <StatCard key="c" label="Collected today" value={formatPaise(d.collected.total)} icon={IndianRupee} href="/payments" /> : null,
     d.students ? <StatCard key="a" label="Active students" value={d.students.active} icon={Users} href="/students?status=active" /> : null,
     d.students ? <StatCard key="n" label="New this month" value={d.students.newThisMonth} icon={UserPlus} href="/students" /> : null,
     d.batches ? <StatCard key="b" label="Batches running" value={d.batches.running} icon={Layers} href="/batches" /> : null,
