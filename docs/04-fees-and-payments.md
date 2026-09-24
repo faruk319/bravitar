@@ -317,7 +317,7 @@ unless marked.
       copied to another academy's row does not open
 - [x] Saving keys checks them with Razorpay first; wrong keys refused; only
       `integrations:manage`; audited without the secrets
-- [ ] Payment link for the balance; the same balance reuses it; a changed balance
+- [x] Payment link for the balance; the same balance reuses it; a changed balance
       cancels the old link and makes a new one; paid, void and draft invoices
       refused; needs `fees:collect` and a connected account
 - [ ] Webhook with a bad or missing signature → refused, nothing stored

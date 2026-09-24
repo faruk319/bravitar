@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { households } from "@/modules/students/schema";
-import { type AllocationKind, type Payment, paymentAllocations, payments, type Refund, refunds } from "./schema";
+import { guardians, households } from "@/modules/students/schema";
+import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
 // Every money move for a family takes turns: recording, cancelling, refunding,
 // using the advance and releasing a voided invoice. The two-key form never
@@ -224,4 +224,46 @@ export async function receiptsOnInvoice(tx: Tx, invoiceId: string): Promise<Invo
     .having(sql`${net} > 0`)
     .orderBy(asc(payments.receivedOn), asc(payments.id));
   return rows.map((r) => ({ ...r, net: BigInt(r.net) }));
+}
+
+// ---- Razorpay payment links (docs/03 §9, agreed 2026-09-25)
+
+export async function liveLink(tx: Tx, invoiceId: string): Promise<PaymentLink | undefined> {
+  const [l] = await tx.select().from(paymentLinks).where(and(eq(paymentLinks.invoiceId, invoiceId), eq(paymentLinks.status, "created")));
+  return l;
+}
+
+export async function insertLink(tx: Tx, row: typeof paymentLinks.$inferInsert): Promise<PaymentLink> {
+  const [l] = await tx.insert(paymentLinks).values(row).returning();
+  if (!l) throw new Error("payment link insert returned no row");
+  return l;
+}
+
+export async function closeLink(tx: Tx, id: string, status: Exclude<LinkStatus, "created">, at: Date): Promise<void> {
+  await tx.update(paymentLinks).set({ status, closedAt: at }).where(and(eq(paymentLinks.id, id), eq(paymentLinks.status, "created")));
+}
+
+export async function linkByGatewayId(tx: Tx, gatewayLinkId: string): Promise<PaymentLink | undefined> {
+  const [l] = await tx.select().from(paymentLinks).where(eq(paymentLinks.gatewayLinkId, gatewayLinkId));
+  return l;
+}
+
+// Live links older than `before`, oldest first: what the hourly check asks Razorpay about.
+export async function staleLinks(tx: Tx, before: Date, limit = 200): Promise<PaymentLink[]> {
+  return tx.select().from(paymentLinks).where(and(eq(paymentLinks.status, "created"), lt(paymentLinks.createdAt, before))).orderBy(asc(paymentLinks.createdAt)).limit(limit);
+}
+
+export type Contact = { name: string; phone: string | null };
+
+// Who a link is for: the family's primary guardian, else the family itself.
+export async function familyContact(tx: Tx, householdId: string): Promise<Contact> {
+  const [g] = await tx
+    .select({ name: guardians.fullName, phone: guardians.phone })
+    .from(guardians)
+    .where(and(eq(guardians.householdId, householdId), isNull(guardians.deletedAt)))
+    .orderBy(desc(guardians.isPrimary), asc(guardians.createdAt))
+    .limit(1);
+  if (g) return g;
+  const [h] = await tx.select({ name: households.name }).from(households).where(eq(households.id, householdId));
+  return { name: h?.name ?? "", phone: null };
 }

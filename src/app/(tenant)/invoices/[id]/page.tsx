@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import type { LineRow } from "@/modules/fees/repo";
 import { invoiceDetail } from "@/modules/fees/service";
 import { invoiceReceipts } from "@/modules/payments/service";
+import { razorpayConnected } from "@/modules/integrations/service";
+import { PaymentLink } from "@/components/payments/payment-link";
 
 const period = (l: Pick<LineRow, "periodStart" | "periodEnd">) =>
   l.periodStart ? (l.periodEnd && l.periodEnd !== l.periodStart ? `${formatDate(l.periodStart)} – ${formatDate(l.periodEnd)}` : formatDate(l.periodStart)) : "";
@@ -39,7 +41,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
-  const d = await withTenant(session.tenant.id, async (tx) => ({ ...(await invoiceDetail(tx, ctx, id)), receipts: await invoiceReceipts(tx, ctx, id) })).catch((e: unknown) => {
+  const d = await withTenant(session.tenant.id, async (tx) => ({ ...(await invoiceDetail(tx, ctx, id)), receipts: await invoiceReceipts(tx, ctx, id), online: await razorpayConnected(tx) })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
@@ -71,6 +73,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
                   Collect
                 </Button>
               ) : null}
+              {canCollect && d.online ? <PaymentLink invoiceId={inv.id} /> : null}
               {canManage && draft ? <IssueInvoices ids={[inv.id]} count={1} total={formatPaise(inv.totalPaise)} /> : null}
               {canManage ? <VoidInvoice id={inv.id} draft={draft} open={openVoid} {...(inv.paidPaise > 0n ? { paid: formatPaise(inv.paidPaise) } : {})} /> : null}
             </>
