@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { type DueItem, StillDue } from "@/components/fees/still-due";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,7 @@ import { send } from "@/lib/send";
 import { LEFT_REASON_LABELS, LEFT_REASONS, type Student } from "@/modules/students/schema";
 
 // Pause / resume are one tap and undoable; leaving needs a reason (docs/03 §3).
-export function StatusActions({ student, canUpdate }: { student: Student; canUpdate: boolean }) {
+export function StatusActions({ student, canUpdate, due = [] }: { student: Student; canUpdate: boolean; due?: DueItem[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -58,6 +59,7 @@ export function StatusActions({ student, canUpdate }: { student: Student; canUpd
                 <Label htmlFor="note">Note</Label>
                 <Input id="note" name="note" placeholder="Needed for Other" />
               </div>
+              <StillDue items={due} />
               {error ? <p role="alert" className="text-label text-danger-600">{error}</p> : null}
               <Button type="submit" size="lg" disabled={busy}>
                 Mark as left

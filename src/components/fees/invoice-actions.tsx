@@ -58,8 +58,8 @@ export function IssueInvoices({ ids, count, total }: { ids: string[] | "all"; co
 }
 
 // Void keeps the number. "Bill it again" drafts the same charges from today's plans and discounts.
-export function VoidInvoice({ id, draft }: { id: string; draft: boolean }) {
-  const a = useAction();
+export function VoidInvoice({ id, draft, open }: { id: string; draft: boolean; open?: boolean }) {
+  const a = useAction(open);
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
       <SheetTrigger render={<Button variant="ghost" className="text-danger-600" />}>{draft ? "Discard" : "Void"}</SheetTrigger>

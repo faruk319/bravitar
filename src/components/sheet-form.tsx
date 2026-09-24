@@ -27,9 +27,9 @@ export function SheetForm({ trigger, title, children, onSubmit, submitLabel, bus
   );
 }
 
-export function useAction() {
+export function useAction(initiallyOpen = false) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const run = async (fn: () => Promise<string | undefined>, after?: () => void) => {

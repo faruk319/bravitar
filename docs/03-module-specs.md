@@ -265,8 +265,20 @@ transfer batch, mark left.
   student from the roster history.
 - **Transfer** closes the old enrollment (`transferred`), opens a new one, links
   them. Never mutate `batch_id` on an existing enrollment.
-- **Leave** sets an end date; any invoice for a period after that date is voided,
-  and any credit balance surfaces on the household as an unallocated advance.
+- **Leave** sets an end date on the enrollment (changed 2026-09-24):
+  - Recurring plans: any invoice for a period starting after the end date is
+    voided automatically.
+  - Term (installment) and one-time plans: remaining unpaid installment invoices
+    are **not** voided. They stay issued and keep showing in dues. The leave
+    screens ("Mark as left" on the profile, "Leave" on a batch) list them, each
+    with a direct link to void it by hand: the normal void, with a reason, the
+    number kept and an audit entry.
+  - Any credit balance surfaces on the household as an unallocated advance.
+  - Voiding an invoice that has money on it (paid in full or in part) releases
+    its payment allocation. The payment and its receipt stay unchanged; the
+    release is recorded and audited, never deleted; the amount becomes an
+    unallocated advance on the household, applied to the next invoice or refunded
+    with `fees:refund`. Built with payments (Prompt 15).
 - One student may hold several active enrollments (karate + dance). Each generates
   its own invoice line.
 
@@ -282,7 +294,8 @@ transfer batch, mark left.
 - Marking a student Left, Paused or Active on their profile carries to all their
   batches. A batch or student with enrollments can only be closed or marked left.
 - Fees (slice 15): `fee_plan_id` comes from the batch's plan; leaving voids later
-  invoices; a move keeps the cycle in progress (no proration, see §8).
+  recurring invoices and leaves installments as above; a move keeps the cycle in
+  progress (no proration, see §8).
 
 **Acceptance**
 
@@ -290,6 +303,9 @@ transfer batch, mark left.
       starts on the transfer date, prorated per the tenant's proration setting
 - [ ] Attendance history stays attached to the batch the student actually attended
 - [ ] A paused student generates no new invoices and shows as paused on rosters
+- [ ] A student on a 3-installment term plan who leaves after paying installment 1
+      keeps installments 2 and 3 issued and unchanged, and the leave screen lists
+      both as voidable
 
 ---
 
@@ -402,8 +418,8 @@ invoice creation, bulk invoice generation preview.
 - GST only with a GSTIN, per line on the fee after discount.
 - Void keeps the number; the charges stay billed unless "Bill it again" is ticked.
   Leaving a batch voids unpaid invoices for later periods and drafts the rest
-  again. Term installments are left alone (open question). A ₹0 invoice is paid on
-  issue.
+  again; installments stay due (§6). Voiding an invoice with money on it moves
+  that money to the household advance (§6). A ₹0 invoice is paid on issue.
 
 **Acceptance**
 

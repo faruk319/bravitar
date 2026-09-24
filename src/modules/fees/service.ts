@@ -35,6 +35,8 @@ import {
   linesOf,
   lockDrafts,
   lockInvoicing,
+  type OpenInstallment,
+  openInstallments,
   type PlanRow,
   studentsOnPlan,
   updateDiscount,
@@ -290,6 +292,17 @@ export async function voidInvoice(tx: Tx, ctx: ScopedCtx, id: string, input: z.i
   const data = voidSchema.parse(input);
   await requireInvoice(tx, ctx, id);
   return voidAndRebill(tx, actor(ctx), id, data.reason, data.rebill, opts.now);
+}
+
+export type DueInstallment = OpenInstallment & { voidable: boolean };
+
+// Installments stay due when a student leaves (docs/03 §6); the leave screens list
+// them. Until payments land (Prompt 15), only an unpaid one can be voided.
+export async function installmentsDue(tx: Tx, ctx: ScopedCtx, studentId: string): Promise<DueInstallment[]> {
+  assertCan(ctx, "invoices:read");
+  await requireStudent(tx, ctx, studentId);
+  const canVoid = allows(ctx, "invoices:manage");
+  return (await openInstallments(tx, ctx.branchIds, studentId)).map((i) => ({ ...i, voidable: canVoid && i.paidPaise === 0n }));
 }
 
 export async function studentFees(tx: Tx, ctx: ScopedCtx, studentId: string, opts: { now?: Date } = {}): Promise<{ today: string; discounts: GivenDiscount[]; invoices: InvoiceRow[] }> {

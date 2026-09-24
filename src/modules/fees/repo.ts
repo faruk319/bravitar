@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
@@ -204,19 +204,53 @@ export async function clearKeys(tx: Tx, invoiceId: string): Promise<void> {
   await tx.update(invoiceLines).set({ billingKey: null }).where(eq(invoiceLines.invoiceId, invoiceId));
 }
 
-// Unpaid invoices holding a charge for after an enrollment's last day.
+// Unpaid invoices billing a recurring plan for after an enrollment's last day.
+// Installments are never voided here (docs/03 §6). TODO(Prompt 15): paid ones
+// too, their money going to the household advance.
 export async function invoicesAfterEnd(tx: Tx, enrollmentIds: string[]): Promise<{ invoice: Invoice; studentName: string; batchName: string; moved: boolean; lastDay: string }[]> {
   if (!enrollmentIds.length) return [];
   const rows = await tx
     .selectDistinctOn([invoices.id], { invoice: invoices, studentName: students.fullName, batchName: batches.name, status: enrollments.status, lastDay: enrollments.endDate })
     .from(invoiceLines)
     .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .innerJoin(feePlans, eq(feePlans.id, invoiceLines.feePlanId))
     .innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId))
     .innerJoin(students, eq(students.id, enrollments.studentId))
     .innerJoin(batches, eq(batches.id, enrollments.batchId))
-    .where(and(inArray(invoiceLines.enrollmentId, enrollmentIds), isNotNull(enrollments.endDate), gt(invoiceLines.periodStart, enrollments.endDate), inArray(invoices.status, ["draft", "issued"]), eq(invoices.paidPaise, 0n)))
+    .where(
+      and(
+        inArray(invoiceLines.enrollmentId, enrollmentIds),
+        eq(feePlans.kind, "recurring"),
+        isNotNull(enrollments.endDate),
+        gt(invoiceLines.periodStart, enrollments.endDate),
+        inArray(invoices.status, ["draft", "issued"]),
+        eq(invoices.paidPaise, 0n),
+      ),
+    )
     .orderBy(invoices.id);
   return rows.map((r) => ({ invoice: r.invoice, studentName: r.studentName, batchName: r.batchName, moved: r.status === "transferred", lastDay: r.lastDay ?? "" }));
+}
+
+export type OpenInstallment = Pick<Invoice, "number" | "status" | "dueDate" | "totalPaise" | "paidPaise"> & { invoiceId: string; enrollmentId: string | null; description: string };
+
+// A student's term and one-time installments not yet paid in full, soonest first.
+export async function openInstallments(tx: Tx, branchIds: string[], studentId: string): Promise<OpenInstallment[]> {
+  return tx
+    .select({
+      invoiceId: invoices.id,
+      number: invoices.number,
+      status: invoices.status,
+      dueDate: invoices.dueDate,
+      totalPaise: invoices.totalPaise,
+      paidPaise: invoices.paidPaise,
+      enrollmentId: invoiceLines.enrollmentId,
+      description: invoiceLines.description,
+    })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .innerJoin(feePlans, eq(feePlans.id, invoiceLines.feePlanId))
+    .where(and(eq(invoiceLines.studentId, studentId), eq(invoiceLines.kind, "tuition"), ne(feePlans.kind, "recurring"), inArray(invoices.status, ["draft", "issued", "part_paid"]), invoiceScope(branchIds)))
+    .orderBy(asc(invoices.dueDate), asc(invoices.id));
 }
 
 export const INVOICE_VIEWS = ["draft", "unpaid", "overdue", "month", "void"] as const;

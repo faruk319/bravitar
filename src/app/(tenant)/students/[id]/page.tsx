@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch, PlanSelect } from "@/components/enrollments/student-batches";
 import { EndDiscount, GiveDiscount } from "@/components/fees/discounts";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
+import type { DueItem } from "@/components/fees/still-due";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
@@ -28,7 +29,7 @@ import { formatPhone } from "@/lib/phone";
 import type { StudentEnrollment } from "@/modules/enrollments/repo";
 import { batchChoices, studentBatches } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
-import { discountChoices, planChoices, studentFees } from "@/modules/fees/service";
+import { discountChoices, installmentsDue, planChoices, studentFees } from "@/modules/fees/service";
 import { studentOverview } from "@/modules/students/service";
 
 const TABS = ["overview", "attendance", "fees", "notes"] as const;
@@ -65,12 +66,15 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
     plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
     fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
     discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
+    due: showFees ? await installmentsDue(tx, ctx, id) : [],
   })).catch((e: unknown) => {
     if (e instanceof NotFoundError) return undefined;
     throw e;
   });
   if (!o) notFound();
   const canUpdate = session.isOwner || session.permissions.includes("students:update");
+  // Installments that stay due when the student leaves (docs/03 §6), shown on the leave sheets.
+  const due: DueItem[] = o.due.map((i) => ({ invoiceId: i.invoiceId, enrollmentId: i.enrollmentId, description: i.description, number: i.number, dueDate: i.dueDate, amount: formatPaise(i.totalPaise - i.paidPaise), voidable: i.voidable }));
   const s = o.student;
   const today = todayIn(session.tenant.timezone);
   const batchLinks = can(ctx, "batches", "batches:read");
@@ -110,7 +114,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
               <PhotoConsentToggle studentId={s.id} granted={Boolean(o.consents.photo)} canUpdate={canUpdate} />
             </div>
             <div className="mt-3 w-full [&>div]:justify-center">
-              <StatusActions student={s} canUpdate={canUpdate} />
+              <StatusActions student={s} canUpdate={canUpdate} due={due} />
             </div>
           </Card>
         <div className="min-w-0 lg:row-span-2">
@@ -140,7 +144,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                           <p className="text-caption text-muted-foreground">Fee plan · {e.planName}</p>
                         ) : null}
                       </div>
-                      {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} /> : null}
+                      {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} due={due.filter((d) => d.enrollmentId === e.id)} /> : null}
                     </li>
                   ))}
                   {o.batches.past.map((e) => (

@@ -1,5 +1,6 @@
 "use client";
 
+import { type DueItem, StillDue } from "@/components/fees/still-due";
 import { Field, SheetForm, useAction } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,7 +82,7 @@ export function PlanSelect({ enrollmentId, current, plans }: { enrollmentId: str
 
 type Current = { id: string; status: string; batchId: string; startDate: string };
 
-export function EnrollmentActions({ enrollment: e, choices, today }: { enrollment: Current; choices: BatchChoice[]; today: string }) {
+export function EnrollmentActions({ enrollment: e, choices, today, due = [] }: { enrollment: Current; choices: BatchChoice[]; today: string; due?: DueItem[] }) {
   const pause = useAction();
   const move = useAction();
   const leave = useAction();
@@ -132,6 +133,7 @@ export function EnrollmentActions({ enrollment: e, choices, today }: { enrollmen
           <Field label="Last day" id={`${e.id}-last`}>
             <Input id={`${e.id}-last`} name="date" type="date" defaultValue={today < e.startDate ? addDays(e.startDate, -1) : today} min={addDays(e.startDate, -1)} />
           </Field>
+          <StillDue items={due} />
         </SheetForm>
       </Sheet>
       {pause.error ? (

@@ -22,7 +22,7 @@ import { generateInvoices } from "./invoicing";
 import { runInvoicesGenerate } from "./job";
 import { linesOf } from "./repo";
 import { type Invoice, invoices } from "./schema";
-import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, invoiceDetail, invoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
+import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -298,6 +298,31 @@ describe("leaving and moving", () => {
     expect(voided?.voidReason).toMatch(/^Zoya left Karate A, last day /);
     expect(redraft).toMatchObject({ status: "draft", totalPaise: 80000n });
     expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Zaid"]);
+  });
+
+  it("a term student who leaves after paying installment 1 keeps 2 and 3 issued and unchanged; the leave screen lists both as voidable", async () => {
+    const f = await family("Tanvi");
+    const student = f.ids[0] ?? "";
+    const e = await join(student, "Class 9 A", M0);
+    await gen(M0, [e]);
+    await withTenant(T, async (tx) => issueInvoices(tx, owner, (await invoicesOf(f.householdId)).map((i) => i.id), { now: at(M0) }));
+    const [first, second, third] = await invoicesOf(f.householdId);
+    // Stand-in until payments exist (Prompt 15): installment 1 paid in full.
+    await withTenant(T, (tx) => tx.update(invoices).set({ paidPaise: first?.totalPaise ?? 0n, status: "paid" }).where(eq(invoices.id, first?.id ?? "")));
+    const snapshot = async () => Promise.all([second, third].map(async (i) => ({ invoice: (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, i?.id ?? ""))))[0], lines: await linesOn(i?.id ?? "") })));
+    const before = await snapshot();
+
+    await withTenant(T, (tx) => setStudentStatus(tx, owner, student, { status: "left", reason: "completed" }));
+
+    expect(await snapshot()).toEqual(before);
+    expect(before.map((b) => b.invoice?.status)).toEqual(["issued", "issued"]);
+    expect((await invoicesOf(f.householdId)).map((i) => i.status)).toEqual(["paid", "issued", "issued"]);
+    expect((await withTenant(T, (tx) => invoiceList(tx, owner, "unpaid"))).invoices.map((i) => i.id)).toEqual(expect.arrayContaining([second?.id, third?.id]));
+    const due = await withTenant(T, (tx) => installmentsDue(tx, owner, student));
+    expect(due.map((d) => [d.invoiceId, d.description, d.voidable])).toEqual([
+      [second?.id, "2nd installment · Class 9 Term", true],
+      [third?.id, "3rd installment · Class 9 Term", true],
+    ]);
   });
 
   it("a student marked as left loses their invoices for later cycles", async () => {

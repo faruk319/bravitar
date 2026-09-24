@@ -30,8 +30,9 @@ function Total({ label, paise, strong }: { label: string; paise: bigint; strong?
   );
 }
 
-export default async function InvoicePage({ params }: PageProps<"/invoices/[id]">) {
+export default async function InvoicePage({ params, searchParams }: PageProps<"/invoices/[id]">) {
   const { id } = await params;
+  const openVoid = (await searchParams).void === "1"; // straight from the leave screens
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
@@ -61,7 +62,7 @@ export default async function InvoicePage({ params }: PageProps<"/invoices/[id]"
           canManage ? (
             <>
               {draft ? <IssueInvoices ids={[inv.id]} count={1} total={formatPaise(inv.totalPaise)} /> : null}
-              {inv.paidPaise === 0n ? <VoidInvoice id={inv.id} draft={draft} /> : null}
+              {inv.paidPaise === 0n ? <VoidInvoice id={inv.id} draft={draft} open={openVoid} /> : null}
             </>
           ) : undefined
         }
