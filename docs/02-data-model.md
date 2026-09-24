@@ -683,6 +683,18 @@ CREATE TABLE refunds (
   approved_by uuid REFERENCES staff_users(id),
   refunded_at timestamptz NOT NULL DEFAULT now()
 );
+-- Built as (agreed 2026-09-24, migration 0015, rules in docs/03 §9):
+-- payments: received_on (printed on the receipt) and recorded_on (the collection
+--   sheet's day), both dates, in place of received_at; request_id, unique per
+--   tenant, so a double tap is one payment; status adds 'cancelled' with
+--   cancelled_at, cancelled_by, cancel_reason. Only status and those three can
+--   ever be updated.
+-- payment_allocations: an append-only ledger instead of one row per (payment,
+--   invoice). kind receipt | advance puts money on an invoice; refund | void |
+--   cancel takes it back with a negative amount. paid_paise is the invoice's sum.
+-- refunds: add method, reference and refunded_on (the sheet's day). Append-only.
+-- invoices: database checks keep paid_paise between 0 and total_paise, and
+--   status in step with it (invariant 4).
 ```
 
 **Invariants that must hold and must be tested:**

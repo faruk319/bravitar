@@ -247,14 +247,80 @@ not later.
 
 ## Test list (write these first)
 
+Written before the payments code (Prompt 15, slice 16), to the rules agreed in
+docs/03 §9. Tests live in `src/modules/payments/payments.integration.test.ts`
+unless marked.
+
+**Recording and allocation**
+
 - [ ] ₹1,500 invoice, pay ₹800 then ₹700 → paid, zero balance
+- [ ] ₹1,000 against a ₹1,500 invoice → `part_paid`, ₹500 outstanding
 - [ ] ₹3,000 payment across two ₹1,500 invoices for two siblings
 - [ ] ₹2,000 payment on a ₹1,500 invoice → ₹500 household advance
-- [ ] Advance auto-applied to next month's invoice
+- [ ] ₹5,000 against ₹3,000 of invoices → ₹2,000 advance, visible on the family
+- [ ] No allocation given → oldest due date first, then invoice number
+- [ ] Invoices picked by hand → only those; the rest is advance
+- [ ] Allocations above the payment, or above an invoice's balance → refused
+- [ ] A draft, void, paid, other family's or other branch's invoice → refused
+- [ ] Received date: today back to 7 days; future or before the financial year → refused
+- [ ] Advance auto-applied to next month's invoice when it is issued
+- [ ] Voiding an invoice with ₹800 on it → ₹800 advance, receipt unchanged, audited
+- [ ] The same request id twice, also at the same moment → one payment, one number
+- [ ] Two payments for one invoice at the same moment → never paid above its total
+
+**Receipts and numbering**
+
 - [ ] Concurrent receipt creation from two sessions → no duplicate number
-- [ ] Duplicate webhook → exactly one payment
-- [ ] `payment.captured` arriving before `payment_link.paid` → one payment
-- [ ] Refund of ₹500 on a paid ₹1,500 invoice → status back to partially_paid
-- [ ] Late fee applied once, not once per reminder run
+- [ ] 50 concurrent payments → numbers 0001–0050, no gaps, no duplicates
+- [ ] A payment that fails and rolls back leaves no gap
+- [ ] The receipt shows what the payment paid when it was recorded
+
+**Cancel and refund**
+
+- [ ] Cancel on the day → number kept, invoices reopened, off the day's total, audited
+- [ ] Cancel on a later day → refused; someone else's needs `fees:refund`
+- [ ] Refund of ₹500 on a paid ₹1,500 invoice → status back to `part_paid`
+- [ ] A refund comes out of the unused advance first
+- [ ] A refund above what is left on the payment → refused
+- [ ] Refunding does not change the original receipt
+- [ ] Refund without `fees:refund` → 403
+
+**Collection sheet**
+
 - [ ] Day's collection total equals the sum of payments to the paisa
-- [ ] Tenant A's Razorpay webhook cannot create a payment in tenant B
+- [ ] Split by method and by collector; cancelled receipts listed, not counted
+- [ ] Cash in hand = cash collected − cash refunded that day
+- [ ] A payment at 23:50 IST counts on that IST day, not the UTC one
+- [ ] A back-dated payment counts on the day it was recorded
+
+**After every scenario above**
+
+- [ ] `invoices.paid_paise` = the sum of that invoice's allocations
+- [ ] A payment's allocations plus refunds ≤ its amount
+- [ ] Status matches paid against total (also a database check)
+- [ ] Payments, allocations and refunds: tenant isolation (`pnpm test:isolation`)
+- [x] At the database: a payment's amount, method, dates and number cannot be
+      updated; allocations and refunds are append-only; checks on sign, reason,
+      cancel and invoice status (migration 0015)
+
+**Later**
+
+- [ ] Duplicate webhook → exactly one payment (Prompt 16)
+- [ ] `payment.captured` arriving before `payment_link.paid` → one payment (Prompt 16)
+- [ ] Tenant A's Razorpay webhook cannot create a payment in tenant B (Prompt 16)
+- [ ] Late fee applied once, not once per reminder run. Not scheduled: late fees
+      aren't built, and docs/03 §8 adds a line to an issued invoice, which §8
+      also forbids. Decide that first.
+
+## What could go wrong with payments
+
+| Risk | Guard | Test |
+|---|---|---|
+| A double tap on a slow network makes two receipts | request id, unique per academy | same id twice, at once |
+| Two desks pay one invoice at the same moment | the family is locked while money moves; database check paid ≤ total | concurrent payments |
+| Receipt numbers skip or repeat | number taken in the payment's transaction | 50 concurrent, rollback |
+| `paid_paise` drifts from the allocations | one function moves money; invariant check | after every scenario |
+| Money lands on the wrong invoice | invoice read under RLS; same family, same branch, issued or part paid | refused cases |
+| Someone edits a payment afterwards | database refuses updates to amount, method, dates and number; allocations and refunds append-only | database guards |
+| The wrong day on the sheet | the day is stored at recording, in the academy's timezone | 23:50 IST |
+| A refund rewrites the receipt | the receipt reads only the allocations made at recording | refund test |

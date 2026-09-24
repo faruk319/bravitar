@@ -453,6 +453,42 @@ advance), payment list, daily collection sheet, receipt PDF, refund.
 - Daily collection sheet, split by method, is what the owner checks at closing
   time against the cash box. Make it one tap from the dashboard.
 
+**Agreed 2026-09-24** (`src/modules/payments/`, slice 16)
+
+- Collect: family, amount, method (cash first, then UPI, bank transfer, cheque),
+  optional reference. The received date is today unless changed: up to 7 days
+  back, never in the future, never before the financial year began.
+- Allocation: oldest first (due date, then number), or invoices picked by hand.
+  Only the family's issued or part-paid invoices in the payment's branch, never
+  more than an invoice's balance. What is left is the family's advance in that
+  branch.
+- The advance is used automatically, oldest invoice first, when the family's next
+  invoices are issued. Voiding an invoice with money on it adds that money to the
+  advance (§6).
+- The receipt number comes from the receipt series in the payment's own
+  transaction. The receipt shows what the payment paid when it was recorded;
+  later refunds, voids and advance use never change it.
+- The receipt is a printable page; the browser saves it as PDF. No PDF library:
+  they don't draw Devanagari or Urdu names reliably. A PDF file comes with
+  WhatsApp (Prompt 17).
+- A double tap is one payment: the collect form sends a request id, and the same
+  id again returns the first payment.
+- Nothing is edited. A mistake is cancelled on the same day, with a reason, by
+  whoever recorded it or anyone with `fees:refund`: the number stays, the money
+  comes off its invoices and off the day's total, and the sheet lists it struck
+  through. From the next day, only a refund.
+- Refunds: `fees:refund`, a reason, and how the money went back. They come out of
+  the payment's unused advance first, then from the invoices it paid, which
+  reopen. Never more than is left on the payment.
+- Daily collection sheet: one branch, one day, counted by the day a payment was
+  recorded in the academy's timezone, so a day already checked never changes;
+  back-dated payments show their received date. Split by method and by
+  collector. Cancelled receipts are listed, not counted. Refunds paid out that
+  day are listed by method; cash in hand = cash collected − cash refunded.
+- Not in this slice: gateway payments and webhooks (Prompt 16), receipts on
+  WhatsApp (Prompt 17), the UPI screenshot (needs file storage), and adjustment
+  entries that move money between a family's invoices.
+
 **Acceptance**
 
 - [ ] ₹1,000 paid against a ₹1,500 invoice leaves status `part_paid` and
