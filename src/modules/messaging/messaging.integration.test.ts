@@ -90,7 +90,7 @@ describe("copy-message flow (Prompt 17 step 1)", () => {
     expect(d?.to[0]).toMatchObject({ name: "Sunita Sharma" });
     expect(d?.text).toContain("Hello Sunita Sharma, Kabir and Riya's fee of ₹1,100");
     expect(d?.text).toContain("was due on 8 Oct 2026");
-    expect(d?.text).toMatch(new RegExp(`http://${slug}\\.localhost:3000/i/[A-Za-z0-9_-]{40,}$`));
+    expect(d?.text).toMatch(new RegExp(`http://${slug}\\.localhost:3000/i/[A-Za-z0-9_-]{40,} Thank you\\.$`));
   });
 
   it("the private invoice link opens only on its own academy's address", async () => {

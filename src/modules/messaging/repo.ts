@@ -55,6 +55,11 @@ export async function getMessage(tx: Tx, id: string): Promise<MessageLog | undef
   return m;
 }
 
+export async function messageByProviderId(tx: Tx, providerMessageId: string): Promise<MessageLog | undefined> {
+  const [m] = await tx.select().from(messageLog).where(eq(messageLog.providerMessageId, providerMessageId));
+  return m;
+}
+
 export async function updateMessage(tx: Tx, id: string, patch: Partial<typeof messageLog.$inferInsert>): Promise<MessageLog> {
   const [m] = await tx.update(messageLog).set(patch).where(eq(messageLog.id, id)).returning();
   if (!m) throw new Error("message update matched no row");

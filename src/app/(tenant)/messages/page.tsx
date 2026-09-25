@@ -11,6 +11,7 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatDate, timeIn } from "@/lib/dates";
 import { formatPhone } from "@/lib/phone";
+import { whatsappNumber } from "@/modules/integrations/service";
 import { cn } from "@/lib/utils";
 import type { MessageRow } from "@/modules/messaging/repo";
 import type { MessageStatus } from "@/modules/messaging/schema";
@@ -59,6 +60,7 @@ export default async function MessagesPage({ searchParams }: PageProps<"/message
   const data = await withTenant(session.tenant.id, async (tx) => ({
     log: view === "templates" ? undefined : await messageLogView(tx, ctx, view),
     templates: view === "templates" ? await messageTemplates(tx, ctx) : [],
+    whatsapp: await whatsappNumber(tx),
   }));
   const tabs = (["to_send", "sent", "failed", ...(canManage ? (["templates"] as const) : [])] as const).map((v) => ({
     href: `/messages?view=${v}`,
@@ -69,13 +71,15 @@ export default async function MessagesPage({ searchParams }: PageProps<"/message
   return (
     <Gate permission="messages:read">
       <PageHeader title="Messages">
-        <p className="text-caption text-muted-foreground">WhatsApp isn&apos;t connected: automated messages wait under To send.</p>
+        <p className="text-caption text-muted-foreground">
+          {data.whatsapp === null ? "WhatsApp isn't connected: automated messages wait under To send." : `Sending from WhatsApp ${data.whatsapp}.`}
+        </p>
       </PageHeader>
       <SegmentedTabs label="Messages" items={tabs} />
       {view === "templates" ? (
         <div className="grid items-start gap-5 lg:grid-cols-2">
           {data.templates.map((t) => (
-            <TemplateEditor key={`${t.key}-${t.body}-${t.isActive}`} t={t} />
+            <TemplateEditor key={`${t.key}-${t.body}-${t.isActive}-${t.providerTemplateName}`} t={t} />
           ))}
         </div>
       ) : (

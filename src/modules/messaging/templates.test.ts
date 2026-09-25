@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, render, TEMPLATE_KEYS, TEMPLATE_VARIABLES, variablesIn } from "./templates";
+import { AUTOMATED_KEYS, DEFAULT_TEMPLATES, joinNames, LANGUAGES, render, TEMPLATE_KEYS, TEMPLATE_VARIABLES, toMetaTemplate, variablesIn } from "./templates";
 
 describe("render", () => {
   it("fills variables and leaves no gap for an empty one", () => {
@@ -13,6 +13,18 @@ describe("render", () => {
       for (const lang of LANGUAGES) expect(variablesIn(DEFAULT_TEMPLATES[key][lang]).filter((v) => !TEMPLATE_VARIABLES[key].includes(v)), `${key}/${lang}`).toEqual([]);
     }
     expect(variablesIn("{{amount}} and {{ amount }} {{link}}")).toEqual(["amount", "link"]);
+  });
+});
+
+describe("toMetaTemplate", () => {
+  it("numbers each variable once, in order of first use", () => {
+    expect(toMetaTemplate("Hi {{guardian_name}}, {{amount}} due. Thanks {{guardian_name}}!")).toEqual({ text: "Hi {{1}}, {{2}} due. Thanks {{1}}!", names: ["guardian_name", "amount"], edge: false });
+    expect(toMetaTemplate("No variables")).toEqual({ text: "No variables", names: [], edge: false });
+    expect(toMetaTemplate("Pay here: {{link}}").edge).toBe(true);
+  });
+
+  it("every automated default can be approved by Meta: no variable at the start or end", () => {
+    for (const key of AUTOMATED_KEYS) for (const lang of LANGUAGES) expect(toMetaTemplate(DEFAULT_TEMPLATES[key][lang]).edge, `${key}/${lang}`).toBe(false);
   });
 });
 

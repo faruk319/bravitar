@@ -28,6 +28,9 @@ export const TEMPLATE_VARIABLES: Record<TemplateKey, string[]> = {
 };
 
 // docs/03 §10: at most one automated message per guardian per day per category.
+// Sent by the jobs (step 4), so they are the ones sent through Meta; the rest are copied by hand.
+export const AUTOMATED_KEYS: readonly TemplateKey[] = ["fee_due", "fee_overdue", "receipt", "absent"];
+
 export type Category = "fees" | "receipts" | "attendance" | "classes" | "welcome";
 export const TEMPLATE_CATEGORY: Record<TemplateKey, Category> = { fee_due: "fees", fee_overdue: "fees", receipt: "receipts", absent: "attendance", class_cancelled: "classes", welcome: "welcome" };
 
@@ -35,19 +38,19 @@ export const variablesIn = (body: string): string[] => [...new Set([...body.matc
 
 export const DEFAULT_TEMPLATES: Record<TemplateKey, Record<Language, string>> = {
   fee_due: {
-    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} is due on {{due_date}} ({{invoice_number}}). View or pay: {{link}}",
-    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} तक जमा करनी है ({{invoice_number}})। देखें या भुगतान करें: {{link}}",
-    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} पर्यंत भरायची आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}}",
+    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} is due on {{due_date}} ({{invoice_number}}). View or pay: {{link}} Thank you.",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} तक जमा करनी है ({{invoice_number}})। देखें या भुगतान करें: {{link}} धन्यवाद।",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} पर्यंत भरायची आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}} धन्यवाद.",
   },
   fee_overdue: {
-    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} was due on {{due_date}} and is still unpaid ({{invoice_number}}). View or pay: {{link}}",
-    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} को देय थी और अभी बाकी है ({{invoice_number}})। देखें या भुगतान करें: {{link}}",
-    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} रोजी देय होती आणि अजून बाकी आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}}",
+    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} was due on {{due_date}} and is still unpaid ({{invoice_number}}). View or pay: {{link}} Thank you.",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} को देय थी और अभी बाकी है ({{invoice_number}})। देखें या भुगतान करें: {{link}} धन्यवाद।",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} रोजी देय होती आणि अजून बाकी आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}} धन्यवाद.",
   },
   receipt: {
-    en: "Thank you {{guardian_name}}. {{academy}} received {{amount}} on {{date}}. Receipt {{receipt_number}}: {{link}}",
-    hi: "धन्यवाद {{guardian_name}}। {{academy}} को {{date}} को {{amount}} प्राप्त हुए। रसीद {{receipt_number}}: {{link}}",
-    mr: "धन्यवाद {{guardian_name}}. {{academy}} ला {{date}} रोजी {{amount}} मिळाले. पावती {{receipt_number}}: {{link}}",
+    en: "Hello {{guardian_name}}, {{academy}} received {{amount}} on {{date}}. Receipt {{receipt_number}}: {{link}} Thank you.",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} को {{date}} को {{amount}} प्राप्त हुए। रसीद {{receipt_number}}: {{link}} धन्यवाद।",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} ला {{date}} रोजी {{amount}} मिळाले. पावती {{receipt_number}}: {{link}} धन्यवाद.",
   },
   absent: {
     en: "Hello {{guardian_name}}, {{student_name}} was absent from {{batch}} at {{academy}} today ({{date}}). Please let us know if anything is wrong.",
@@ -65,6 +68,15 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, Record<Language, string>> = 
     mr: "{{academy}} मध्ये आपले स्वागत आहे, {{guardian_name}}! {{student_name}} आमच्यात सामील झाले आहेत. आपल्या सहभागाचा आम्हाला आनंद आहे.",
   },
 };
+
+// Meta wants numbered variables ({{1}}, {{2}}…) in an approved template: the
+// text to paste into Meta, and which of ours each number carries. Meta refuses
+// a template that starts or ends with a variable (`edge`).
+export function toMetaTemplate(body: string): { text: string; names: string[]; edge: boolean } {
+  const names = variablesIn(body);
+  const text = body.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, name: string) => `{{${names.indexOf(name) + 1}}}`).trim();
+  return { text, names, edge: /^\{\{|\}\}$/.test(text) };
+}
 
 // Fills {{name}} from vars; an unknown or empty one leaves no gap behind.
 export function render(body: string, vars: Record<string, string>): string {

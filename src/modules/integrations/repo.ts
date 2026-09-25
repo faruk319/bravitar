@@ -27,8 +27,8 @@ export async function setIntegrationError(tx: Tx, id: string, lastError: string 
   await tx.update(tenantIntegrations).set({ lastError }).where(eq(tenantIntegrations.id, id));
 }
 
-export async function lastWebhookAt(tx: Tx): Promise<Date | null> {
-  const [r] = await tx.select({ at: sql<Date | null>`max(${webhookEvents.receivedAt})` }).from(webhookEvents);
+export async function lastWebhookAt(tx: Tx, provider: WebhookEvent["provider"]): Promise<Date | null> {
+  const [r] = await tx.select({ at: sql<Date | null>`max(${webhookEvents.receivedAt})` }).from(webhookEvents).where(eq(webhookEvents.provider, provider));
   return r?.at ? new Date(r.at) : null;
 }
 

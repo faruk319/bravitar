@@ -1,5 +1,6 @@
 import { FeeSettings } from "@/components/fees/fee-settings";
 import { RazorpaySettings } from "@/components/integrations/razorpay-settings";
+import { WhatsappSettings } from "@/components/integrations/whatsapp-settings";
 import { MessagingSettings } from "@/components/messaging/messaging-settings";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
@@ -11,23 +12,25 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { formatDate, timeIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { tenantOrigin } from "@/lib/tenant/origin";
-import { razorpayStatus } from "@/modules/integrations/service";
+import { razorpayStatus, whatsappStatus } from "@/modules/integrations/service";
 import { messagingSettings } from "@/modules/messaging/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 
-// Each card follows its own permission: settings, the Razorpay connection (owner by default), messages.
+// Each card follows its own permission: settings, the Razorpay and WhatsApp connections (owner by default), messages.
 export default async function SettingsPage() {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
-  const [settings, integrations, messaging] = [allows(ctx, "settings:manage"), allows(ctx, "integrations:manage") && Boolean(ctx.modules.fees), allows(ctx, "messages:manage")];
+  const [settings, integrations, messaging] = [allows(ctx, "settings:manage"), allows(ctx, "integrations:manage"), allows(ctx, "messages:manage")];
   if (!settings && !integrations && !messaging) return <Gate permission="settings:manage">{null}</Gate>;
-  const { tenant, razorpay, messages } = await withTenant(session.tenant.id, async (tx) => ({
+  const { tenant, razorpay, whatsapp, messages } = await withTenant(session.tenant.id, async (tx) => ({
     tenant: await getOwnTenant(tx),
-    razorpay: integrations ? await razorpayStatus(tx, ctx) : undefined,
+    razorpay: integrations && ctx.modules.fees ? await razorpayStatus(tx, ctx) : undefined,
+    whatsapp: integrations ? await whatsappStatus(tx, ctx) : undefined,
     messages: messaging ? await messagingSettings(tx, ctx) : undefined,
   }));
-  const webhookUrl = `${tenantOrigin(session.tenant.slug)}/api/webhooks/razorpay/${session.tenant.slug}`;
+  const webhookUrl = (provider: string) => `${tenantOrigin(session.tenant.slug)}/api/webhooks/${provider}/${session.tenant.slug}`;
   const tz = session.tenant.timezone;
+  const seen = (at: Date | null) => (at ? `${formatDate(at)}, ${timeIn(tz, at)}` : null);
 
   return (
     <>
@@ -43,15 +46,15 @@ export default async function SettingsPage() {
           <Card>
             <CardHeader title="Razorpay" />
             <RazorpaySettings
-              webhookUrl={webhookUrl}
-              view={{
-                connected: razorpay.connected,
-                keyId: razorpay.keyId,
-                mode: razorpay.mode,
-                lastError: razorpay.lastError,
-                lastWebhook: razorpay.lastWebhookAt ? `${formatDate(razorpay.lastWebhookAt)}, ${timeIn(tz, razorpay.lastWebhookAt)}` : null,
-              }}
+              webhookUrl={webhookUrl("razorpay")}
+              view={{ connected: razorpay.connected, keyId: razorpay.keyId, mode: razorpay.mode, lastError: razorpay.lastError, lastWebhook: seen(razorpay.lastWebhookAt) }}
             />
+          </Card>
+        ) : null}
+        {whatsapp ? (
+          <Card>
+            <CardHeader title="WhatsApp" />
+            <WhatsappSettings webhookUrl={webhookUrl("whatsapp")} view={{ ...whatsapp, lastWebhook: seen(whatsapp.lastWebhookAt) }} />
           </Card>
         ) : null}
         {messages ? (

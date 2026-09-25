@@ -1,18 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { CopyText } from "@/components/copy-text";
 import { useAction } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { send } from "@/lib/send";
 import type { TemplateView } from "@/modules/messaging/service";
+import { AUTOMATED_KEYS, toMetaTemplate } from "@/modules/messaging/templates";
 
 // docs/03 §10: each template's wording is editable, and it can be turned off.
-// The page keys it by body and on/off, so each saved change starts fresh.
+// The page keys it by what is saved, so each saved change starts fresh.
 export function TemplateEditor({ t }: { t: TemplateView }) {
   const a = useAction();
   const [body, setBody] = useState(t.body);
+  const [metaName, setMetaName] = useState(t.providerTemplateName ?? "");
   const save = (patch: object) => void a.run(() => send(`/api/messages/templates/${t.key}`, "PATCH", patch));
+  const meta = AUTOMATED_KEYS.includes(t.key) ? toMetaTemplate(t.body) : undefined;
   return (
     <Card className={t.isActive ? undefined : "opacity-70"}>
       <CardHeader
@@ -36,16 +41,35 @@ export function TemplateEditor({ t }: { t: TemplateView }) {
           Save
         </Button>
         {!t.isDefault ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={a.busy}
-            onClick={() => save({ reset: true })}
-          >
+          <Button size="sm" variant="ghost" disabled={a.busy} onClick={() => save({ reset: true })}>
             Reset to default
           </Button>
         ) : null}
       </div>
+      {meta ? (
+        <details className="mt-4 border-t border-neutral-100 pt-3">
+          <summary className="cursor-pointer text-label">WhatsApp template{t.providerTemplateName ? ` · ${t.providerTemplateName}` : " · not set"}</summary>
+          <div className="mt-3 flex flex-col gap-2">
+            <CopyText text={meta.text} />
+            <p className="text-caption text-muted-foreground">
+              Utility · language {t.language}
+              {meta.edge ? " · Meta refuses a {{…}} at the start or end" : ""}
+            </p>
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                save({ providerTemplateName: metaName.trim() });
+              }}
+            >
+              <Input aria-label="Approved name in Meta" placeholder="Approved name in Meta" value={metaName} onChange={(e) => setMetaName(e.target.value)} autoComplete="off" spellCheck={false} />
+              <Button type="submit" size="sm" variant="outline" disabled={a.busy || metaName.trim() === (t.providerTemplateName ?? "")}>
+                Save
+              </Button>
+            </form>
+          </div>
+        </details>
+      ) : null}
     </Card>
   );
 }

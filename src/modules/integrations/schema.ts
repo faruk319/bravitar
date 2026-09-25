@@ -10,7 +10,7 @@ export const INTEGRATION_KINDS = ["razorpay", "whatsapp"] as const;
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number];
 
 // What is safe to show: never a secret.
-export type IntegrationConfig = { keyId?: string; mode?: "test" | "live" };
+export type IntegrationConfig = { keyId?: string; mode?: "test" | "live"; phone?: string; name?: string };
 
 export const tenantIntegrations = app.table("tenant_integrations", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -9,16 +9,17 @@ import { formatPaise } from "@/lib/money/format";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { classRoster } from "@/modules/attendance/service";
 import { invoiceDetail } from "@/modules/fees/service";
+import { whatsappMessage, whatsappNumber } from "@/modules/integrations/service";
 import { receipt } from "@/modules/payments/service";
 import { guardiansOfHousehold, guardiansOfStudent } from "@/modules/students/repo";
 import type { Guardian } from "@/modules/students/schema";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant, updateOwnTenant } from "@/modules/tenancy/repo";
-import { adapterFor } from "./adapter";
+import type { MessagingAdapter } from "./adapter";
 import { makeShareLink, sharePath } from "./links";
-import { countToSend, insertMessage, listMessages, type MessageRow, getMessage, templateRows, updateMessage, upsertTemplate } from "./repo";
-import type { MessageLog, ShareKind } from "./schema";
-import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, type Language, render, TEMPLATE_CATEGORY, TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_VARIABLES, type TemplateKey, variablesIn } from "./templates";
+import { countToSend, getMessage, insertMessage, listMessages, messageByProviderId, type MessageRow, templateRows, updateMessage, upsertTemplate } from "./repo";
+import type { MessageLog, MessageStatus, ShareKind } from "./schema";
+import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, type Language, render, TEMPLATE_CATEGORY, TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_VARIABLES, type TemplateKey, toMetaTemplate, variablesIn } from "./templates";
 
 export const composeSchema = z.discriminatedUnion("key", [
   z.object({ key: z.literal("fee_due"), invoiceId: z.uuid() }),
@@ -126,7 +127,13 @@ export async function messageTemplates(tx: Tx, ctx: ScopedCtx): Promise<Template
   return templateViews(tx, (await getOwnTenant(tx))?.messageLanguage ?? "en");
 }
 
-export const templateSchema = z.object({ body: z.string().trim().min(10, "Write the message").max(1000).optional(), isActive: z.boolean().optional(), reset: z.boolean().optional() });
+export const templateSchema = z.object({
+  body: z.string().trim().min(10, "Write the message").max(1000).optional(),
+  isActive: z.boolean().optional(),
+  reset: z.boolean().optional(),
+  // The approved template's name in Meta; empty clears it.
+  providerTemplateName: z.union([z.literal(""), z.string().trim().regex(/^[a-z0-9_]{1,512}$/, "Use the name exactly as in Meta: small letters, numbers and _")]).optional(),
+});
 
 // docs/03 §10: the body is editable, and turning a template off stops its sends.
 export async function saveTemplate(tx: Tx, ctx: ScopedCtx, key: TemplateKey, input: z.input<typeof templateSchema>): Promise<TemplateView> {
@@ -138,8 +145,10 @@ export async function saveTemplate(tx: Tx, ctx: ScopedCtx, key: TemplateKey, inp
   const body = data.reset ? DEFAULT_TEMPLATES[key][language] : (data.body ?? current.body);
   const unknown = variablesIn(body).filter((v) => !TEMPLATE_VARIABLES[key].includes(v));
   if (unknown.length) throw new BadRequestError(`This message can't use {{${unknown[0]}}}. It can use ${TEMPLATE_VARIABLES[key].map((v) => `{{${v}}}`).join(", ")}`);
-  await upsertTemplate(tx, { tenantId: ctx.tenantId, key, language, body, isActive: data.isActive ?? current.isActive, providerTemplateName: current.providerTemplateName, updatedBy: ctx.staffId });
-  await writeAudit(tx, { ...actorOf(ctx), action: "message_template.update", entityType: "tenant", entityId: ctx.tenantId, after: { key, language, isActive: data.isActive ?? current.isActive, reset: Boolean(data.reset) } });
+  const isActive = data.isActive ?? current.isActive;
+  const providerTemplateName = data.providerTemplateName === undefined ? current.providerTemplateName : data.providerTemplateName || null;
+  await upsertTemplate(tx, { tenantId: ctx.tenantId, key, language, body, isActive, providerTemplateName, updatedBy: ctx.staffId });
+  await writeAudit(tx, { ...actorOf(ctx), action: "message_template.update", entityType: "tenant", entityId: ctx.tenantId, after: { key, language, isActive, providerTemplateName, reset: Boolean(data.reset) } });
   return templateFor(tx, key, language);
 }
 
@@ -180,7 +189,8 @@ export type QueueInput = {
 };
 
 // Automated messages only (docs/03 §10): to a guardian who opted in, while the
-// template is on; a repeat dedupe key makes nothing. Returns the new row.
+// template is on; a repeat dedupe key makes nothing. Returns the new row. It
+// goes through WhatsApp when connected and the template is approved in Meta.
 export async function queueMessage(tx: Tx, tenantId: string, input: QueueInput): Promise<MessageLog | undefined> {
   if (!input.guardian.whatsappOptin) return undefined;
   const tenant = await getOwnTenant(tx);
@@ -192,7 +202,7 @@ export async function queueMessage(tx: Tx, tenantId: string, input: QueueInput):
     tenantId,
     guardianId: input.guardian.id,
     toPhone: input.guardian.phone,
-    channel: adapterFor().channel,
+    channel: t.providerTemplateName && (await whatsappNumber(tx)) !== null ? "whatsapp" : "manual",
     templateKey: input.key,
     category: TEMPLATE_CATEGORY[input.key],
     language: tenant.messageLanguage,
@@ -203,6 +213,41 @@ export async function queueMessage(tx: Tx, tenantId: string, input: QueueInput):
     dedupeKey: input.dedupeKey ?? null,
     ...(input.sendAfter ? { sendAfter: input.sendAfter } : {}),
   });
+}
+
+// One queued message through the academy's adapter (the send job, step 4).
+// The template is read again: one turned off since is skipped, and one no
+// longer approved in Meta, or no WhatsApp, waits under To send.
+export async function deliverMessage(tx: Tx, m: MessageLog, adapter: MessagingAdapter, opts: { now?: Date } = {}): Promise<MessageLog> {
+  const t = await templateFor(tx, m.templateKey, m.language);
+  if (!t.isActive) return updateMessage(tx, m.id, { status: "skipped", error: "The template was turned off" });
+  if (adapter.channel === "manual" || !t.providerTemplateName) return updateMessage(tx, m.id, { channel: "manual" });
+  // Meta refuses an empty variable.
+  const variables = toMetaTemplate(t.body).names.map((n) => m.variables[n] || "-");
+  try {
+    const wamid = await adapter.deliver({ to: m.toPhone, templateName: t.providerTemplateName, language: m.language, variables });
+    return updateMessage(tx, m.id, { channel: "whatsapp", status: "sent", providerMessageId: wamid, sentAt: opts.now ?? new Date(), attempts: m.attempts + 1, error: null });
+  } catch (e) {
+    return updateMessage(tx, m.id, { channel: "whatsapp", status: "failed", error: whatsappMessage(e), attempts: m.attempts + 1 });
+  }
+}
+
+const PROGRESS: MessageStatus[] = ["queued", "sent", "delivered", "read"];
+
+// Meta's delivery reports come in any order: a status only moves forward, and
+// a failure after delivery is ignored. Returns why nothing changed, if so.
+export async function applyDeliveryStatus(tx: Tx, wamid: string, status: "sent" | "delivered" | "read" | "failed", error: string | null): Promise<string | null> {
+  const m = await messageByProviderId(tx, wamid);
+  if (!m) return "no message here with this id";
+  const at = PROGRESS.indexOf(m.status);
+  if (at < 0) return `the message is ${m.status}`;
+  if (status === "failed") {
+    if (at >= PROGRESS.indexOf("delivered")) return "already delivered";
+    await updateMessage(tx, m.id, { status: "failed", error: error ?? "WhatsApp couldn't deliver it" });
+  } else if (PROGRESS.indexOf(status) > at) {
+    await updateMessage(tx, m.id, { status });
+  }
+  return null;
 }
 
 export const LOG_VIEWS = ["to_send", "sent", "failed"] as const;
