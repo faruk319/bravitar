@@ -127,14 +127,23 @@ describe("the trial on the roster", () => {
     await expect(withTenant(T, (tx) => cancelTrial(tx, owner, t?.id ?? ""))).rejects.toThrow("already marked");
   });
 
-  it("a lost enquiry stays lost when its trial is marked", async () => {
+  it("marking an enquiry lost takes its unmarked trials off the roster; a trial already marked stays in the class's history", async () => {
     const e = await enquiry("Ishaan");
-    const session = await classOn(today);
-    await withTenant(T, (tx) => bookTrial(tx, owner, e.id, { sessionId: session }));
+    const [todays, tomorrows] = [await classOn(today), await classOn(addDays(today, 1))];
+    await withTenant(T, (tx) => bookTrial(tx, owner, e.id, { sessionId: todays }));
+    const [first] = await withTenant(T, (tx) => trialsOf(tx, e.id));
+    await mark(todays, first?.id ?? "", "present");
+    await withTenant(T, (tx) => bookTrial(tx, owner, e.id, { sessionId: tomorrows }));
     await withTenant(T, (tx) => markLost(tx, owner, e.id, { reason: "no_reply" }));
-    const [t] = await withTenant(T, (tx) => trialsOf(tx, e.id));
-    await mark(session, t?.id ?? "", "present");
+
     expect(await status(e.id)).toBe("lost");
-    await expect(withTenant(T, (tx) => bookTrial(tx, owner, e.id, { sessionId: session }))).rejects.toThrow("Reopen it first");
+    expect((await withTenant(T, (tx) => classRoster(tx, owner, tomorrows))).entries.some((x) => x.name === "Ishaan")).toBe(false);
+    expect((await withTenant(T, (tx) => classRoster(tx, owner, todays))).entries.find((x) => x.name === "Ishaan")).toMatchObject({ trial: true, mark: "present" });
+    const trials = await withTenant(T, (tx) => trialsOf(tx, e.id));
+    expect(trials.map((t) => [t.trialDate, t.mark, Boolean(t.cancelledAt)])).toEqual([
+      [addDays(today, 1), null, true],
+      [today, "present", false],
+    ]);
+    await expect(withTenant(T, (tx) => bookTrial(tx, owner, e.id, { sessionId: tomorrows }))).rejects.toThrow("Reopen it first");
   });
 });

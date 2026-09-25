@@ -75,7 +75,8 @@ async function entriesFor(tx: Tx, c: ClassRow): Promise<RosterEntry[]> {
     const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, trial: false, mark: null, note: null, markedBy: null };
     entries.set(m.studentId, { ...e, mark: m.status, note: m.note, markedBy: m.markedBy });
   }
-  for (const t of trials) entries.set(t.id, { studentId: t.id, name: t.name, code: "", paused: false, trial: true, mark: t.mark, note: t.feedback, markedBy: t.markedBy });
+  // Once they joined and are on this roster as a student, that row is theirs.
+  for (const t of trials) if (!(t.studentId && entries.has(t.studentId))) entries.set(t.id, { studentId: t.id, name: t.name, code: "", paused: false, trial: true, mark: t.mark, note: t.feedback, markedBy: t.markedBy });
   const order = (e: RosterEntry) => (e.paused ? 2 : e.trial ? 1 : 0);
   return [...entries.values()].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
 }

@@ -13,7 +13,7 @@ import { pickBranch } from "@/modules/tenancy/branch-access";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { type ActivityKind, type EnquiryStatus, ENQUIRY_STATUSES, LOST_REASONS, OPEN_STATUSES, SOURCES } from "./lists";
-import { type ActivityRow, activitiesOf, bySource, type EnquiryRow, enquiryRow, followUpsDue, type Funnel, funnel, getEnquiry, insertActivity, insertEnquiry, listByStatus, lostReasons, openByPhone, statusCounts, updateEnquiry } from "./repo";
+import { type ActivityRow, activitiesOf, bySource, cancelOpenTrials, type EnquiryRow, enquiryRow, followUpsDue, type Funnel, funnel, getEnquiry, insertActivity, insertEnquiry, listByStatus, lostReasons, openByPhone, statusCounts, updateEnquiry } from "./repo";
 import type { Enquiry } from "./schema";
 
 const actorOf = (ctx: ScopedCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
@@ -183,7 +183,9 @@ export async function markLost(tx: Tx, ctx: ScopedCtx, id: string, input: z.inpu
   const d = lostSchema.parse(input);
   const e = await requireEnquiry(tx, ctx, id);
   if (!OPEN_STATUSES.includes(e.status)) throw new ConflictError(e.status === "won" ? "This enquiry already joined" : "Already lost");
-  return setStatus(tx, ctx, e, "lost", { lostReason: d.reason, lostNote: d.note || null, lostAt: new Date(), nextFollowUp: null }, { note: d.note });
+  const lost = await setStatus(tx, ctx, e, "lost", { lostReason: d.reason, lostNote: d.note || null, lostAt: new Date(), nextFollowUp: null }, { note: d.note });
+  await cancelOpenTrials(tx, e.id, new Date()); // off the class rosters
+  return lost;
 }
 
 // Back to Contacted, with a follow-up tomorrow.

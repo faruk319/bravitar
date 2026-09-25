@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Mark } from "@/modules/attendance/schema";
@@ -144,15 +144,34 @@ export async function trialsOf(tx: Tx, enquiryId: string): Promise<TrialRow[]> {
   return list.map((r) => ({ ...r.t, batchId: r.batchId, batchName: r.batchName, startsAt: r.startsAt, endsAt: r.endsAt, sessionStatus: r.sessionStatus }));
 }
 
-export type RosterTrial = { id: string; enquiryId: string; name: string; mark: Mark | null; feedback: string | null; markedBy: string | null };
+export type RosterTrial = { id: string; enquiryId: string; name: string; mark: Mark | null; feedback: string | null; markedBy: string | null; studentId: string | null };
 
-// The class's live trials, for its roster.
+// The class's live trials, for its roster: an open enquiry's, or one already
+// marked (the class's history); a lost or joined enquiry's unmarked trial never.
 export async function trialsForSession(tx: Tx, sessionId: string): Promise<RosterTrial[]> {
   return tx
-    .select({ id: trialAttendances.id, enquiryId: trialAttendances.enquiryId, name: enquiries.name, mark: trialAttendances.mark, feedback: trialAttendances.feedback, markedBy: trialAttendances.markedBy })
+    .select({
+      id: trialAttendances.id,
+      enquiryId: trialAttendances.enquiryId,
+      name: enquiries.name,
+      mark: trialAttendances.mark,
+      feedback: trialAttendances.feedback,
+      markedBy: trialAttendances.markedBy,
+      studentId: enquiries.convertedStudentId,
+    })
     .from(trialAttendances)
     .innerJoin(enquiries, eq(enquiries.id, trialAttendances.enquiryId))
-    .where(and(eq(trialAttendances.sessionId, sessionId), live, isNull(enquiries.deletedAt)));
+    .where(and(eq(trialAttendances.sessionId, sessionId), live, isNull(enquiries.deletedAt), or(isNotNull(trialAttendances.mark), open)));
+}
+
+// When an enquiry closes (lost or joined), its trials not yet marked are cancelled.
+export async function cancelOpenTrials(tx: Tx, enquiryId: string, at: Date): Promise<number> {
+  const rows = await tx
+    .update(trialAttendances)
+    .set({ cancelledAt: at })
+    .where(and(eq(trialAttendances.enquiryId, enquiryId), live, isNull(trialAttendances.mark)))
+    .returning({ id: trialAttendances.id });
+  return rows.length;
 }
 
 // Whether an enquiry has a live trial attended, or at least one still to come.

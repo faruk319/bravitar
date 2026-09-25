@@ -10,7 +10,7 @@ import { enroll } from "@/modules/enrollments/service";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { OPEN_STATUSES } from "./lists";
-import { getEnquiry, trialsOf } from "./repo";
+import { cancelOpenTrials, getEnquiry, trialsOf } from "./repo";
 import { setStatus } from "./service";
 
 // docs/06 Prompt 18: one step from enquiry to student, family, guardian and
@@ -58,6 +58,7 @@ export async function convertEnquiry(tx: Tx, ctx: ScopedCtx, id: string, input: 
   });
   const enrollment = await enroll(tx, ctx, { studentId: student.id, batchId: batch.id, startDate: d.startDate ?? today });
   await setStatus(tx, ctx, e, "won", { convertedStudentId: student.id, nextFollowUp: null }, { note: `Joined ${batch.name}` });
+  await cancelOpenTrials(tx, e.id, new Date()); // now on the roster as a student
   await writeAudit(tx, { actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId, action: "enquiry.convert", entityType: "enquiry", entityId: e.id, after: { studentId: student.id, enrollmentId: enrollment.id } });
   return { studentId: student.id, enrollmentId: enrollment.id };
 }

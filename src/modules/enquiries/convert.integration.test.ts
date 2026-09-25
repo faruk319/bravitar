@@ -2,10 +2,11 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
+import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { saveAttendance } from "@/modules/attendance/service";
+import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { enrollments } from "@/modules/enrollments/schema";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
@@ -76,6 +77,8 @@ describe("converting an enquiry", () => {
     await withTenant(T, (tx) => saveAttendance(tx, teacher, session?.id ?? "", { marks: [{ studentId: trial?.id ?? "", status: "present" }] }));
     expect((await withTenant(T, (tx) => getEnquiry(tx, [], e.id)))?.status).toBe("trial_done");
     expect(await withTenant(T, (tx) => suggestedBatch(tx, e.id, null))).toBe(batch);
+    const [later] = await withTenant(T, (tx) => tx.select().from(sessions).where(and(eq(sessions.batchId, batch), eq(sessions.sessionDate, addDays(today, 2)))));
+    await withTenant(T, (tx) => bookTrial(tx, desk, e.id, { sessionId: later?.id ?? "" })); // not needed once they join
 
     const done = await convert(desk, e.id, { guardian: { fullName: "Rakesh Deshmukh", relation: "father" } });
     const [student] = await withTenant(T, (tx) => tx.select().from(students).where(eq(students.id, done.studentId)));
@@ -89,6 +92,12 @@ describe("converting an enquiry", () => {
     expect(after).toMatchObject({ status: "won", convertedStudentId: done.studentId, nextFollowUp: null });
     expect(after?.wonAt).toBeInstanceOf(Date);
     expect((await withTenant(T, (tx) => activitiesOf(tx, e.id)))[0]).toMatchObject({ toStatus: "won", note: "Joined Early" });
+    expect((await withTenant(T, (tx) => trialsOf(tx, e.id))).map((t) => [t.mark, Boolean(t.cancelledAt)])).toEqual([
+      [null, true],
+      ["present", false],
+    ]);
+    // Joined today, so today's class lists them once, as a student.
+    expect((await withTenant(T, (tx) => classRoster(tx, owner, session?.id ?? ""))).entries.filter((x) => x.name === "Aarav Deshmukh").map((x) => x.trial)).toEqual([false]);
     await expect(convert(desk, e.id, { guardian: { fullName: "Again", relation: "father" } })).rejects.toThrow("Already joined");
   });
 
