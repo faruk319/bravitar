@@ -5,10 +5,12 @@
 export type WhatsappCredentials = { phoneNumberId: string; accessToken: string; appSecret: string; verifyToken: string };
 export type WhatsappNumber = { displayPhoneNumber: string; verifiedName: string };
 export type TemplateSend = { to: string; templateName: string; language: string; parameters: string[] };
+export type CodeSend = { to: string; templateName: string; language: string; code: string };
 
 export interface WhatsappClient {
   number(): Promise<WhatsappNumber>; // proves the id and token work
   sendTemplate(message: TemplateSend): Promise<string>; // Meta's message id (wamid)
+  sendCode(message: CodeSend): Promise<string>; // an authentication template with a Copy code button
 }
 
 // auth: the token was refused. network: Meta couldn't be reached. api: anything else.
@@ -45,25 +47,24 @@ export const httpWhatsapp: WhatsappApi = ({ phoneNumberId, accessToken }) => {
     return json;
   }
   const id = encodeURIComponent(phoneNumberId);
+  async function send(to: string, name: string, language: string, components: unknown[]): Promise<string> {
+    const r = await call<{ messages?: { id: string }[] }>("POST", `/${id}/messages`, { messaging_product: "whatsapp", to, type: "template", template: { name, language: { code: language }, components } });
+    const wamid = r.messages?.[0]?.id;
+    if (!wamid) throw new WhatsappError("api", "WhatsApp didn't return a message id");
+    return wamid;
+  }
   return {
     async number() {
       const n = await call<{ display_phone_number?: string; verified_name?: string }>("GET", `/${id}?fields=display_phone_number,verified_name`);
       return { displayPhoneNumber: n.display_phone_number ?? "", verifiedName: n.verified_name ?? "" };
     },
-    async sendTemplate(m) {
-      const r = await call<{ messages?: { id: string }[] }>("POST", `/${id}/messages`, {
-        messaging_product: "whatsapp",
-        to: m.to,
-        type: "template",
-        template: {
-          name: m.templateName,
-          language: { code: m.language },
-          components: m.parameters.length ? [{ type: "body", parameters: m.parameters.map((text) => ({ type: "text", text })) }] : [],
-        },
-      });
-      const wamid = r.messages?.[0]?.id;
-      if (!wamid) throw new WhatsappError("api", "WhatsApp didn't return a message id");
-      return wamid;
-    },
+    sendTemplate: (m) =>
+      send(m.to, m.templateName, m.language, m.parameters.length ? [{ type: "body", parameters: m.parameters.map((text) => ({ type: "text", text })) }] : []),
+    // Meta wants the code twice: in the body and in the Copy code button.
+    sendCode: (m) =>
+      send(m.to, m.templateName, m.language, [
+        { type: "body", parameters: [{ type: "text", text: m.code }] },
+        { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: m.code }] },
+      ]),
   };
 };

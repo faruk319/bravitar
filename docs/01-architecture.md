@@ -143,6 +143,23 @@ when an owner fires a coach.
 Rate limit: 3 OTPs per phone per 15 minutes, 5 wrong attempts locks for an hour.
 OTP hashed in the database, 5-minute expiry, single use.
 
+**Built as** (agreed 2026-09-25; `src/modules/auth/`)
+
+- One login page. On `bravitar.in/login`, staff give email and password; the
+  password is checked in each academy with that email, under that academy's
+  own 5-in-15-minutes limit, and the academies are named only after it
+  matches. Cookies stay per address, so the main site hands over to
+  `<slug>.bravitar.in` with a one-time pass (2 minutes, single use, hashed).
+  Each academy's own address keeps its own login.
+- Forgot password: a 6-digit code on WhatsApp to the phone on the staff
+  account (set on My account, behind the password), then a new password; the
+  account's sessions end. The main site covers every academy with that email
+  and phone. Codes come from one Bravitar number (`PLATFORM_WHATSAPP_*`), never
+  an academy's; no SMS yet. The limits above live in the database functions
+  `otp_issue` and `otp_check`; the app can't read `otp_codes`.
+- Parents and adult students get the phone path with the portal (Prompt 20):
+  one box, "Phone number or email", and an academy list after the code.
+
 **Session payload assembled on login:**
 
 ```jsonc

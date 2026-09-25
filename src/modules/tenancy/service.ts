@@ -6,6 +6,7 @@ import { isTimeZone, todayIn } from "@/lib/dates";
 import { financialYear } from "@/lib/money/fy";
 import { ensureSeries } from "@/modules/numbering/repo";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
+import { phoneSchema } from "@/lib/phone";
 import { createSubscription } from "@/modules/platform/repo";
 import type { TenantSubscription } from "@/modules/platform/schema";
 import { createStaff, replaceStaffRoles, syncPermissions } from "@/modules/staff/repo";
@@ -29,7 +30,7 @@ export const newTenantSchema = z.object({
   owner: z.object({
     name: z.string().trim().min(1).max(120),
     email: z.email().trim().toLowerCase(),
-    phone: z.string().trim().min(6).max(20).optional(),
+    phone: phoneSchema.optional(),
   }),
 });
 export type NewTenantInput = z.input<typeof newTenantSchema>;

@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Academy } from "@/modules/auth/service";
+import { AcademyChoice } from "./academy-choice";
 
 // On an academy's address: that academy. On the main site (`common`): every
 // academy this email and password open, straight in when there is one.
@@ -41,18 +43,7 @@ export function LoginForm({ common = false }: { common?: boolean }) {
     setBusy(false);
   }
 
-  if (academies) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-label">Choose academy</p>
-        {academies.map((a) => (
-          <Button key={a.url} variant="outline" size="lg" nativeButton={false} render={<a href={a.url} />}>
-            {a.name}
-          </Button>
-        ))}
-      </div>
-    );
-  }
+  if (academies) return <AcademyChoice academies={academies} />;
 
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
@@ -72,6 +63,9 @@ export function LoginForm({ common = false }: { common?: boolean }) {
       <Button type="submit" size="lg" disabled={busy} className="mt-2">
         {busy ? "Signing in…" : "Sign in"}
       </Button>
+      <Link href="/login/reset" className="self-center text-label text-accent-600">
+        Forgot password?
+      </Link>
     </form>
   );
 }

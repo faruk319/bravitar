@@ -11,6 +11,9 @@ const base64Key = z
   .string()
   .refine((k) => /^[A-Za-z0-9+/]+={0,2}$/.test(k) && Buffer.from(k, "base64").length === 32, "must be 32 random bytes, base64");
 
+// An empty value in .env reads as not set.
+const unsetIfBlank = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
 const shape = {
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: pgUrl,
@@ -23,6 +26,11 @@ const shape = {
   // Seals each academy's integration secrets (src/lib/crypto). Needed only once
   // someone connects Razorpay; the app starts without it.
   APP_ENCRYPTION_KEY: base64Key.optional(),
+  // Bravitar's own WhatsApp number, which sends login and reset codes (agreed
+  // 2026-09-25). Without it, development prints codes in the server log.
+  PLATFORM_WHATSAPP_PHONE_NUMBER_ID: unsetIfBlank(z.string().regex(/^\d{6,30}$/)),
+  PLATFORM_WHATSAPP_ACCESS_TOKEN: unsetIfBlank(z.string().min(20)),
+  PLATFORM_WHATSAPP_CODE_TEMPLATE: unsetIfBlank(z.string().regex(/^[a-z0-9_]{1,512}$/)),
 };
 
 type UrlKeys = "DATABASE_URL" | "DATABASE_URL_PLATFORM" | "DATABASE_URL_MIGRATOR";

@@ -1,13 +1,14 @@
-import { type TemplateSend, type WhatsappApi, WhatsappError } from "./whatsapp";
+import { type CodeSend, type TemplateSend, type WhatsappApi, WhatsappError } from "./whatsapp";
 
 // Tests only: an in-memory WhatsApp number. Tokens other than `token` are
 // refused; `down` makes it unreachable; numbers in `bad` are rejected by Meta.
-export type FakeWhatsapp = { api: WhatsappApi; sent: (TemplateSend & { wamid: string })[]; bad: Set<string>; down: boolean };
+export type FakeWhatsapp = { api: WhatsappApi; sent: (TemplateSend & { wamid: string })[]; codes: CodeSend[]; bad: Set<string>; down: boolean };
 
 export function fakeWhatsapp(token = "EAAG-fake-access-token"): FakeWhatsapp {
   let n = 0;
   const fake: FakeWhatsapp = {
     sent: [],
+    codes: [],
     bad: new Set(),
     down: false,
     api: ({ accessToken }) => {
@@ -26,6 +27,11 @@ export function fakeWhatsapp(token = "EAAG-fake-access-token"): FakeWhatsapp {
           const wamid = `wamid.fake${++n}`;
           fake.sent.push({ ...m, wamid });
           return wamid;
+        },
+        async sendCode(m) {
+          guard();
+          fake.codes.push(m);
+          return `wamid.code${fake.codes.length}`;
         },
       };
     },

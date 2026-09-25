@@ -51,6 +51,10 @@ export async function updateStaffPassword(tx: Tx, id: string, passwordHash: stri
   await tx.update(staffUsers).set({ passwordHash }).where(eq(staffUsers.id, id));
 }
 
+export async function updateStaffPhone(tx: Tx, id: string, phone: string): Promise<void> {
+  await tx.update(staffUsers).set({ phone }).where(eq(staffUsers.id, id));
+}
+
 export async function createRole(tx: AnyTx, input: { tenantId: string; name: string; isSystem?: boolean }): Promise<Role> {
   const [row] = await tx.insert(roles).values({ id: uuidv7(), ...input }).returning();
   if (!row) throw new Error("role insert returned no row");

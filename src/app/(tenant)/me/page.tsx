@@ -5,6 +5,7 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { getStaff, listRoles, staffRoleIds } from "@/modules/staff/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
+import { PhoneForm } from "./phone-form";
 
 export default async function MePage() {
   const session = await requireStaffPage();
@@ -30,6 +31,9 @@ export default async function MePage() {
           </div>
         ))}
       </dl>
+      </Card>
+      <Card className="mt-4 p-0 md:p-0">
+        <PhoneForm phone={staff?.phone ?? null} />
       </Card>
       <div className="mt-6">
         <SignOutButton />

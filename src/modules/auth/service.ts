@@ -8,10 +8,11 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { TooManyRequestsError, UnauthorizedError } from "@/lib/errors";
+import { phoneSchema } from "@/lib/phone";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
-import { getStaff, updateStaffPassword } from "@/modules/staff/repo";
-import { countRecentFailures, findActiveStaffByEmail, insertHandoff, insertSession, recordLoginAttempt, revokeSession, staffAcademiesByEmail, useHandoff } from "./repo";
+import { getStaff, updateStaffPassword, updateStaffPhone } from "@/modules/staff/repo";
+import { countRecentFailures, findActiveStaffByEmail, insertHandoff, insertSession, recordLoginAttempt, revokeSession, type StaffAcademy, staffAcademiesByEmail, useHandoff } from "./repo";
 
 export const LOGIN_WINDOW_MINUTES = 15;
 export const LOGIN_MAX_FAILURES = 5;
@@ -27,11 +28,11 @@ export type LoginInput = z.input<typeof loginSchema>;
 
 const BAD_CREDENTIALS = "Wrong email or password";
 
-type Meta = { ip?: string | undefined; userAgent?: string | undefined };
+export type Meta = { ip?: string | undefined; userAgent?: string | undefined };
 export type OpenedSession = { token: string; sessionId: string; context: SessionContext };
 
 // A new 30-day session for a staff member, audited as a login.
-async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string): Promise<OpenedSession> {
+export async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string): Promise<OpenedSession> {
   const token = newToken();
   const context = await buildSessionContext(tx, staffId);
   const session = await insertSession(tx, {
@@ -74,6 +75,13 @@ export const HANDOFF_SECONDS = 120;
 export const signInSchema = loginSchema.omit({ slug: true });
 export type Academy = { name: string; url: string };
 
+// A one-time pass to the academy's own address, where the session is opened.
+export async function handoffTo(academy: StaffAcademy, staffId: string, now: Date): Promise<Academy> {
+  const token = newToken();
+  await withTenant(academy.tenantId, (tx) => insertHandoff(tx, { tenantId: academy.tenantId, staffId, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + HANDOFF_SECONDS * 1000) }));
+  return { name: academy.name, url: `${tenantOrigin(academy.slug)}/api/auth/handoff?t=${token}` };
+}
+
 // The password is checked in each academy with this email, under that
 // academy's own failure limit; the academies are named only after it matches.
 // Each match gets a one-time pass to its own address. Every failure reads the
@@ -90,10 +98,7 @@ export async function signIn(input: z.input<typeof signInSchema>, opts: { now?: 
     const staff = await withTenant(t.tenantId, (tx) => findActiveStaffByEmail(tx, data.email));
     const ok = Boolean(staff) && (await verifyPassword(staff?.passwordHash ?? "", data.password));
     await withTenant(t.tenantId, (tx) => recordLoginAttempt(tx, { tenantId: t.tenantId, email: data.email, succeeded: ok, ...(data.ip !== undefined ? { ip: data.ip } : {}) }));
-    if (!staff || !ok) continue;
-    const token = newToken();
-    await withTenant(t.tenantId, (tx) => insertHandoff(tx, { tenantId: t.tenantId, staffId: staff.id, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + HANDOFF_SECONDS * 1000) }));
-    found.push({ name: t.name, url: `${tenantOrigin(t.slug)}/api/auth/handoff?t=${token}` });
+    if (staff && ok) found.push(await handoffTo(t, staff.id, now));
   }
   if (!found.length) throw new UnauthorizedError(`${BAD_CREDENTIALS}. After ${LOGIN_MAX_FAILURES} wrong tries, wait ${LOGIN_WINDOW_MINUTES} minutes.`);
   return found;
@@ -125,4 +130,26 @@ export async function setPassword(tx: Tx, ctx: AccessContext, staffId: string, p
   if (!staff) throw new UnauthorizedError("Staff member not found");
   await updateStaffPassword(tx, staffId, await hashPassword(passwordSchema.parse(password)));
   await writeAudit(tx, { actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId, action: "staff.password.set", entityType: "staff_user", entityId: staffId });
+}
+
+// ---- the phone reset codes go to (agreed 2026-09-25)
+
+export const phoneChangeSchema = z.object({ phone: phoneSchema, password: z.string().min(1).max(128) });
+
+// One's own, behind the password, so a session left open can't take the
+// account over. A wrong password counts towards the login limit; it returns
+// undefined rather than throwing, so that count is kept.
+export async function setOwnPhone(tx: Tx, ctx: AccessContext, input: z.input<typeof phoneChangeSchema>): Promise<string | undefined> {
+  const data = phoneChangeSchema.parse(input);
+  const staff = await getStaff(tx, ctx.staffId);
+  if (!staff) throw new UnauthorizedError();
+  if ((await countRecentFailures(tx, ctx.tenantId, staff.email, LOGIN_WINDOW_MINUTES)) >= LOGIN_MAX_FAILURES) {
+    throw new TooManyRequestsError(`Too many wrong passwords. Try again in ${LOGIN_WINDOW_MINUTES} minutes.`);
+  }
+  const ok = await verifyPassword(staff.passwordHash, data.password);
+  await recordLoginAttempt(tx, { tenantId: ctx.tenantId, email: staff.email, succeeded: ok });
+  if (!ok) return undefined;
+  await updateStaffPhone(tx, staff.id, data.phone);
+  await writeAudit(tx, { actorType: "staff", actorId: staff.id, tenantId: ctx.tenantId, action: "staff.phone.update", entityType: "staff_user", entityId: staff.id, after: { phone: data.phone } });
+  return data.phone;
 }

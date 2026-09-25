@@ -1,7 +1,8 @@
 import { clearSessionCookieHeader, sessionCookieHeader } from "@/lib/auth/cookie";
-import { json, jsonError, withStaffRequest } from "@/lib/auth/route";
+import { json, jsonError, readJson, scopedCtx, withStaffRequest } from "@/lib/auth/route";
 import { getEnv } from "@/lib/env";
-import { login, logout, redeemHandoff, signIn } from "./service";
+import { requestReset, resetPassword } from "./reset";
+import { login, logout, redeemHandoff, setOwnPhone, signIn } from "./service";
 
 // The tenant slug is the request's subdomain (<slug>.<APP_DOMAIN>); a `slug`
 // body field is the fallback for tests and curl.
@@ -60,3 +61,35 @@ export async function handoffHandler(req: Request): Promise<Response> {
   if (opened) headers.set("set-cookie", sessionCookieHeader(opened.token));
   return new Response(null, { status: 303, headers });
 }
+
+// POST /api/auth/reset/code: the same answer whether or not the email exists.
+export async function resetCodeHandler(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    await requestReset({ email: String(body.email ?? "") }, { slug: slugFromHost(req.headers.get("host")) });
+    return json({ ok: true });
+  } catch (err) {
+    return jsonError(err);
+  }
+}
+
+// POST /api/auth/reset: on an academy's address it signs in here; on the main
+// site it answers like sign-in, with a pass per academy.
+export async function resetHandler(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const done = await resetPassword(
+      { email: String(body.email ?? ""), code: String(body.code ?? ""), password: String(body.password ?? "") },
+      { slug: slugFromHost(req.headers.get("host")), meta: metaOf(req) },
+    );
+    return "session" in done ? json({ ok: true }, { headers: { "set-cookie": sessionCookieHeader(done.session.token) } }) : json({ academies: done.academies });
+  } catch (err) {
+    return jsonError(err);
+  }
+}
+
+// PATCH /api/auth/me/phone: one's own phone for reset codes, behind the password.
+export const phoneHandler = withStaffRequest(null, async (r) => {
+  const phone = await setOwnPhone(r.tx, scopedCtx(r.session, r.req), await readJson(r.req));
+  return phone ? json({ phone }) : json({ error: "That password isn't right" }, { status: 400 });
+});

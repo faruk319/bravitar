@@ -9,6 +9,7 @@ import { db, type Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { AppError, BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { phoneSchema } from "@/lib/phone";
 import { invalidateSessionsForRoleHolders, invalidateSessionsForStaff, revokeSessionsForStaff } from "@/modules/auth/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
@@ -86,7 +87,7 @@ export async function loadAccessContext(tx: AnyTx, staffId: string): Promise<Acc
 const staffInputSchema = z.object({
   email: z.email().trim().toLowerCase(),
   fullName: z.string().trim().min(1).max(120),
-  phone: z.string().trim().min(6).max(20).optional(),
+  phone: phoneSchema.optional(),
   roleIds: z.array(z.uuid()).default([]),
   branchIds: z.array(z.uuid()).default([]),
 });

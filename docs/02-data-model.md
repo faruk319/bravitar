@@ -261,6 +261,12 @@ CREATE TABLE otp_codes (
 CREATE INDEX ON otp_codes (phone, created_at DESC);
 ```
 
+Built as (agreed 2026-09-25, migrations 0019-0020): `otp_codes` as above with
+purpose `password_reset | portal_login`, reachable only through the SECURITY
+DEFINER functions `otp_issue` and `otp_check`, which keep the docs/01 limits.
+`login_handoffs` (tenant_id, staff_id, token_hash, expires_at, used_at) carries
+a sign-in from the main site to the academy's address, under RLS.
+
 > **Careful:** `sessions_auth` is deliberately NOT called `sessions`. The class
 > `sessions` table below is one of the most-queried tables in the product. Two
 > things called "session" in one codebase will cost you hours.
