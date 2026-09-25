@@ -1,0 +1,65 @@
+// docs/03 §10: the six templates, in the academy's language (agreed 2026-09-25:
+// English, Hindi, Marathi). Variables are {{snake_case}}; the owner can edit
+// the wording later (step 2). No database here.
+
+export const TEMPLATE_KEYS = ["fee_due", "fee_overdue", "receipt", "absent", "class_cancelled", "welcome"] as const;
+export type TemplateKey = (typeof TEMPLATE_KEYS)[number];
+
+export const LANGUAGES = ["en", "hi", "mr"] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+export const TEMPLATE_LABELS: Record<TemplateKey, string> = {
+  fee_due: "Fee due soon",
+  fee_overdue: "Fee overdue",
+  receipt: "Receipt",
+  absent: "Absent today",
+  class_cancelled: "Class cancelled",
+  welcome: "Welcome",
+};
+
+export const DEFAULT_TEMPLATES: Record<TemplateKey, Record<Language, string>> = {
+  fee_due: {
+    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} is due on {{due_date}} ({{invoice_number}}). View or pay: {{link}}",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} तक जमा करनी है ({{invoice_number}})। देखें या भुगतान करें: {{link}}",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} पर्यंत भरायची आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}}",
+  },
+  fee_overdue: {
+    en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} was due on {{due_date}} and is still unpaid ({{invoice_number}}). View or pay: {{link}}",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_names}} की फ़ीस {{amount}} {{due_date}} को देय थी और अभी बाकी है ({{invoice_number}})। देखें या भुगतान करें: {{link}}",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_names}} यांची फी {{amount}} {{due_date}} रोजी देय होती आणि अजून बाकी आहे ({{invoice_number}}). पाहा किंवा भरा: {{link}}",
+  },
+  receipt: {
+    en: "Thank you {{guardian_name}}. {{academy}} received {{amount}} on {{date}}. Receipt {{receipt_number}}: {{link}}",
+    hi: "धन्यवाद {{guardian_name}}। {{academy}} को {{date}} को {{amount}} प्राप्त हुए। रसीद {{receipt_number}}: {{link}}",
+    mr: "धन्यवाद {{guardian_name}}. {{academy}} ला {{date}} रोजी {{amount}} मिळाले. पावती {{receipt_number}}: {{link}}",
+  },
+  absent: {
+    en: "Hello {{guardian_name}}, {{student_name}} was absent from {{batch}} at {{academy}} today ({{date}}). Please let us know if anything is wrong.",
+    hi: "नमस्ते {{guardian_name}}, {{student_name}} आज ({{date}}) {{academy}} की {{batch}} कक्षा में नहीं आए। कोई समस्या हो तो कृपया हमें बताएं।",
+    mr: "नमस्कार {{guardian_name}}, {{student_name}} आज ({{date}}) {{academy}} च्या {{batch}} वर्गाला आले नाहीत. काही अडचण असल्यास कृपया आम्हाला कळवा.",
+  },
+  class_cancelled: {
+    en: "Hello {{guardian_name}}, {{student_name}}'s {{batch}} class at {{academy}} on {{date}} at {{time}} is cancelled. {{reason}}",
+    hi: "नमस्ते {{guardian_name}}, {{academy}} में {{student_name}} की {{batch}} कक्षा {{date}} को {{time}} बजे नहीं होगी। {{reason}}",
+    mr: "नमस्कार {{guardian_name}}, {{academy}} मधील {{student_name}} यांचा {{batch}} वर्ग {{date}} रोजी {{time}} वाजता होणार नाही. {{reason}}",
+  },
+  welcome: {
+    en: "Welcome to {{academy}}, {{guardian_name}}! {{student_name}} has joined us. We're glad to have you.",
+    hi: "{{academy}} में आपका स्वागत है, {{guardian_name}}! {{student_name}} हमारे साथ जुड़ गए हैं। आपका साथ पाकर हमें खुशी है।",
+    mr: "{{academy}} मध्ये आपले स्वागत आहे, {{guardian_name}}! {{student_name}} आमच्यात सामील झाले आहेत. आपल्या सहभागाचा आम्हाला आनंद आहे.",
+  },
+};
+
+// Fills {{name}} from vars; an unknown or empty one leaves no gap behind.
+export function render(body: string, vars: Record<string, string>): string {
+  return body
+    .replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, name: string) => vars[name] ?? "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,।)])/g, "$1")
+    .trim();
+}
+
+// "Riya", "Riya and Kabir", "Riya, Kabir and Zoya".
+export function joinNames(names: string[]): string {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}

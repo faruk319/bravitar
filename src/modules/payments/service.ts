@@ -330,8 +330,12 @@ export type Receipt = {
 // The receipt as recorded: refunds, voids and later advance use never change it.
 export async function receipt(tx: Tx, ctx: ScopedCtx, id: string): Promise<Receipt> {
   if (!allows(ctx, "payments:read") && !allows(ctx, "fees:collect")) throw new ForbiddenError("Not allowed: payments");
-  const payment = await requirePayment(tx, ctx, id);
-  const [lines, names, tenant, branch] = await Promise.all([receiptLines(tx, id), receiptNames(tx, payment), getOwnTenant(tx), getBranch(tx, payment.branchId)]);
+  return receiptOf(tx, await requirePayment(tx, ctx, id));
+}
+
+// Also what the family's private link shows; callers check access.
+export async function receiptOf(tx: Tx, payment: Payment): Promise<Receipt> {
+  const [lines, names, tenant, branch] = await Promise.all([receiptLines(tx, payment.id), receiptNames(tx, payment), getOwnTenant(tx), getBranch(tx, payment.branchId)]);
   return {
     payment,
     ...names,

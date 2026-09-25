@@ -30,6 +30,7 @@ export const tenants = app.table("tenants", {
   codePrefix: text("code_prefix").notNull().default("STU"),
   gstin: text("gstin"),
   proration: text("proration", { enum: ["full", "daily"] }).notNull().default("full"),
+  messageLanguage: text("message_language", { enum: ["en", "hi", "mr"] }).notNull().default("en"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

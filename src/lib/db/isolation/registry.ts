@@ -4,6 +4,7 @@ import { batchFixtures } from "@/modules/batches/isolation";
 import { enrollmentFixtures } from "@/modules/enrollments/isolation";
 import { feeFixtures } from "@/modules/fees/isolation";
 import { integrationFixtures } from "@/modules/integrations/isolation";
+import { messagingFixtures } from "@/modules/messaging/isolation";
 import { numberingFixtures } from "@/modules/numbering/isolation";
 import { paymentFixtures } from "@/modules/payments/isolation";
 import { platformFixtures } from "@/modules/platform/isolation";
@@ -26,6 +27,7 @@ export const fixtures: IsolationFixtures = {
   ...enrollmentFixtures,
   ...attendanceFixtures,
   ...numberingFixtures,
+  ...messagingFixtures,
   ...feeFixtures,
   ...paymentFixtures,
   ...integrationFixtures,

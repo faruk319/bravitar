@@ -1,9 +1,10 @@
 import { ArrowLeft } from "lucide-react";
 import { notFound } from "next/navigation";
 import { Roster } from "@/components/attendance/roster";
+import { Composer } from "@/components/messaging/composer";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
-import { can } from "@/lib/auth/can";
+import { allows, can } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { shellFor } from "@/lib/auth/shell";
@@ -24,6 +25,9 @@ export default async function ClassPage({ params }: PageProps<"/sessions/[id]">)
   });
   if (!view) notFound();
   const coach = shellFor(session) === "coach";
+  const canMessage = allows(ctx, "messages:send");
+  // Saved marks only: a mark on screen but not saved yet isn't news for a family.
+  const absent = canMessage ? view.entries.filter((e) => e.mark === "absent") : [];
   const s = view.session;
   const note =
     view.lock === "cancelled"
@@ -51,6 +55,11 @@ export default async function ClassPage({ params }: PageProps<"/sessions/[id]">)
         </div>
       </div>
       {note ? <p className="mb-3 rounded-2xl bg-neutral-100 px-4 py-3 text-body text-neutral-700">{note}</p> : null}
+      {view.lock === "cancelled" && canMessage && view.entries.length ? (
+        <div className="mb-3">
+          <Composer request={{ key: "class_cancelled", sessionId: s.id }} label="Tell families" />
+        </div>
+      ) : null}
       {view.entries.length ? (
         <Roster
           sessionId={s.id}
@@ -61,6 +70,19 @@ export default async function ClassPage({ params }: PageProps<"/sessions/[id]">)
       ) : (
         <p className="text-body text-muted-foreground">No students in this batch yet.</p>
       )}
+      {absent.length ? (
+        <section className="mt-5">
+          <h2 className="mb-1 text-label text-muted-foreground">Absent</h2>
+          <ul className="divide-y divide-neutral-100 rounded-2xl border border-neutral-100 bg-card px-4 shadow-card">
+            {absent.map((e) => (
+              <li key={e.studentId} className="flex min-h-14 items-center justify-between gap-3">
+                <span className="truncate text-body">{e.name}</span>
+                <Composer request={{ key: "absent", sessionId: s.id, studentId: e.studentId }} label="Message" size="sm" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </Gate>
   );
 }

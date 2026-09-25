@@ -246,7 +246,12 @@ export type InvoiceDetail = {
 
 export async function invoiceDetail(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
   assertCan(ctx, "invoices:read");
-  const invoice = await requireInvoice(tx, ctx, id);
+  return invoiceView(tx, await requireInvoice(tx, ctx, id), opts);
+}
+
+// What staff and the family's private link both show; callers check access.
+export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
+  const id = invoice.id;
   const [lines, household, tenant, branch] = await Promise.all([linesOf(tx, [id]), getHousehold(tx, invoice.householdId), getOwnTenant(tx), getBranch(tx, invoice.branchId)]);
   const today = todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now);
   return {

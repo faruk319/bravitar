@@ -7,6 +7,8 @@ import { uuidv7 } from "@/lib/ids";
 import { formatPaise } from "@/lib/money/format";
 import type { Paise } from "@/lib/money/paise";
 import { getInvoice } from "@/modules/fees/repo";
+import type { Invoice } from "@/modules/fees/schema";
+import type { Actor } from "@/modules/fees/invoicing";
 import { httpRazorpay, type RazorpayApi } from "@/modules/integrations/razorpay";
 import { razorpayKeys, razorpayMessage } from "@/modules/integrations/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
@@ -32,18 +34,22 @@ export async function paymentLinkFor(tx: Tx, ctx: ScopedCtx, invoiceId: string, 
   assertCan(ctx, "fees:collect");
   const found = await getInvoice(tx, ctx.branchIds, invoiceId);
   if (!found) throw new NotFoundError("Invoice");
+  return linkForInvoice(tx, { actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId }, found, opts);
+}
+
+// Also used by "Pay online" on the family's private invoice link (docs/03 §10).
+export async function linkForInvoice(tx: Tx, actor: Actor, found: Invoice, opts: { api?: RazorpayApi; now?: Date } = {}): Promise<LinkShare> {
   const keys = await razorpayKeys(tx);
   if (!keys) throw new ConflictError("Connect Razorpay in Settings first");
   // The balance can't move while the link is made.
   await lockFamily(tx, found.householdId);
-  const inv = (await getInvoice(tx, [], invoiceId)) ?? found;
+  const inv = (await getInvoice(tx, [], found.id)) ?? found;
   if (inv.status !== "issued" && inv.status !== "part_paid") throw new ConflictError("Only an unpaid invoice can have a payment link");
   const balance = inv.totalPaise - inv.paidPaise;
   const number = inv.number ?? "";
   const [tenant, contact] = await Promise.all([getOwnTenant(tx), familyContact(tx, inv.householdId)]);
   const academy = tenant?.name ?? "";
   const now = opts.now ?? new Date();
-  const actor = { actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId };
   const api = (opts.api ?? httpRazorpay)(keys);
 
   const live = await liveLink(tx, inv.id);
@@ -67,12 +73,12 @@ export async function paymentLinkFor(tx: Tx, ctx: ScopedCtx, invoiceId: string, 
       description: `${academy} · ${number}`,
       referenceId: id,
       customer: { name: contact.name, ...(contact.phone ? { contact: contact.phone } : {}) },
-      notes: { tenant_id: ctx.tenantId, invoice_id: inv.id, link_id: id },
+      notes: { tenant_id: actor.tenantId, invoice_id: inv.id, link_id: id },
     });
   } catch (e) {
     throw new BadRequestError(razorpayMessage(e));
   }
-  const link = await insertLink(tx, { id, tenantId: ctx.tenantId, invoiceId: inv.id, gatewayLinkId: made.id, shortUrl: made.shortUrl, amountPaise: balance, createdBy: ctx.staffId, createdAt: now });
+  const link = await insertLink(tx, { id, tenantId: actor.tenantId, invoiceId: inv.id, gatewayLinkId: made.id, shortUrl: made.shortUrl, amountPaise: balance, createdBy: actor.actorId ?? null, createdAt: now });
   await writeAudit(tx, { ...actor, action: "payment_link.create", entityType: "invoice", entityId: inv.id, after: { linkId: id, gatewayLinkId: made.id, amountPaise: String(balance) } });
   return share(link, number, academy, contact.phone, false);
 }

@@ -6,7 +6,8 @@ import { SESSION_COOKIE } from "@/lib/auth/cookie";
 // /login is never redirected here: the login page checks the session itself.
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  const open = pathname === "/login" || pathname === "/" || pathname.startsWith("/invite/");
+  // Invite links and a family's private receipt (/r/) or invoice (/i/) links carry their own token.
+  const open = pathname === "/login" || pathname === "/" || ["/invite/", "/r/", "/i/"].some((p) => pathname.startsWith(p));
   if (!open && !req.cookies.has(SESSION_COOKIE)) return NextResponse.redirect(new URL("/login", req.url));
   return NextResponse.next();
 }
