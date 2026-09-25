@@ -1,7 +1,8 @@
 import { boolean, customType, inet, jsonb, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { staffUsers } from "@/modules/staff/schema";
 import { tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0005_sessions_and_login_attempts.sql.
+// Mirrors migrations/0005_sessions_and_login_attempts.sql and 0019_common_login.sql.
 const app = pgSchema("app");
 const citext = customType<{ data: string }>({ dataType: () => "extensions.citext" });
 
@@ -29,6 +30,17 @@ export const loginAttempts = app.table("login_attempts", {
   ip: inet("ip"),
   succeeded: boolean("succeeded").notNull(),
   attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// The one-time pass from the main site's login to the academy's address.
+export const loginHandoffs = app.table("login_handoffs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  staffId: uuid("staff_id").notNull().references(() => staffUsers.id),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type SessionRow = typeof sessionsAuth.$inferSelect;

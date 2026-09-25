@@ -5,30 +5,53 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { Academy } from "@/modules/auth/service";
 
-export function LoginForm() {
+// On an academy's address: that academy. On the main site (`common`): every
+// academy this email and password open, straight in when there is one.
+export function LoginForm({ common = false }: { common?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  const [academies, setAcademies] = useState<Academy[]>();
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
     setError(undefined);
     const form = new FormData(e.currentTarget);
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(common ? "/api/auth/sign-in" : "/api/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
     });
-    if (res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { academies?: Academy[]; error?: string };
+    if (res.ok && !common) {
       router.replace("/");
       router.refresh();
       return;
     }
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (res.ok && body.academies?.[0]) {
+      if (body.academies.length === 1) return window.location.assign(body.academies[0].url);
+      setAcademies(body.academies);
+      setBusy(false);
+      return;
+    }
     setError(body.error ?? "Could not sign in");
     setBusy(false);
+  }
+
+  if (academies) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-label">Choose academy</p>
+        {academies.map((a) => (
+          <Button key={a.url} variant="outline" size="lg" nativeButton={false} render={<a href={a.url} />}>
+            {a.name}
+          </Button>
+        ))}
+      </div>
+    );
   }
 
   return (

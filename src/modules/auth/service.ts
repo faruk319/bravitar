@@ -8,9 +8,10 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { TooManyRequestsError, UnauthorizedError } from "@/lib/errors";
+import { tenantOrigin } from "@/lib/tenant/origin";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { getStaff, updateStaffPassword } from "@/modules/staff/repo";
-import { countRecentFailures, findActiveStaffByEmail, insertSession, recordLoginAttempt, revokeSession } from "./repo";
+import { countRecentFailures, findActiveStaffByEmail, insertHandoff, insertSession, recordLoginAttempt, revokeSession, staffAcademiesByEmail, useHandoff } from "./repo";
 
 export const LOGIN_WINDOW_MINUTES = 15;
 export const LOGIN_MAX_FAILURES = 5;
@@ -26,9 +27,30 @@ export type LoginInput = z.input<typeof loginSchema>;
 
 const BAD_CREDENTIALS = "Wrong email or password";
 
+type Meta = { ip?: string | undefined; userAgent?: string | undefined };
+export type OpenedSession = { token: string; sessionId: string; context: SessionContext };
+
+// A new 30-day session for a staff member, audited as a login.
+async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string): Promise<OpenedSession> {
+  const token = newToken();
+  const context = await buildSessionContext(tx, staffId);
+  const session = await insertSession(tx, {
+    tokenHash: hashToken(token),
+    actorType: "staff",
+    actorId: staffId,
+    tenantId,
+    cachedContext: context,
+    expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000),
+    ...(meta.ip !== undefined ? { ip: meta.ip } : {}),
+    ...(meta.userAgent !== undefined ? { userAgent: meta.userAgent } : {}),
+  });
+  await writeAudit(tx, { actorType: "staff", actorId: staffId, tenantId, action: "auth.login", entityType: "session", entityId: session.id, ...(meta.ip !== undefined ? { ip: meta.ip } : {}), ...(via ? { after: { via } } : {}) });
+  return { token, sessionId: session.id, context };
+}
+
 // One transaction to check and verify, a separate one to record the attempt,
 // so a failed login still counts against the limit.
-export async function login(input: LoginInput): Promise<{ token: string; sessionId: string; context: SessionContext }> {
+export async function login(input: LoginInput): Promise<OpenedSession> {
   const data = loginSchema.parse(input);
   const tenant = await resolveTenantBySlug(data.slug);
   if (!tenant || tenant.status !== "active") throw new UnauthorizedError(BAD_CREDENTIALS);
@@ -43,22 +65,48 @@ export async function login(input: LoginInput): Promise<{ token: string; session
   const attempt = { tenantId: tenant.id, email: data.email, succeeded: Boolean(staff && ok), ...(data.ip !== undefined ? { ip: data.ip } : {}) };
   await withTenant(tenant.id, (tx) => recordLoginAttempt(tx, attempt));
   if (!staff || !ok) throw new UnauthorizedError(BAD_CREDENTIALS);
+  return withTenant(tenant.id, (tx) => openSession(tx, tenant.id, staff.id, data));
+}
 
-  const token = newToken();
+// ---- one login page on the main site (agreed 2026-09-25)
+
+export const HANDOFF_SECONDS = 120;
+export const signInSchema = loginSchema.omit({ slug: true });
+export type Academy = { name: string; url: string };
+
+// The password is checked in each academy with this email, under that
+// academy's own failure limit; the academies are named only after it matches.
+// Each match gets a one-time pass to its own address. Every failure reads the
+// same, so the page never shows whether an email exists.
+export async function signIn(input: z.input<typeof signInSchema>, opts: { now?: Date } = {}): Promise<Academy[]> {
+  const data = signInSchema.parse(input);
+  const now = opts.now ?? new Date();
+  const found: Academy[] = [];
+  const candidates = await staffAcademiesByEmail(data.email);
+  if (!candidates.length) await verifyPassword(await dummyPasswordHash(), data.password);
+  for (const t of candidates) {
+    const failures = await withTenant(t.tenantId, (tx) => countRecentFailures(tx, t.tenantId, data.email, LOGIN_WINDOW_MINUTES));
+    if (failures >= LOGIN_MAX_FAILURES) continue;
+    const staff = await withTenant(t.tenantId, (tx) => findActiveStaffByEmail(tx, data.email));
+    const ok = Boolean(staff) && (await verifyPassword(staff?.passwordHash ?? "", data.password));
+    await withTenant(t.tenantId, (tx) => recordLoginAttempt(tx, { tenantId: t.tenantId, email: data.email, succeeded: ok, ...(data.ip !== undefined ? { ip: data.ip } : {}) }));
+    if (!staff || !ok) continue;
+    const token = newToken();
+    await withTenant(t.tenantId, (tx) => insertHandoff(tx, { tenantId: t.tenantId, staffId: staff.id, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + HANDOFF_SECONDS * 1000) }));
+    found.push({ name: t.name, url: `${tenantOrigin(t.slug)}/api/auth/handoff?t=${token}` });
+  }
+  if (!found.length) throw new UnauthorizedError(`${BAD_CREDENTIALS}. After ${LOGIN_MAX_FAILURES} wrong tries, wait ${LOGIN_WINDOW_MINUTES} minutes.`);
+  return found;
+}
+
+// On the academy's own address: a live pass for this academy opens a session.
+export async function redeemHandoff(slug: string | undefined, token: string, meta: Meta, opts: { now?: Date } = {}): Promise<OpenedSession | undefined> {
+  const tenant = slug ? await resolveTenantBySlug(slug) : undefined;
+  if (!tenant || tenant.status !== "active" || !/^[A-Za-z0-9_-]{20,100}$/.test(token)) return undefined;
   return withTenant(tenant.id, async (tx) => {
-    const context = await buildSessionContext(tx, staff.id);
-    const session = await insertSession(tx, {
-      tokenHash: hashToken(token),
-      actorType: "staff",
-      actorId: staff.id,
-      tenantId: tenant.id,
-      cachedContext: context,
-      expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000),
-      ...(data.ip !== undefined ? { ip: data.ip } : {}),
-      ...(data.userAgent !== undefined ? { userAgent: data.userAgent } : {}),
-    });
-    await writeAudit(tx, { actorType: "staff", actorId: staff.id, tenantId: tenant.id, action: "auth.login", entityType: "session", entityId: session.id, ...(data.ip !== undefined ? { ip: data.ip } : {}) });
-    return { token, sessionId: session.id, context };
+    const staffId = await useHandoff(tx, hashToken(token), opts.now ?? new Date());
+    const staff = staffId ? await getStaff(tx, staffId) : undefined;
+    return staff?.isActive ? openSession(tx, tenant.id, staff.id, meta, "main site") : undefined;
   });
 }
 

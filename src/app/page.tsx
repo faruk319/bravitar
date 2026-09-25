@@ -1,5 +1,7 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { currentStaffSession } from "@/lib/auth/server";
 import { homeFor, shellFor } from "@/lib/auth/shell";
 import { slugFromHost } from "@/modules/auth/routes";
@@ -15,6 +17,9 @@ export default async function Home() {
     <main className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
       <h1 className="text-display">Bravitar</h1>
       <p className="text-body text-muted-foreground">Students, batches, attendance and fees for academies.</p>
+      <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
+        Sign in
+      </Button>
     </main>
   );
 }

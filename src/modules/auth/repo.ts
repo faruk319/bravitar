@@ -1,9 +1,9 @@
 import { and, count, eq, gt, inArray, isNull, sql } from "drizzle-orm";
-import type { Tx } from "@/lib/db/client";
+import { db, type Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
 import { uuidv7 } from "@/lib/ids";
 import { staffRoles, type StaffUser, staffUsers } from "@/modules/staff/schema";
-import { loginAttempts, type SessionRow, sessionsAuth } from "./schema";
+import { loginAttempts, loginHandoffs, type SessionRow, sessionsAuth } from "./schema";
 
 type AnyTx = Tx | PlatformTx;
 
@@ -85,4 +85,28 @@ export async function countRecentFailures(tx: Tx, tenantId: string, email: strin
       ),
     );
   return row?.n ?? 0;
+}
+
+// ---- one login page (migration 0019)
+
+export type StaffAcademy = { tenantId: string; slug: string; name: string };
+
+// Before any academy is known: where an active staff account has this email.
+export async function staffAcademiesByEmail(email: string): Promise<StaffAcademy[]> {
+  const rows = await db.execute<{ tenant_id: string; slug: string; name: string }>(sql`SELECT * FROM app.staff_academies_by_email(${email})`);
+  return rows.map((r) => ({ tenantId: r.tenant_id, slug: r.slug, name: r.name }));
+}
+
+export async function insertHandoff(tx: Tx, row: { tenantId: string; staffId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
+  await tx.insert(loginHandoffs).values({ id: uuidv7(), ...row });
+}
+
+// Uses up a live pass in one statement; returns whose it was.
+export async function useHandoff(tx: Tx, tokenHash: string, now: Date): Promise<string | undefined> {
+  const [row] = await tx
+    .update(loginHandoffs)
+    .set({ usedAt: now })
+    .where(and(eq(loginHandoffs.tokenHash, tokenHash), isNull(loginHandoffs.usedAt), gt(loginHandoffs.expiresAt, now)))
+    .returning({ staffId: loginHandoffs.staffId });
+  return row?.staffId;
 }

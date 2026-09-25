@@ -1,7 +1,9 @@
 import type { IsolationFixtures } from "@/lib/db/isolation/types";
 import { hashToken, newToken } from "@/lib/auth/token";
 import { uuidv7 } from "@/lib/ids";
-import { loginAttempts, sessionsAuth } from "./schema";
+import { createStaff } from "@/modules/staff/repo";
+import { PASSWORD_UNSET } from "@/modules/staff/schema";
+import { loginAttempts, loginHandoffs, sessionsAuth } from "./schema";
 
 export const authFixtures: IsolationFixtures = {
   sessions_auth: (tx, tenantId) =>
@@ -14,4 +16,8 @@ export const authFixtures: IsolationFixtures = {
       expiresAt: new Date(Date.now() + 60_000),
     }),
   login_attempts: (tx, tenantId) => tx.insert(loginAttempts).values({ id: uuidv7(), tenantId, email: "iso@example.test", succeeded: false }),
+  login_handoffs: async (tx, tenantId) => {
+    const s = await createStaff(tx, { tenantId, email: `iso-handoff-${uuidv7()}@example.test`, fullName: "Iso Handoff", passwordHash: PASSWORD_UNSET });
+    return tx.insert(loginHandoffs).values({ id: uuidv7(), tenantId, staffId: s.id, tokenHash: hashToken(newToken()), expiresAt: new Date(Date.now() + 60_000) });
+  },
 };
