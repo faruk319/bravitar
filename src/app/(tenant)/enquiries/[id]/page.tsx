@@ -1,6 +1,6 @@
 import { MessageCircle, Phone } from "lucide-react";
 import { notFound } from "next/navigation";
-import { EditEnquiry, LogActivity, MarkLost, Reopen } from "@/components/enquiries/enquiry-actions";
+import { BookTrial, CancelTrial, EditEnquiry, LogActivity, MarkLost, Reopen } from "@/components/enquiries/enquiry-actions";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
@@ -8,17 +8,29 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
-import { addDays, formatDate, timeIn } from "@/lib/dates";
+import { addDays, formatDate, timeIn, weekdayOf } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPhone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { coachOptions, listPrograms } from "@/modules/batches/repo";
+import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { listBatchViews } from "@/modules/batches/service";
 import { ACTIVITY_LABELS, LOST_REASON_LABELS, OPEN_STATUSES, SOURCE_LABELS, STATUS_LABELS } from "@/modules/enquiries/lists";
+import { trialsOf, type TrialRow } from "@/modules/enquiries/repo";
 import { enquiryDetail } from "@/modules/enquiries/service";
+import { trialChoices } from "@/modules/enquiries/trials";
 
 const STATUS_CLASS: Record<string, string> = { won: "bg-success-600/10 text-success-600", lost: "bg-neutral-100 text-neutral-500" };
+const MARK_WORDS = { present: "Came", late: "Came late", absent: "Missed", excused: "Excused" } as const;
+
+// What happened to a trial, in a word.
+function trialState(t: TrialRow, today: string): [string, string] {
+  if (t.cancelledAt) return ["Cancelled", "text-muted-foreground"];
+  if (t.sessionStatus === "cancelled") return ["Class cancelled", "text-warning-600"];
+  if (t.mark) return [MARK_WORDS[t.mark], t.mark === "absent" ? "text-danger-600" : "text-success-600"];
+  return t.trialDate < today ? ["Not marked", "text-warning-600"] : ["Booked", "text-accent-600"];
+}
 
 // docs/03 §4: the enquiry, how to reach them, and everything that happened.
 export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]">) {
@@ -27,22 +39,34 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
   const ctx = scopedCtx(session);
   if (!allows(ctx, "enquiries:read")) return <Gate permission="enquiries:read">{null}</Gate>;
   const canUpdate = allows(ctx, "enquiries:update");
-  const data = await withTenant(session.tenant.id, async (tx) => ({
-    ...(await enquiryDetail(tx, ctx, id)),
-    ...(canUpdate
-      ? {
-          programs: (await listPrograms(tx, { activeOnly: true })).map((p) => ({ id: p.id, name: p.name })),
-          batches: (await listBatchViews(tx, ctx.branchIds)).map((b) => ({ id: b.id, name: b.name, programId: b.programId })),
-          staff: (await coachOptions(tx)).map((s) => ({ id: s.id, name: s.fullName })),
-        }
-      : {}),
-  })).catch((e: unknown) => {
+  const tz = session.tenant.timezone;
+  const data = await withTenant(session.tenant.id, async (tx) => {
+    const detail = await enquiryDetail(tx, ctx, id);
+    const open = OPEN_STATUSES.includes(detail.enquiry.status);
+    return {
+      ...detail,
+      trials: await trialsOf(tx, id),
+      ...(canUpdate
+        ? {
+            programs: (await listPrograms(tx, { activeOnly: true })).map((p) => ({ id: p.id, name: p.name })),
+            batches: (await listBatchViews(tx, ctx.branchIds)).map((b) => ({ id: b.id, name: b.name, programId: b.programId })),
+            staff: (await coachOptions(tx)).map((s) => ({ id: s.id, name: s.fullName })),
+            choices: open
+              ? (await trialChoices(tx, ctx, detail.enquiry)).map((b) => ({
+                  id: b.id,
+                  name: b.name,
+                  classes: b.classes.map((c) => ({ sessionId: c.sessionId, label: `${WEEKDAY_SHORT[weekdayOf(c.date)]}, ${formatDate(c.date)} · ${timeIn(tz, c.startsAt)}–${timeIn(tz, c.endsAt)}` })),
+                }))
+              : [],
+          }
+        : {}),
+    };
+  }).catch((e: unknown) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
-  const { enquiry: e, activities, matches, today } = data;
+  const { enquiry: e, activities, matches, today, trials } = data;
   const isOpen = OPEN_STATUSES.includes(e.status);
-  const tz = session.tenant.timezone;
   const facts: [string, string][] = [
     ["Parent", e.contactName ?? "—"],
     ["Program", [e.programName, e.batchName].filter(Boolean).join(" · ") || "—"],
@@ -98,6 +122,35 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
             </div>
           ) : null}
         </Card>
+        {trials.length || data.choices?.length ? (
+          <Card>
+            <CardHeader title="Trials" action={isOpen && data.choices?.length ? <BookTrial id={e.id} batches={data.choices} /> : null} />
+            {trials.length ? (
+              <ul className="divide-y divide-neutral-100">
+                {trials.map((t) => {
+                  const [word, cls] = trialState(t, today);
+                  return (
+                    <li key={t.id} className="flex min-h-14 items-center justify-between gap-3 py-2">
+                      <span>
+                        <span className="block text-body">{t.batchName}</span>
+                        <span className="block text-caption text-muted-foreground">
+                          {formatDate(t.trialDate)}, {timeIn(tz, t.startsAt)}
+                          {t.feedback ? ` · ${t.feedback}` : ""}
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className={cn("text-label", cls)}>{word}</span>
+                        {canUpdate && isOpen && !t.mark && !t.cancelledAt && t.sessionStatus !== "cancelled" ? <CancelTrial trialId={t.id} /> : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-body text-muted-foreground">No trial yet.</p>
+            )}
+          </Card>
+        ) : null}
         <Card>
           <CardHeader title="Timeline" />
           <ol className="divide-y divide-neutral-100">

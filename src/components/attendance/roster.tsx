@@ -12,7 +12,7 @@ import { request } from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 type Mark = "present" | "absent" | "late" | "excused";
-type Entry = { studentId: string; name: string; code: string; paused: boolean; mark: Mark | null; note: string | null };
+type Entry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; mark: Mark | null; note: string | null };
 type Marks = Record<string, { mark: Mark | null; note: string | null }>;
 
 const NEXT: Record<Mark | "none", Mark> = { none: "present", present: "absent", absent: "late", late: "present", excused: "present" };
@@ -133,7 +133,10 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
                 className={cn("flex min-h-14 w-full items-center gap-3 px-4 text-left select-none active:bg-neutral-50", e.paused && "opacity-60")}
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body text-neutral-900">{e.name}</span>
+                  <span className="block truncate text-body text-neutral-900">
+                    {e.name}
+                    {e.trial ? <span className="ml-2 rounded-full bg-accent-50 px-2 py-0.5 text-caption text-accent-600">Trial</span> : null}
+                  </span>
                   {m?.note ? <span className="block truncate text-caption text-muted-foreground">{m.note}</span> : null}
                 </span>
                 {e.paused && !m?.mark ? <span className="text-label text-muted-foreground">Paused</span> : <MarkBadge mark={m?.mark ?? null} className="min-w-24" />}

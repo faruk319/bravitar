@@ -79,7 +79,7 @@ export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeReque
       if (c.session.status !== "cancelled") throw new ConflictError("This class isn't cancelled");
       const vars = { batch: c.batchName, date: formatDate(c.session.sessionDate), time: timeIn(c.timeZone, c.session.startsAt), reason: c.session.cancelReason ?? "" };
       const drafts: Draft[] = [];
-      for (const e of c.entries.filter((x) => !x.paused)) drafts.push(draft(e.name, recipients(await guardiansOfStudent(tx, e.studentId)), { ...vars, student_name: e.name }));
+      for (const e of c.entries.filter((x) => !x.paused && !x.trial)) drafts.push(draft(e.name, recipients(await guardiansOfStudent(tx, e.studentId)), { ...vars, student_name: e.name }));
       return { key: "class_cancelled", drafts };
     }
     case "welcome": {

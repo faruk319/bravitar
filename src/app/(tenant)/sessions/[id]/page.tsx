@@ -27,7 +27,7 @@ export default async function ClassPage({ params }: PageProps<"/sessions/[id]">)
   const coach = shellFor(session) === "coach";
   const canMessage = allows(ctx, "messages:send");
   // Saved marks only: a mark on screen but not saved yet isn't news for a family.
-  const absent = canMessage ? view.entries.filter((e) => e.mark === "absent") : [];
+  const absent = canMessage ? view.entries.filter((e) => e.mark === "absent" && !e.trial) : [];
   const s = view.session;
   const note =
     view.lock === "cancelled"

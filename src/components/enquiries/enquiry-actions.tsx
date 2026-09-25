@@ -208,3 +208,57 @@ export function Reopen({ id }: { id: string }) {
     </>
   );
 }
+
+export type TrialOption = { id: string; name: string; classes: { sessionId: string; label: string }[] };
+
+// docs/03 §4: a trial in one of a batch's next classes.
+export function BookTrial({ id, batches }: { id: string; batches: TrialOption[] }) {
+  const a = useAction();
+  const [batchId, setBatchId] = useState(batches[0]?.id ?? "");
+  const classes = batches.find((b) => b.id === batchId)?.classes ?? [];
+  return (
+    <Sheet open={a.open} onOpenChange={a.setOpen}>
+      <SheetTrigger render={<Button variant="outline" size="sm" />}>Book trial</SheetTrigger>
+      <SheetForm
+        trigger="Book trial"
+        title="Book a trial class"
+        submitLabel="Book"
+        busy={a.busy}
+        error={a.error}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          void a.run(() => send(`/api/enquiries/${id}/trials`, "POST", { sessionId: f.get("sessionId") || undefined }));
+        }}
+      >
+        <Field label="Batch" id="trial-batch">
+          <select id="trial-batch" value={batchId} onChange={(e) => setBatchId(e.target.value)} className={selectClass}>
+            {batches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <fieldset className="flex flex-col gap-2">
+          <legend className="mb-1 text-label">Class</legend>
+          {classes.map((c, i) => (
+            <label key={c.sessionId} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 has-checked:border-accent-600 has-checked:bg-accent-50">
+              <input type="radio" name="sessionId" value={c.sessionId} defaultChecked={i === 0} className="accent-accent-600" />
+              {c.label}
+            </label>
+          ))}
+        </fieldset>
+      </SheetForm>
+    </Sheet>
+  );
+}
+
+export function CancelTrial({ trialId }: { trialId: string }) {
+  const a = useAction();
+  return (
+    <Button variant="ghost" size="sm" disabled={a.busy} onClick={() => void a.run(() => send(`/api/enquiries/trials/${trialId}/cancel`, "POST"))}>
+      {a.busy ? "Cancelling…" : "Cancel"}
+    </Button>
+  );
+}

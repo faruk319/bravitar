@@ -1,10 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, lte, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
+import type { Mark } from "@/modules/attendance/schema";
 import { batches, programs } from "@/modules/batches/schema";
+import { sessions } from "@/modules/sessions/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type EnquiryStatus, OPEN_STATUSES } from "./lists";
-import { type Enquiry, type EnquiryActivity, enquiries, enquiryActivities } from "./schema";
+import { type Enquiry, type EnquiryActivity, enquiries, enquiryActivities, type TrialAttendance, trialAttendances } from "./schema";
 
 // Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
 const inScope = (branchIds: string[]): SQL | undefined => and(isNull(enquiries.deletedAt), branchIds.length ? inArray(enquiries.branchId, branchIds) : undefined);
@@ -102,4 +104,66 @@ export async function activitiesOf(tx: Tx, enquiryId: string): Promise<ActivityR
     .where(eq(enquiryActivities.enquiryId, enquiryId))
     .orderBy(desc(enquiryActivities.happenedAt), desc(enquiryActivities.id));
   return list.map((r) => ({ ...r.a, staffName: r.staffName }));
+}
+
+// ---- trials
+
+const live = isNull(trialAttendances.cancelledAt);
+
+export async function insertTrial(tx: Tx, row: Omit<typeof trialAttendances.$inferInsert, "id">): Promise<TrialAttendance> {
+  const [t] = await tx
+    .insert(trialAttendances)
+    .values({ id: uuidv7(), ...row })
+    .returning();
+  if (!t) throw new Error("trial insert returned no row");
+  return t;
+}
+
+export async function getTrial(tx: Tx, id: string): Promise<TrialAttendance | undefined> {
+  const [t] = await tx.select().from(trialAttendances).where(eq(trialAttendances.id, id));
+  return t;
+}
+
+export async function updateTrial(tx: Tx, id: string, patch: Partial<typeof trialAttendances.$inferInsert>): Promise<TrialAttendance> {
+  const [t] = await tx.update(trialAttendances).set(patch).where(eq(trialAttendances.id, id)).returning();
+  if (!t) throw new Error("trial update matched no row");
+  return t;
+}
+
+export type TrialRow = TrialAttendance & { batchName: string; startsAt: Date; endsAt: Date; sessionStatus: string };
+
+// An enquiry's trials with their classes, newest first; cancelled ones too.
+export async function trialsOf(tx: Tx, enquiryId: string): Promise<TrialRow[]> {
+  const list = await tx
+    .select({ t: trialAttendances, batchName: batches.name, startsAt: sessions.startsAt, endsAt: sessions.endsAt, sessionStatus: sessions.status })
+    .from(trialAttendances)
+    .innerJoin(sessions, eq(sessions.id, trialAttendances.sessionId))
+    .innerJoin(batches, eq(batches.id, sessions.batchId))
+    .where(eq(trialAttendances.enquiryId, enquiryId))
+    .orderBy(desc(sessions.startsAt));
+  return list.map((r) => ({ ...r.t, batchName: r.batchName, startsAt: r.startsAt, endsAt: r.endsAt, sessionStatus: r.sessionStatus }));
+}
+
+export type RosterTrial = { id: string; enquiryId: string; name: string; mark: Mark | null; feedback: string | null; markedBy: string | null };
+
+// The class's live trials, for its roster.
+export async function trialsForSession(tx: Tx, sessionId: string): Promise<RosterTrial[]> {
+  return tx
+    .select({ id: trialAttendances.id, enquiryId: trialAttendances.enquiryId, name: enquiries.name, mark: trialAttendances.mark, feedback: trialAttendances.feedback, markedBy: trialAttendances.markedBy })
+    .from(trialAttendances)
+    .innerJoin(enquiries, eq(enquiries.id, trialAttendances.enquiryId))
+    .where(and(eq(trialAttendances.sessionId, sessionId), live, isNull(enquiries.deletedAt)));
+}
+
+// Whether an enquiry has a live trial attended, or at least one still to come.
+export async function trialState(tx: Tx, enquiryId: string): Promise<{ attended: boolean; booked: boolean }> {
+  const [r] = await tx
+    .select({
+      attended: sql<boolean>`coalesce(bool_or(${trialAttendances.mark} IN ('present', 'late')), false)`,
+      booked: sql<boolean>`count(*) FILTER (WHERE ${sessions.status} <> 'cancelled') > 0`,
+    })
+    .from(trialAttendances)
+    .innerJoin(sessions, eq(sessions.id, trialAttendances.sessionId))
+    .where(and(eq(trialAttendances.enquiryId, enquiryId), live));
+  return { attended: Boolean(r?.attended), booked: Boolean(r?.booked) };
 }

@@ -1,5 +1,6 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { createEnquiry, editEnquiry, logActivity, markLost, phoneMatches, reopenEnquiry } from "./service";
+import { bookTrial, cancelTrial } from "./trials";
 
 const ctxOf = (r: StaffRequest) => scopedCtx(r.session, r.req);
 const idOf = (r: StaffRequest) => pathSegment(r.req, 2);
@@ -19,3 +20,14 @@ export const activityRoute = withStaffRequest("enquiries:update", async (r) => j
 export const lostRoute = withStaffRequest("enquiries:update", async (r) => json(await markLost(r.tx, ctxOf(r), idOf(r), await readJson(r.req))));
 
 export const reopenRoute = withStaffRequest("enquiries:update", async (r) => json(await reopenEnquiry(r.tx, ctxOf(r), idOf(r))));
+
+export const bookTrialRoute = withStaffRequest("enquiries:update", async (r) => {
+  await bookTrial(r.tx, ctxOf(r), idOf(r), await readJson(r.req));
+  return json({ ok: true }, { status: 201 });
+});
+
+// POST /api/enquiries/trials/<trial>/cancel
+export const cancelTrialRoute = withStaffRequest("enquiries:update", async (r) => {
+  await cancelTrial(r.tx, ctxOf(r), pathSegment(r.req, 3));
+  return json({ ok: true });
+});

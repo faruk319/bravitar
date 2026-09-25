@@ -7,6 +7,8 @@ import { addDays, formatDate, monthEnd, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { getBatch } from "@/modules/batches/repo";
 import { onRoster } from "@/modules/enrollments/repo";
+import { trialsForSession } from "@/modules/enquiries/repo";
+import { markTrials } from "@/modules/enquiries/trials";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, staffNames, studentClasses, studentNames, upsertMarks } from "./repo";
@@ -46,7 +48,8 @@ export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
   };
 }
 
-export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; mark: Mark | null; note: string | null; markedBy: string | null };
+// A trial (docs/03 §4) is on the roster by its trial id, marked like a student.
+export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; mark: Mark | null; note: string | null; markedBy: string | null };
 export type Lock = "cancelled" | "future" | "locked";
 export type ClassView = ClassRow & { timeZone: string; entries: RosterEntry[]; lock: Lock | null; canMark: boolean };
 
@@ -65,14 +68,16 @@ async function requireClass(tx: Tx, ctx: ScopedCtx, id: string): Promise<ClassRo
 
 // Enrolled on the class date, plus anyone already marked (history survives moves).
 async function entriesFor(tx: Tx, c: ClassRow): Promise<RosterEntry[]> {
-  const [roster, marks] = await Promise.all([onRoster(tx, [c.session.batchId], c.session.sessionDate), marksFor(tx, [c.session.id])]);
-  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, mark: null, note: null, markedBy: null }]));
+  const [roster, marks, trials] = await Promise.all([onRoster(tx, [c.session.batchId], c.session.sessionDate), marksFor(tx, [c.session.id]), trialsForSession(tx, c.session.id)]);
+  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, trial: false, mark: null, note: null, markedBy: null }]));
   const extra = await studentNames(tx, marks.filter((m) => !entries.has(m.studentId)).map((m) => m.studentId));
   for (const m of marks) {
-    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, mark: null, note: null, markedBy: null };
+    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, trial: false, mark: null, note: null, markedBy: null };
     entries.set(m.studentId, { ...e, mark: m.status, note: m.note, markedBy: m.markedBy });
   }
-  return [...entries.values()].sort((a, b) => Number(a.paused) - Number(b.paused) || a.name.localeCompare(b.name));
+  for (const t of trials) entries.set(t.id, { studentId: t.id, name: t.name, code: "", paused: false, trial: true, mark: t.mark, note: t.feedback, markedBy: t.markedBy });
+  const order = (e: RosterEntry) => (e.paused ? 2 : e.trial ? 1 : 0);
+  return [...entries.values()].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
 }
 
 export async function classRoster(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<ClassView> {
@@ -113,10 +118,12 @@ export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: 
     const note = m.note === undefined ? e.note : m.note || null;
     if (e.mark !== m.status || e.note !== note) changes.push({ studentId: m.studentId, from: e.mark, to: m.status, note, by: e.markedBy });
   }
+  const isTrial = (ch: { studentId: string }) => Boolean(entries.get(ch.studentId)?.trial);
   await upsertMarks(
     tx,
-    changes.map((ch) => ({ tenantId: ctx.tenantId, sessionId: id, studentId: ch.studentId, status: ch.to, note: ch.note, markedBy: ctx.staffId, markedAt: now, source: data.source })),
+    changes.filter((ch) => !isTrial(ch)).map((ch) => ({ tenantId: ctx.tenantId, sessionId: id, studentId: ch.studentId, status: ch.to, note: ch.note, markedBy: ctx.staffId, markedAt: now, source: data.source })),
   );
+  await markTrials(tx, ctx, changes.filter(isTrial).map((ch) => ({ trialId: ch.studentId, mark: ch.to, feedback: ch.note })), now);
   await markSessionHeld(tx, id);
   if (changes.length) {
     await writeAudit(tx, { ...actor(ctx), action: "attendance.save", entityType: "session", entityId: id, after: { changes: changes.map(({ studentId, from, to }) => ({ studentId, from, to })) } });
