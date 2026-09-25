@@ -14,9 +14,11 @@ import { AUTOMATED_KEYS, toMetaTemplate } from "@/modules/messaging/templates";
 // The page keys it by what is saved, so each saved change starts fresh.
 export function TemplateEditor({ t }: { t: TemplateView }) {
   const a = useAction();
+  const named = useAction(); // the Meta name, with its error by its input
   const [body, setBody] = useState(t.body);
   const [metaName, setMetaName] = useState(t.providerTemplateName ?? "");
-  const save = (patch: object) => void a.run(() => send(`/api/messages/templates/${t.key}`, "PATCH", patch));
+  const patch = (action: typeof a, change: object) => void action.run(() => send(`/api/messages/templates/${t.key}`, "PATCH", change));
+  const save = (change: object) => patch(a, change);
   const meta = AUTOMATED_KEYS.includes(t.key) ? toMetaTemplate(t.body) : undefined;
   return (
     <Card className={t.isActive ? undefined : "opacity-70"}>
@@ -50,7 +52,7 @@ export function TemplateEditor({ t }: { t: TemplateView }) {
         <details className="mt-4 border-t border-neutral-100 pt-3">
           <summary className="cursor-pointer text-label">WhatsApp template{t.providerTemplateName ? ` · ${t.providerTemplateName}` : " · not set"}</summary>
           <div className="mt-3 flex flex-col gap-2">
-            <CopyText text={meta.text} />
+            <CopyText text={meta.text} wrap />
             <p className="text-caption text-muted-foreground">
               Utility · language {t.language}
               {meta.edge ? " · Meta refuses a {{…}} at the start or end" : ""}
@@ -59,14 +61,19 @@ export function TemplateEditor({ t }: { t: TemplateView }) {
               className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                save({ providerTemplateName: metaName.trim() });
+                patch(named, { providerTemplateName: metaName.trim() });
               }}
             >
               <Input aria-label="Approved name in Meta" placeholder="Approved name in Meta" value={metaName} onChange={(e) => setMetaName(e.target.value)} autoComplete="off" spellCheck={false} />
-              <Button type="submit" size="sm" variant="outline" disabled={a.busy || metaName.trim() === (t.providerTemplateName ?? "")}>
+              <Button type="submit" size="sm" variant="outline" disabled={named.busy || metaName.trim() === (t.providerTemplateName ?? "")}>
                 Save
               </Button>
             </form>
+            {named.error ? (
+              <p role="alert" className="text-label text-danger-600">
+                {named.error}
+              </p>
+            ) : null}
           </div>
         </details>
       ) : null}
