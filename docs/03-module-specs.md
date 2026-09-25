@@ -635,6 +635,26 @@ week one:
 - Every number on the dashboard links to the underlying list. A number you cannot
   click into is a number nobody trusts.
 
+**Built as** (agreed 2026-09-25; `src/modules/dashboard/`, `src/modules/reports/`)
+
+- Dashboard: exactly four blocks (docs/06 Prompt 19). Today: classes, marked,
+  not marked yet, present, and today's classes. Money: collected today and
+  this month, outstanding, overdue families, new admissions, and the last 30
+  days as bars (each day opens its collection sheet). At risk. Pipeline:
+  follow-ups due, this month's enquiries, trials and joins, and your own
+  follow-ups. A number shows only to those who may open its list.
+- At risk: under 60% attendance in the last 30 days (active students), or a
+  family with two or more invoices past their due date and not fully paid.
+- Dues are aged by days past the due date: not yet due, 0–30, 31–60, over 60.
+- Attendance % is §7's: (present + late) / (present + late + absent).
+- The collection register counts receipts by the day recorded, as the
+  collection sheet does. CSVs are UTF-8 with a BOM; cells Excel would run as a
+  formula are defused.
+- Charts are plain one-colour bars, no chart library, until after launch.
+- `pnpm bench:dashboard`: 2,000 students, 30 days of marks, two months of
+  invoices and payments; the dashboard took about 100 ms (limit 2 s), so no
+  nightly rollup.
+
 **Acceptance**
 
 - [ ] Dashboard renders in under 500 ms on the 800-student seed
