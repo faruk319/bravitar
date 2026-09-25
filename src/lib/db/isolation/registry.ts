@@ -2,6 +2,7 @@ import { attendanceFixtures } from "@/modules/attendance/isolation";
 import { authFixtures } from "@/modules/auth/isolation";
 import { batchFixtures } from "@/modules/batches/isolation";
 import { enrollmentFixtures } from "@/modules/enrollments/isolation";
+import { enquiryFixtures } from "@/modules/enquiries/isolation";
 import { feeFixtures } from "@/modules/fees/isolation";
 import { integrationFixtures } from "@/modules/integrations/isolation";
 import { messagingFixtures } from "@/modules/messaging/isolation";
@@ -26,6 +27,7 @@ export const fixtures: IsolationFixtures = {
   ...sessionFixtures,
   ...enrollmentFixtures,
   ...attendanceFixtures,
+  ...enquiryFixtures,
   ...numberingFixtures,
   ...messagingFixtures,
   ...feeFixtures,

@@ -9,6 +9,7 @@ import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { timeIn } from "@/lib/dates";
 import { formatPaise } from "@/lib/money/format";
+import { formatPhone } from "@/lib/phone";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatTimeRange } from "@/modules/batches/schedule";
 import { dashboardData } from "@/modules/dashboard/service";
@@ -53,6 +54,24 @@ export default async function DashboardPage() {
                     <Link href={a.href} className="flex min-h-12 items-center justify-between gap-3 text-body hover:underline">
                       <span className="text-warning-600">⚠ {a.text}</span>
                       <span aria-hidden>→</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+          {d.followUps?.length ? (
+            <Card>
+              <CardHeader title="Follow-ups today" action={<Link href="/enquiries?view=follow_ups" className="text-label text-accent-600 hover:underline">All</Link>} />
+              <ul className="divide-y divide-neutral-100">
+                {d.followUps.slice(0, 5).map((e) => (
+                  <li key={e.id}>
+                    <Link href={`/enquiries/${e.id}`} className="flex min-h-14 items-center justify-between gap-2 py-2 hover:bg-neutral-50">
+                      <span>
+                        <span className="block text-body font-medium text-neutral-900">{e.name}</span>
+                        <span className="block text-caption text-muted-foreground">{e.programName ?? ""}</span>
+                      </span>
+                      <span className="text-label tabular-nums">{formatPhone(e.phone)}</span>
                     </Link>
                   </li>
                 ))}

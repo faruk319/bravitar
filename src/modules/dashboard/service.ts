@@ -6,6 +6,8 @@ import { marksFor } from "@/modules/attendance/repo";
 import { type ClassCard, todaysClasses } from "@/modules/attendance/service";
 import { listBatchViews } from "@/modules/batches/service";
 import { rosterCounts } from "@/modules/enrollments/repo";
+import type { EnquiryRow } from "@/modules/enquiries/repo";
+import { myFollowUps } from "@/modules/enquiries/service";
 import { collectedToday } from "@/modules/payments/service";
 import { staffDirectory } from "@/modules/staff/service";
 import { countByStatus, countJoinedSince } from "@/modules/students/repo";
@@ -18,6 +20,7 @@ export type Dashboard = {
   batches?: { running: number; enrolled: number };
   staff?: { active: number; waiting: number };
   collected?: { count: number; total: bigint };
+  followUps?: EnquiryRow[]; // the viewer's own, due today or earlier
 };
 
 // Built from permissions: each block is queried only if the viewer may see it.
@@ -50,5 +53,7 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
   }
   // docs/03 §9: the collection sheet is one tap from here.
   if (allows(ctx, "payments:read")) out.collected = await collectedToday(tx, ctx, { now });
+  // docs/03 §4: a follow-up due today shows on the assigned person's dashboard.
+  if (allows(ctx, "enquiries:read")) out.followUps = await myFollowUps(tx, ctx);
   return out;
 }
