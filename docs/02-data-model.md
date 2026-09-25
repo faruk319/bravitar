@@ -741,6 +741,15 @@ CREATE TABLE message_log (
   sent_at       timestamptz
 );
 CREATE INDEX ON message_log (tenant_id, created_at DESC);
+-- Built as (agreed 2026-09-25, migrations 0017-0018, rules in docs/03 §10):
+-- message_templates: key adds class_cancelled (no holiday); language en | hi | mr;
+--   no row means the default wording in code; updated_at, updated_by.
+-- message_log: guardian_id, category (for the daily limits), language, the
+--   rendered body, dedupe_key (unique per tenant, so never sent twice),
+--   send_after, attempts, sent_by (sent by hand); channel whatsapp | manual;
+--   status adds 'skipped'. share_links: private no-login links, token hashed.
+-- tenants: message_language, message_send_hour, absence_send_hour,
+--   message_daily_cap. guardians: whatsapp_optin, whatsapp_optin_at.
 ```
 
 ---

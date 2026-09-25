@@ -23,7 +23,7 @@ import { getDefaultBranch } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { sharedInvoice, sharedReceipt } from "./public";
-import { type ComposeRequest, composeMessage } from "./service";
+import { type ComposeRequest, composeMessage } from "./compose";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const slug = `msg-${stamp}`;
@@ -117,7 +117,7 @@ describe("copy-message flow (Prompt 17 step 1)", () => {
       saveAttendance(tx, owner, monday, { marks: [{ studentId: riya, status: "absent" }, { studentId: kabir, status: "present" }] }, { now: at("2026-10-05T14:00:00Z") }),
     );
     const absent = await compose({ key: "absent", sessionId: monday, studentId: riya }, owner, at("2026-10-05T14:00:00Z"));
-    expect(absent.drafts[0]?.text).toBe(`Hello Sunita Sharma, Riya was absent from Evening at Msg Academy ${stamp} today (5 Oct 2026). Please let us know if anything is wrong.`);
+    expect(absent.drafts[0]?.text).toBe(`Hello Sunita Sharma, Riya was absent from Evening at Msg Academy ${stamp} on 5 Oct 2026. Please let us know if anything is wrong.`);
     await expect(compose({ key: "absent", sessionId: monday, studentId: kabir }, owner, at("2026-10-05T14:00:00Z"))).rejects.toThrow("Not marked absent");
 
     expect((await compose({ key: "welcome", studentId: kabir })).drafts[0]?.text).toBe(`Welcome to Msg Academy ${stamp}, Sunita Sharma! Kabir has joined us. We're glad to have you.`);

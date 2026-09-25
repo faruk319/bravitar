@@ -6,10 +6,11 @@ import { Field, useAction } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { send } from "@/lib/send";
+import { QUIET_FROM, QUIET_UNTIL } from "@/modules/messaging/schedule";
 import type { MessagingSettings as Settings } from "@/modules/messaging/service";
 
 const LANGUAGE_NAMES = { en: "English", hi: "हिन्दी (Hindi)", mr: "मराठी (Marathi)" } as const;
-const HOURS = Array.from({ length: 15 }, (_, i) => i + 7);
+const HOURS = Array.from({ length: QUIET_FROM - QUIET_UNTIL }, (_, i) => i + QUIET_UNTIL);
 const hour = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
 // docs/03 §10: language, when automated messages go, and a daily limit.

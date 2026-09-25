@@ -14,9 +14,11 @@ import type { Guardian } from "@/modules/students/schema";
 import { createStudent, setGuardianWhatsapp } from "@/modules/students/service";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { messageLog } from "./schema";
-import { composeMessage, messageAction, messageLogView, messageTemplates, messagingSettings, queueMessage, saveMessagingSettings, saveTemplate } from "./service";
+import { composeMessage } from "./compose";
+import { messageAction, messageLogView, messageTemplates, messagingSettings, queueMessage, saveMessagingSettings, saveTemplate } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
+const NOW = new Date("2026-10-05T14:00:00Z"); // 19:30 in Kolkata, after the evening hour
 let T = "";
 let owner: ScopedCtx;
 let teacher: ScopedCtx;
@@ -37,7 +39,7 @@ const admit = async (name: string, whatsapp?: boolean) => {
   return { studentId: r.student.id, guardian: (await withTenant(T, (tx) => guardiansOfStudent(tx, r.student.id)))[0] as Guardian };
 };
 const queue = (guardian: Guardian, dedupeKey?: string, key: "absent" | "welcome" = "absent") =>
-  withTenant(T, (tx) => queueMessage(tx, T, { key, guardian, vars: { student_name: "Riya", batch: "Evening", date: "5 Oct 2026" }, ...(dedupeKey ? { dedupeKey } : {}) }));
+  withTenant(T, (tx) => queueMessage(tx, T, { key, guardian, vars: { student_name: "Riya", batch: "Evening", date: "5 Oct 2026" }, ...(dedupeKey ? { dedupeKey } : {}) }, { now: NOW }));
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
@@ -95,7 +97,7 @@ describe("WhatsApp opt-in (agreed 2026-09-25: off until ticked)", () => {
   it("only opted-in guardians get automated messages, and a repeat key makes nothing", async () => {
     expect(await queue({ ...no, whatsappOptin: false }, "k1")).toBeUndefined();
     const m = await queue(yes, "absent|riya|2026-10-05");
-    expect(m).toMatchObject({ status: "queued", channel: "manual", category: "attendance", toPhone: yes.phone, body: `Hello Parent of Riya, Riya was absent from Evening at Log ${stamp} today (5 Oct 2026). Please let us know if anything is wrong.` });
+    expect(m).toMatchObject({ status: "queued", channel: "manual", category: "attendance", toPhone: yes.phone, body: `Hello Parent of Riya, Riya was absent from Evening at Log ${stamp} on 5 Oct 2026. Please let us know if anything is wrong.` });
     expect(await queue(yes, "absent|riya|2026-10-05")).toBeUndefined();
   });
 });
@@ -103,13 +105,13 @@ describe("WhatsApp opt-in (agreed 2026-09-25: off until ticked)", () => {
 describe("the log and the To send list", () => {
   it("with no WhatsApp connected, messages wait under To send until sent by hand or skipped; failed ones retry", async () => {
     const [a, b, c] = [await queue(yes, "to-send-1"), await queue(yes, "to-send-2"), await queue(yes, "to-send-3")];
-    const toSend = await withTenant(T, (tx) => messageLogView(tx, owner, "to_send"));
+    const toSend = await withTenant(T, (tx) => messageLogView(tx, owner, "to_send", { now: NOW }));
     expect(toSend.messages.map((m) => m.id)).toEqual(expect.arrayContaining([a?.id, b?.id, c?.id]));
     expect(toSend.messages.find((m) => m.id === a?.id)?.guardianName).toBe("Parent of Riya");
 
     await withTenant(T, (tx) => messageAction(tx, owner, a?.id ?? "", "sent"));
     await withTenant(T, (tx) => messageAction(tx, owner, b?.id ?? "", "skip"));
-    const sent = await withTenant(T, (tx) => messageLogView(tx, owner, "sent"));
+    const sent = await withTenant(T, (tx) => messageLogView(tx, owner, "sent", { now: NOW }));
     expect(sent.messages.filter((m) => m.id === a?.id || m.id === b?.id).map((m) => [m.status, m.sentBy])).toEqual(
       expect.arrayContaining([
         ["sent", owner.staffId],
@@ -119,10 +121,10 @@ describe("the log and the To send list", () => {
     await expect(withTenant(T, (tx) => messageAction(tx, owner, a?.id ?? "", "sent"))).rejects.toThrow("waiting to be sent by hand");
 
     await withTenant(T, (tx) => tx.update(messageLog).set({ status: "failed", error: "Number not on WhatsApp", attempts: 1 }).where(eq(messageLog.id, c?.id ?? "")));
-    const failed = await withTenant(T, (tx) => messageLogView(tx, owner, "failed"));
+    const failed = await withTenant(T, (tx) => messageLogView(tx, owner, "failed", { now: NOW }));
     expect(failed.messages.find((m) => m.id === c?.id)?.error).toBe("Number not on WhatsApp");
     await withTenant(T, (tx) => messageAction(tx, owner, c?.id ?? "", "retry"));
-    expect((await withTenant(T, (tx) => messageLogView(tx, owner, "to_send"))).messages.map((m) => m.id)).toContain(c?.id);
+    expect((await withTenant(T, (tx) => messageLogView(tx, owner, "to_send", { now: NOW }))).messages.map((m) => m.id)).toContain(c?.id);
   });
 
   it("the log needs messages:read, and acting on it messages:send", async () => {
@@ -133,11 +135,11 @@ describe("the log and the To send list", () => {
 });
 
 describe("messaging settings", () => {
-  it("language, send hours and the daily cap are saved; hours outside 7–21 are refused", async () => {
+  it("language, send hours and the daily cap are saved; hours outside 07:00–20:00 are refused", async () => {
     expect(await withTenant(T, (tx) => messagingSettings(tx, owner))).toEqual({ language: "en", sendHour: 10, absenceHour: 19, dailyCap: 250 });
     await withTenant(T, (tx) => saveMessagingSettings(tx, owner, { language: "mr", sendHour: 11, absenceHour: 18, dailyCap: 100 }));
     expect(await withTenant(T, (tx) => messagingSettings(tx, owner))).toEqual({ language: "mr", sendHour: 11, absenceHour: 18, dailyCap: 100 });
-    await expect(withTenant(T, (tx) => saveMessagingSettings(tx, owner, { language: "en", sendHour: 23, absenceHour: 18, dailyCap: 100 }))).rejects.toThrow();
+    await expect(withTenant(T, (tx) => saveMessagingSettings(tx, owner, { language: "en", sendHour: 21, absenceHour: 18, dailyCap: 100 }))).rejects.toThrow();
     await expect(withTenant(T, (tx) => saveMessagingSettings(tx, desk, { language: "en", sendHour: 10, absenceHour: 19, dailyCap: 250 }))).rejects.toMatchObject({ status: 403 });
     await withTenant(T, (tx) => saveMessagingSettings(tx, owner, { language: "en", sendHour: 10, absenceHour: 19, dailyCap: 250 }));
   });

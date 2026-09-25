@@ -12,7 +12,7 @@ export const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   fee_due: "Fee due soon",
   fee_overdue: "Fee overdue",
   receipt: "Receipt",
-  absent: "Absent today",
+  absent: "Absent",
   class_cancelled: "Class cancelled",
   welcome: "Welcome",
 };
@@ -31,7 +31,8 @@ export const TEMPLATE_VARIABLES: Record<TemplateKey, string[]> = {
 // Sent by the jobs (step 4), so they are the ones sent through Meta; the rest are copied by hand.
 export const AUTOMATED_KEYS: readonly TemplateKey[] = ["fee_due", "fee_overdue", "receipt", "absent"];
 
-export type Category = "fees" | "receipts" | "attendance" | "classes" | "welcome";
+export const CATEGORIES = ["fees", "receipts", "attendance", "classes", "welcome"] as const;
+export type Category = (typeof CATEGORIES)[number];
 export const TEMPLATE_CATEGORY: Record<TemplateKey, Category> = { fee_due: "fees", fee_overdue: "fees", receipt: "receipts", absent: "attendance", class_cancelled: "classes", welcome: "welcome" };
 
 export const variablesIn = (body: string): string[] => [...new Set([...body.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map((m) => m[1] ?? ""))];
@@ -53,9 +54,9 @@ export const DEFAULT_TEMPLATES: Record<TemplateKey, Record<Language, string>> = 
     mr: "नमस्कार {{guardian_name}}, {{academy}} ला {{date}} रोजी {{amount}} मिळाले. पावती {{receipt_number}}: {{link}} धन्यवाद.",
   },
   absent: {
-    en: "Hello {{guardian_name}}, {{student_name}} was absent from {{batch}} at {{academy}} today ({{date}}). Please let us know if anything is wrong.",
-    hi: "नमस्ते {{guardian_name}}, {{student_name}} आज ({{date}}) {{academy}} की {{batch}} कक्षा में नहीं आए। कोई समस्या हो तो कृपया हमें बताएं।",
-    mr: "नमस्कार {{guardian_name}}, {{student_name}} आज ({{date}}) {{academy}} च्या {{batch}} वर्गाला आले नाहीत. काही अडचण असल्यास कृपया आम्हाला कळवा.",
+    en: "Hello {{guardian_name}}, {{student_name}} was absent from {{batch}} at {{academy}} on {{date}}. Please let us know if anything is wrong.",
+    hi: "नमस्ते {{guardian_name}}, {{student_name}} {{date}} को {{academy}} की {{batch}} कक्षा में नहीं आए। कोई समस्या हो तो कृपया हमें बताएं।",
+    mr: "नमस्कार {{guardian_name}}, {{student_name}} {{date}} रोजी {{academy}} च्या {{batch}} वर्गाला आले नाहीत. काही अडचण असल्यास कृपया आम्हाला कळवा.",
   },
   class_cancelled: {
     en: "Hello {{guardian_name}}, {{student_name}}'s {{batch}} class at {{academy}} on {{date}} at {{time}} is cancelled. {{reason}}",

@@ -258,6 +258,15 @@ export type InvoiceRow = Invoice & { householdName: string; students: string[] }
 // Overdue is worked out when reading (due date passed), never stored.
 const OWED = ["issued", "part_paid"] as const;
 
+// Unpaid invoices falling due between two dates, for the reminder job.
+export async function owedDueBetween(tx: Tx, from: string, to: string): Promise<Invoice[]> {
+  return tx
+    .select()
+    .from(invoices)
+    .where(and(inArray(invoices.status, [...OWED]), gte(invoices.dueDate, from), lte(invoices.dueDate, to)))
+    .orderBy(asc(invoices.dueDate), asc(invoices.id));
+}
+
 function viewFilter(view: InvoiceView, today: string): SQL | undefined {
   switch (view) {
     case "draft":

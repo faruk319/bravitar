@@ -1,6 +1,7 @@
 import { assertDatabaseSafety } from "@/lib/db/assert-safe";
 import { createBoss } from "@/lib/jobs/boss";
 import { INVOICES_GENERATE, workInvoicesGenerate } from "@/modules/fees/job";
+import { MESSAGES_REMIND, MESSAGES_SEND, workMessages } from "@/modules/messaging/job";
 import { NUMBERS_OPEN_YEAR, workOpenYear } from "@/modules/numbering/job";
 import { PAYMENTS_RECONCILE, workPaymentsReconcile } from "@/modules/payments/job";
 import { SESSIONS_GENERATE, workSessionsGenerate } from "@/modules/sessions/job";
@@ -23,7 +24,13 @@ async function main(): Promise<void> {
   await workPaymentsReconcile(boss);
   await boss.schedule(PAYMENTS_RECONCILE, "15 * * * *", null, { tz: "Asia/Kolkata" });
   await boss.send(PAYMENTS_RECONCILE);
-  console.log(`worker: ${SESSIONS_GENERATE} nightly at 01:30, ${INVOICES_GENERATE} at 02:00, ${NUMBERS_OPEN_YEAR} daily at 00:05, ${PAYMENTS_RECONCILE} hourly at :15 (Asia/Kolkata)`);
+  await workMessages(boss);
+  await boss.schedule(MESSAGES_REMIND, "0 * * * *", null, { tz: "Asia/Kolkata" });
+  await boss.send(MESSAGES_REMIND);
+  await boss.schedule(MESSAGES_SEND, "* * * * *", null, { tz: "Asia/Kolkata" });
+  console.log(
+    `worker: ${SESSIONS_GENERATE} nightly at 01:30, ${INVOICES_GENERATE} at 02:00, ${NUMBERS_OPEN_YEAR} daily at 00:05, ${PAYMENTS_RECONCILE} hourly at :15, ${MESSAGES_REMIND} hourly at :00, ${MESSAGES_SEND} every minute (Asia/Kolkata)`,
+  );
   const stop = () => void boss.stop().then(() => process.exit(0));
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);

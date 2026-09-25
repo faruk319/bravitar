@@ -20,6 +20,7 @@ import { invoices } from "@/modules/fees/schema";
 import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
+import { queueReminders } from "@/modules/messaging/reminders";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { createStudent, type NewStudentInput, setStudentStatus, type StudentCtx } from "@/modules/students/service";
@@ -35,10 +36,11 @@ const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string;
   { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
 ];
 
-// Six students per academy: one family with two siblings, an adult, a paused one.
+// Six students per academy: one family with two siblings, an adult, a paused
+// one. All but the Shaikhs said yes to WhatsApp messages.
 function demoStudents(vertical: string): (NewStudentInput & { paused?: boolean })[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
-  const consents = { dataProcessing: true, photo: true };
+  const consents = { dataProcessing: true, photo: true, whatsapp: true };
   return [
     { fullName: "Aarav Deshmukh", dateOfBirth: "2015-03-12", gender: "male", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
     { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", gender: "female", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
@@ -211,7 +213,8 @@ export async function seed(): Promise<SeedResult> {
       await seedHistory(tx, sctx);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
       await seedFees(tx, sctx, studentIds);
-      await seedPayments(tx, sctx);
+      await seedPayments(tx, sctx); // their receipts wait under Messages → To send
+      await queueReminders(tx); // what the hourly job would queue now
     });
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, this month's invoices issued, 3 payments`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);

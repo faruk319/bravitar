@@ -558,6 +558,29 @@ week one:
 - Every send is logged with delivery status from the provider webhook.
 - Language per tenant: English, Hindi, Marathi. Template body is editable.
 
+**Built as** (agreed 2026-09-25; `src/modules/messaging/`)
+
+- Automatic: `fee_due` 3 days before the due date, `fee_overdue` 1 and 7 days
+  after (not +3/+7/+15), `absent`, `receipt`. `welcome` and `class_cancelled`
+  are sent by hand from the student and class pages (Copy, Open WhatsApp).
+- Only to guardians who ticked WhatsApp messages (off until ticked, audited).
+  Fees and receipts go to the family's primary guardian, absences to the
+  child's; an adult who is their own contact gets no absence message.
+- In the academy's time: fees at its send hour (10:00), absences at its evening
+  hour (19:00), receipts at once; nothing from 21:00 to 07:00.
+  `messages.remind` runs hourly, `messages.send` every minute.
+- Never twice (a dedupe key per invoice and stage, child and day, payment).
+  One a day per guardian and category (receipts aside) and the academy's daily
+  cap (250, Meta's starting limit) move the rest to the next day.
+- A waiting message is skipped once its reason is gone: invoice paid or voided,
+  a payment came in, the mark changed, the payment was cancelled.
+- Each message links to that invoice or receipt: a private no-login page that
+  opens only on the academy's own address.
+- No WhatsApp: messages wait under Messages → To send. Connected (Meta Cloud
+  API, the academy's own number): a template with its approved Meta name goes
+  through WhatsApp; the webhook (signature first) records delivered, read or
+  failed; a failed one shows Meta's reason and can be retried.
+
 **Acceptance**
 
 - [ ] Fee reminder sends to the primary guardian of each household with an overdue

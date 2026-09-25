@@ -46,6 +46,20 @@ export async function marksFor(tx: Tx, sessionIds: string[]): Promise<Attendance
   return tx.select().from(attendance).where(inArray(attendance.sessionId, sessionIds));
 }
 
+export type Absence = { id: string; studentId: string; studentName: string; batchName: string };
+
+// Unexplained absences ('absent', not 'excused') in a day's classes that went ahead.
+export async function absencesOn(tx: Tx, date: string): Promise<Absence[]> {
+  return tx
+    .select({ id: attendance.id, studentId: attendance.studentId, studentName: students.fullName, batchName: batches.name })
+    .from(attendance)
+    .innerJoin(sessions, eq(sessions.id, attendance.sessionId))
+    .innerJoin(batches, eq(batches.id, sessions.batchId))
+    .innerJoin(students, eq(students.id, attendance.studentId))
+    .where(and(eq(sessions.sessionDate, date), ne(sessions.status, "cancelled"), eq(attendance.status, "absent")))
+    .orderBy(asc(sessions.startsAt), asc(students.fullName));
+}
+
 export type NewMark = { tenantId: string; sessionId: string; studentId: string; status: Mark; note: string | null; markedBy: string; markedAt: Date; source: AttendanceRow["source"] };
 
 // (session_id, student_id) is the idempotency key: a second device updates, never duplicates.

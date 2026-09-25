@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { formatPhone } from "@/lib/phone";
 import { request } from "@/lib/send";
-import type { ComposeRequest, Composed, Draft } from "@/modules/messaging/service";
+import type { ComposeRequest, Composed, Draft } from "@/modules/messaging/compose";
 import { TEMPLATE_LABELS } from "@/modules/messaging/templates";
 
 const waLink = (phone: string, text: string) => `https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;

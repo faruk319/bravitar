@@ -1,99 +1,24 @@
 import { z } from "zod";
 import { assertCan } from "@/lib/auth/can";
-import { writeAudit } from "@/lib/db/audit";
 import type { ScopedCtx } from "@/lib/auth/route";
+import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { formatDate, timeIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
-import { formatPaise } from "@/lib/money/format";
 import { tenantOrigin } from "@/lib/tenant/origin";
-import { classRoster } from "@/modules/attendance/service";
-import { invoiceDetail } from "@/modules/fees/service";
 import { whatsappMessage, whatsappNumber } from "@/modules/integrations/service";
-import { receipt } from "@/modules/payments/service";
-import { guardiansOfHousehold, guardiansOfStudent } from "@/modules/students/repo";
 import type { Guardian } from "@/modules/students/schema";
-import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant, updateOwnTenant } from "@/modules/tenancy/repo";
 import type { MessagingAdapter } from "./adapter";
 import { makeShareLink, sharePath } from "./links";
-import { countToSend, getMessage, insertMessage, listMessages, messageByProviderId, type MessageRow, templateRows, updateMessage, upsertTemplate } from "./repo";
+import { countToSend, dedupeKeysTaken, getMessage, insertMessage, listMessages, messageByProviderId, type MessageRow, templateRows, updateMessage, upsertTemplate } from "./repo";
+import { hourFor, QUIET_FROM, QUIET_UNTIL, sendTime } from "./schedule";
 import type { MessageLog, MessageStatus, ShareKind } from "./schema";
-import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, type Language, render, TEMPLATE_CATEGORY, TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_VARIABLES, type TemplateKey, toMetaTemplate, variablesIn } from "./templates";
+import { DEFAULT_TEMPLATES, LANGUAGES, type Language, render, TEMPLATE_CATEGORY, TEMPLATE_KEYS, TEMPLATE_LABELS, TEMPLATE_VARIABLES, type TemplateKey, toMetaTemplate, variablesIn } from "./templates";
 
-export const composeSchema = z.discriminatedUnion("key", [
-  z.object({ key: z.literal("fee_due"), invoiceId: z.uuid() }),
-  z.object({ key: z.literal("fee_overdue"), invoiceId: z.uuid() }),
-  z.object({ key: z.literal("receipt"), paymentId: z.uuid() }),
-  z.object({ key: z.literal("absent"), sessionId: z.uuid(), studentId: z.uuid() }),
-  z.object({ key: z.literal("class_cancelled"), sessionId: z.uuid() }),
-  z.object({ key: z.literal("welcome"), studentId: z.uuid() }),
-]);
-export type ComposeRequest = z.input<typeof composeSchema>;
-
-export type Recipient = { name: string; phone: string };
-export type Draft = { about: string; to: Recipient[]; text: string };
-export type Composed = { key: TemplateKey; drafts: Draft[] };
-
-// Primary guardian first: the one reminders go to (docs/03 §10).
 const actorOf = (ctx: ScopedCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
 
-const recipients = (gs: Guardian[]): Recipient[] => [...gs].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)).map((g) => ({ name: g.fullName, phone: g.phone }));
-
-// docs/06 Prompt 17 step 1: the message text from a template, for staff to
-// copy or open in WhatsApp themselves. Nothing is sent from here.
-export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeRequest, opts: { now?: Date } = {}): Promise<Composed> {
-  assertCan(ctx, "messages:send");
-  const req = composeSchema.parse(input);
-  const tenant = await getOwnTenant(tx);
-  if (!tenant) throw new NotFoundError("Academy");
-  const { body } = await templateFor(tx, req.key, tenant.messageLanguage);
-  const actor = { actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId };
-  const link = async (kind: ShareKind, id: string) => `${tenantOrigin(tenant.slug)}${sharePath(kind, await makeShareLink(tx, actor, kind, id))}`;
-  const draft = (about: string, to: Recipient[], vars: Record<string, string>): Draft => ({ about, to, text: render(body, { academy: tenant.name, guardian_name: to[0]?.name ?? "", ...vars }) });
-
-  switch (req.key) {
-    case "fee_due":
-    case "fee_overdue": {
-      const d = await invoiceDetail(tx, ctx, req.invoiceId, opts);
-      const inv = d.invoice;
-      if (inv.status !== "issued" && inv.status !== "part_paid") throw new ConflictError("Only an unpaid invoice gets a reminder");
-      const names = [...new Set(d.lines.flatMap((l) => (l.studentName ? [l.studentName] : [])))];
-      const to = recipients(await guardiansOfHousehold(tx, inv.householdId));
-      return {
-        key: req.key,
-        drafts: [draft(d.householdName, to, { student_names: joinNames(names), amount: formatPaise(inv.totalPaise - inv.paidPaise), due_date: formatDate(inv.dueDate), invoice_number: inv.number ?? "", link: await link("invoice", inv.id) })],
-      };
-    }
-    case "receipt": {
-      const r = await receipt(tx, ctx, req.paymentId);
-      if (r.payment.status === "cancelled") throw new ConflictError("This payment was cancelled");
-      const to = recipients(await guardiansOfHousehold(tx, r.payment.householdId));
-      return {
-        key: "receipt",
-        drafts: [draft(r.householdName, to, { amount: formatPaise(r.payment.amountPaise), date: formatDate(r.payment.receivedOn), receipt_number: r.payment.receiptNumber, link: await link("receipt", r.payment.id) })],
-      };
-    }
-    case "absent": {
-      const c = await classRoster(tx, ctx, req.sessionId, opts);
-      const e = c.entries.find((x) => x.studentId === req.studentId);
-      if (e?.mark !== "absent") throw new ConflictError("Not marked absent in this class");
-      return { key: "absent", drafts: [draft(e.name, recipients(await guardiansOfStudent(tx, e.studentId)), { student_name: e.name, batch: c.batchName, date: formatDate(c.session.sessionDate) })] };
-    }
-    case "class_cancelled": {
-      const c = await classRoster(tx, ctx, req.sessionId, opts);
-      if (c.session.status !== "cancelled") throw new ConflictError("This class isn't cancelled");
-      const vars = { batch: c.batchName, date: formatDate(c.session.sessionDate), time: timeIn(c.timeZone, c.session.startsAt), reason: c.session.cancelReason ?? "" };
-      const drafts: Draft[] = [];
-      for (const e of c.entries.filter((x) => !x.paused)) drafts.push(draft(e.name, recipients(await guardiansOfStudent(tx, e.studentId)), { ...vars, student_name: e.name }));
-      return { key: "class_cancelled", drafts };
-    }
-    case "welcome": {
-      const s = await requireStudent(tx, ctx, req.studentId);
-      return { key: "welcome", drafts: [draft(s.fullName, recipients(await guardiansOfStudent(tx, s.id)), { student_name: s.fullName })] };
-    }
-  }
-}
+// Primary guardian first: the one automated messages go to (docs/03 §10).
+export const byPrimary = <G extends Pick<Guardian, "isPrimary">>(gs: G[]): G[] => [...gs].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
 
 // ---- templates (step 2): the academy's wording, or the default
 
@@ -156,8 +81,8 @@ export async function saveTemplate(tx: Tx, ctx: ScopedCtx, key: TemplateKey, inp
 
 export const messagingSettingsSchema = z.object({
   language: z.enum(LANGUAGES),
-  sendHour: z.number().int().min(7).max(21),
-  absenceHour: z.number().int().min(7).max(21),
+  sendHour: z.number().int().min(QUIET_UNTIL).max(QUIET_FROM - 1),
+  absenceHour: z.number().int().min(QUIET_UNTIL).max(QUIET_FROM - 1),
   dailyCap: z.number().int().min(1, "At least 1 a day").max(100_000),
 });
 export type MessagingSettings = z.infer<typeof messagingSettingsSchema>;
@@ -183,35 +108,38 @@ export type QueueInput = {
   key: TemplateKey;
   guardian: Pick<Guardian, "id" | "fullName" | "phone" | "whatsappOptin">;
   vars: Record<string, string>;
-  related?: { type: string; id: string };
+  link?: { kind: ShareKind; id: string }; // becomes {{link}}
+  related?: { type: "invoice" | "attendance" | "payment"; id: string };
   dedupeKey?: string;
-  sendAfter?: Date;
 };
 
 // Automated messages only (docs/03 §10): to a guardian who opted in, while the
-// template is on; a repeat dedupe key makes nothing. Returns the new row. It
-// goes through WhatsApp when connected and the template is approved in Meta.
-export async function queueMessage(tx: Tx, tenantId: string, input: QueueInput): Promise<MessageLog | undefined> {
+// template is on; a repeat dedupe key makes nothing. Returns the new row, due
+// at its category's hour. It goes through WhatsApp when connected and the
+// template is approved in Meta.
+export async function queueMessage(tx: Tx, tenantId: string, input: QueueInput, opts: { now?: Date } = {}): Promise<MessageLog | undefined> {
   if (!input.guardian.whatsappOptin) return undefined;
   const tenant = await getOwnTenant(tx);
   if (!tenant) throw new NotFoundError("Academy");
   const t = await templateFor(tx, input.key, tenant.messageLanguage);
-  if (!t.isActive) return undefined;
-  const vars = { academy: tenant.name, guardian_name: input.guardian.fullName, ...input.vars };
+  if (!t.isActive || (input.dedupeKey && (await dedupeKeysTaken(tx, [input.dedupeKey])).size)) return undefined;
+  const link = input.link ? { link: `${tenantOrigin(tenant.slug)}${sharePath(input.link.kind, await makeShareLink(tx, { actorType: "system", tenantId }, input.link.kind, input.link.id))}` } : {};
+  const vars = { academy: tenant.name, guardian_name: input.guardian.fullName, ...input.vars, ...link };
+  const category = TEMPLATE_CATEGORY[input.key];
   return insertMessage(tx, {
     tenantId,
     guardianId: input.guardian.id,
     toPhone: input.guardian.phone,
     channel: t.providerTemplateName && (await whatsappNumber(tx)) !== null ? "whatsapp" : "manual",
     templateKey: input.key,
-    category: TEMPLATE_CATEGORY[input.key],
+    category,
     language: tenant.messageLanguage,
     variables: vars,
     body: render(t.body, vars),
     relatedType: input.related?.type ?? null,
     relatedId: input.related?.id ?? null,
     dedupeKey: input.dedupeKey ?? null,
-    ...(input.sendAfter ? { sendAfter: input.sendAfter } : {}),
+    sendAfter: sendTime(opts.now ?? new Date(), tenant.timezone, hourFor(category, tenant)),
   });
 }
 
@@ -253,11 +181,17 @@ export async function applyDeliveryStatus(tx: Tx, wamid: string, status: "sent" 
 export const LOG_VIEWS = ["to_send", "sent", "failed"] as const;
 export type LogView = (typeof LOG_VIEWS)[number];
 
-export async function messageLogView(tx: Tx, ctx: ScopedCtx, view: LogView): Promise<{ messages: MessageRow[]; toSend: number }> {
+// To send: what is due now for staff to send by hand.
+export async function messageLogView(tx: Tx, ctx: ScopedCtx, view: LogView, opts: { now?: Date } = {}): Promise<{ messages: MessageRow[]; toSend: number }> {
   assertCan(ctx, "messages:read");
+  const now = opts.now ?? new Date();
   const messages =
-    view === "to_send" ? await listMessages(tx, ["queued"], { channel: "manual" }) : view === "failed" ? await listMessages(tx, ["failed"]) : await listMessages(tx, ["sent", "delivered", "read", "skipped"]);
-  return { messages, toSend: await countToSend(tx) };
+    view === "to_send"
+      ? await listMessages(tx, ["queued"], { channel: "manual", dueBy: now })
+      : view === "failed"
+        ? await listMessages(tx, ["failed"])
+        : await listMessages(tx, ["sent", "delivered", "read", "skipped"]);
+  return { messages, toSend: await countToSend(tx, now) };
 }
 
 export const MESSAGE_ACTIONS = ["sent", "skip", "retry"] as const;

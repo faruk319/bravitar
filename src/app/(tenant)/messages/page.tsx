@@ -37,7 +37,7 @@ function Row({ m, tz, children }: { m: MessageRow; tz: string; children?: React.
         </span>
         <span className="flex items-center gap-2 text-caption text-muted-foreground">
           {word ? <span className={cn("rounded-full px-2 py-0.5 text-label", cls)}>{word}</span> : null}
-          {m.channel === "manual" && m.status !== "queued" ? "by hand · " : ""}
+          {m.channel === "manual" && m.status === "sent" ? "by hand · " : ""}
           {formatDate(m.createdAt)}, {timeIn(tz, m.createdAt)}
         </span>
       </div>

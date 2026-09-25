@@ -1,7 +1,8 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
 import { webhookRoute } from "@/modules/integrations/routes";
-import { type ComposeRequest, composeMessage, MESSAGE_ACTIONS, messageAction, saveMessagingSettings, saveTemplate } from "./service";
+import { type ComposeRequest, composeMessage } from "./compose";
+import { MESSAGE_ACTIONS, messageAction, saveMessagingSettings, saveTemplate } from "./service";
 import type { TemplateKey } from "./templates";
 import { handleWhatsappWebhook, verifyWhatsappWebhook } from "./webhook";
 

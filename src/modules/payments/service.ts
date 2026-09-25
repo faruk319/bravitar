@@ -10,6 +10,8 @@ import { type Paise, sum } from "@/lib/money/paise";
 import type { Actor } from "@/modules/fees/invoicing";
 import { getInvoice } from "@/modules/fees/repo";
 import type { Invoice } from "@/modules/fees/schema";
+import { afterPayment } from "@/modules/messaging/reminders";
+import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { getHousehold } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
@@ -175,6 +177,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
       advancePaise: text(split.advance),
     },
   });
+  await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
   return payment;
 }
 
@@ -208,6 +211,7 @@ export async function cancelPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
     before: { status: p.status },
     after: { receiptNumber: p.receiptNumber, reason: data.reason, released: released.map((r) => ({ invoiceId: r.invoiceId, amountPaise: text(r.net) })) },
   });
+  await skipAbout(tx, "payment", [id], "The payment was cancelled");
   return after;
 }
 
@@ -476,6 +480,7 @@ export async function recordGatewayPayment(
     entityId: payment.id,
     after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
   });
+  await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
   return { payment, created: true };
 }
 
