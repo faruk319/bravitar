@@ -1,34 +1,44 @@
 import { PageHeader } from "@/components/page-header";
+import { BarList, Columns } from "@/components/reports/bars";
 import { pickRange, RangeForm } from "@/components/reports/range-form";
 import { Gate } from "@/components/shell/gate";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
-import { formatDate } from "@/lib/dates";
+import { formatDate, formatDayMonth, formatMonthYear } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import { METHOD_LABEL } from "@/modules/payments/labels";
 import type { PaymentMethod } from "@/modules/payments/schema";
-import { collectionRegister, thisMonth, type Total } from "@/modules/reports/service";
+import { type CollectionRegister, collectionBuckets, collectionRegister, thisMonth, type Total } from "@/modules/reports/service";
 
-function Totals({ title, rows, label = (k) => k }: { title: string; rows: Total[]; label?: (key: string) => string }) {
+const receipts = (n: number) => `${n} ${n === 1 ? "receipt" : "receipts"}`;
+
+function Totals({ title, rows, of, label = (k) => k }: { title: string; rows: Total[]; of: bigint; label?: (key: string) => string }) {
   return (
     <Card>
       <CardHeader title={title} />
-      <ul className="divide-y divide-neutral-100">
-        {rows.map((t) => (
-          <li key={t.key} className="flex min-h-11 items-center justify-between gap-3 text-body">
-            <span>
-              {label(t.key)} <span className="text-caption text-muted-foreground">· {t.count}</span>
-            </span>
-            <span className="tabular-nums">{formatPaise(t.totalPaise)}</span>
-          </li>
-        ))}
-      </ul>
+      <BarList items={rows.map((t) => ({ key: t.key, label: label(t.key), note: String(t.count), value: formatPaise(t.totalPaise), fraction: of ? Number(t.totalPaise) / Number(of) : 0 }))} />
     </Card>
   );
+}
+
+// Each day opens that day's collection sheet; a month opens its own register.
+function byDay(r: CollectionRegister) {
+  const { unit, buckets } = collectionBuckets(r);
+  return buckets.map((b) => {
+    const when = unit === "day" ? formatDate(b.from) : formatMonthYear(b.from);
+    return {
+      key: b.from,
+      tick: unit === "day" ? formatDayMonth(b.from) : formatMonthYear(b.from),
+      tip: `${when} · ${formatPaise(b.totalPaise)} · ${receipts(b.count)}`,
+      value: Number(b.totalPaise),
+      valueText: formatPaise(b.totalPaise),
+      href: unit === "day" ? `/payments?day=${b.from}` : `/reports/collection?from=${b.from}&to=${b.to}`,
+    };
+  });
 }
 
 // docs/03 §11: receipts by day, method and staff; a day's total equals its collection sheet.
@@ -42,14 +52,17 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
     <Gate permission="reports:view">
       <PageHeader title="Collection register" crumbs={[{ href: "/reports", label: "Reports" }]}>
         <p className="text-caption text-muted-foreground">
-          {r.total.count} receipts · {formatPaise(r.total.totalPaise)}
+          {receipts(r.total.count)} · {formatPaise(r.total.totalPaise)}
         </p>
       </PageHeader>
       <RangeForm from={r.from} to={r.to} csv={`/api/reports/collection?from=${r.from}&to=${r.to}`} />
-      <div className="mb-5 grid items-start gap-5 lg:grid-cols-3">
-        <Totals title="By method" rows={r.byMethod} label={(k) => METHOD_LABEL[k as PaymentMethod]} />
-        <Totals title="By staff" rows={r.byCollector} />
-        <Totals title="By day" rows={r.byDay} label={formatDate} />
+      <Card className="mb-5">
+        <CardHeader title="By day" />
+        <Columns label="Collected by day" columns={byDay(r)} />
+      </Card>
+      <div className="mb-5 grid items-start gap-5 lg:grid-cols-2">
+        <Totals title="By method" rows={r.byMethod} of={r.total.totalPaise} label={(k) => METHOD_LABEL[k as PaymentMethod]} />
+        <Totals title="By staff" rows={r.byCollector} of={r.total.totalPaise} />
       </div>
       <Card className="overflow-x-auto p-0 md:p-0">
         <table className="w-full min-w-[40rem] text-body">

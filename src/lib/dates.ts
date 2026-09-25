@@ -6,6 +6,12 @@ export function formatDate(iso: string | Date | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "—" : dmy.format(d);
 }
 
+const dm = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+const my = new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+// "2026-09-03" -> "3 Sept" / "Sept 2026", for chart ticks.
+export const formatDayMonth = (iso: string): string => dm.format(new Date(`${iso}T00:00:00Z`));
+export const formatMonthYear = (iso: string): string => my.format(new Date(`${iso}T00:00:00Z`));
+
 export function isIsoDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
 }

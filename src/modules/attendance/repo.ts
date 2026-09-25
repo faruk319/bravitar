@@ -143,3 +143,39 @@ export async function staffNames(tx: Tx, ids: string[]): Promise<Map<string, str
   const rows = await tx.select({ id: staffUsers.id, name: staffUsers.fullName }).from(staffUsers).where(inArray(staffUsers.id, ids));
   return new Map(rows.map((r) => [r.id, r.name]));
 }
+
+// ---- reports (docs/03 §11): marks in a date range, by batch and by student
+
+export type MarkCounts = { present: number; late: number; absent: number; excused: number };
+export type BatchMarks = { batchId: string; batchName: string; classes: number } & MarkCounts;
+export type StudentMarks = { studentId: string; name: string; code: string; active: boolean } & MarkCounts;
+const counts = {
+  present: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'present')::int`,
+  late: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'late')::int`,
+  absent: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'absent')::int`,
+  excused: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'excused')::int`,
+};
+const marked = (branchIds: string[], from: string, to: string) =>
+  and(gte(sessions.sessionDate, from), lte(sessions.sessionDate, to), ne(sessions.status, "cancelled"), branchIds.length ? inArray(sessions.branchId, branchIds) : undefined);
+
+export async function marksByBatch(tx: Tx, branchIds: string[], from: string, to: string): Promise<BatchMarks[]> {
+  return tx
+    .select({ batchId: batches.id, batchName: batches.name, classes: sql<number>`count(DISTINCT ${attendance.sessionId})::int`, ...counts })
+    .from(attendance)
+    .innerJoin(sessions, eq(sessions.id, attendance.sessionId))
+    .innerJoin(batches, eq(batches.id, sessions.batchId))
+    .where(marked(branchIds, from, to))
+    .groupBy(batches.id, batches.name)
+    .orderBy(asc(batches.name));
+}
+
+export async function marksByStudent(tx: Tx, branchIds: string[], from: string, to: string): Promise<StudentMarks[]> {
+  return tx
+    .select({ studentId: students.id, name: students.fullName, code: students.code, active: sql<boolean>`${students.status} = 'active'`, ...counts })
+    .from(attendance)
+    .innerJoin(sessions, eq(sessions.id, attendance.sessionId))
+    .innerJoin(students, eq(students.id, attendance.studentId))
+    .where(and(marked(branchIds, from, to), isNull(students.deletedAt)))
+    .groupBy(students.id, students.fullName, students.code, students.status)
+    .orderBy(asc(students.fullName));
+}

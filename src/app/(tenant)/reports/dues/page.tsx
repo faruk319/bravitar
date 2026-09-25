@@ -1,7 +1,8 @@
 import { PageHeader } from "@/components/page-header";
+import { BarList } from "@/components/reports/bars";
 import { RangeForm } from "@/components/reports/range-form";
 import { Gate } from "@/components/shell/gate";
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
@@ -25,12 +26,19 @@ export default async function DuesReportPage() {
   if (!allows(ctx, "reports:view")) return <Gate permission="reports:view">{null}</Gate>;
   const r = await withTenant(session.tenant.id, (tx) => outstandingDues(tx, ctx));
   const t = r.totals;
+  const owed = t.notDue + t.days0to30 + t.days31to60 + t.over60;
   return (
     <Gate permission="reports:view">
       <PageHeader title="Outstanding dues" crumbs={[{ href: "/reports", label: "Reports" }]}>
         <p className="text-caption text-muted-foreground">As of {formatDate(r.asOf)}, by days past the due date</p>
       </PageHeader>
       <RangeForm csv="/api/reports/dues" />
+      {owed ? (
+        <Card className="mb-5">
+          <CardHeader title={`${formatPaise(owed)} owed`} />
+          <BarList items={COLUMNS.map(([k, label]) => ({ key: k, label, value: formatPaise(t[k]), fraction: Number(t[k]) / Number(owed) }))} />
+        </Card>
+      ) : null}
       <Card className="overflow-x-auto p-0 md:p-0">
         <table className="w-full min-w-[40rem] text-body">
           <thead>
@@ -66,7 +74,7 @@ export default async function DuesReportPage() {
                   {cell(t[k])}
                 </td>
               ))}
-              <td className="px-4 py-2 text-right tabular-nums">{formatPaise(t.notDue + t.days0to30 + t.days31to60 + t.over60)}</td>
+              <td className="px-4 py-2 text-right tabular-nums">{formatPaise(owed)}</td>
             </tr>
           </tbody>
         </table>

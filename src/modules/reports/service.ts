@@ -1,13 +1,16 @@
 import { z } from "zod";
-import { assertCan } from "@/lib/auth/can";
+import { allows, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import type { Tx } from "@/lib/db/client";
-import { isIsoDate } from "@/lib/dates";
+import { addDays, isIsoDate } from "@/lib/dates";
 import { type Paise, sum } from "@/lib/money/paise";
-import { duesByFamily, type FamilyDues } from "@/modules/fees/repo";
+import { type BatchMarks, type MarkCounts, marksByBatch, marksByStudent, type StudentMarks } from "@/modules/attendance/repo";
+import { attendancePercent } from "@/modules/attendance/service";
+import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
+import { duesByFamily, type FamilyDues, familiesOverdue } from "@/modules/fees/repo";
 import { paymentsRecordedBetween, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
-import { joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
+import { activeStudentsOf, joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
 import { tenantToday } from "@/modules/tenancy/repo";
 
 // docs/03 §11: every report has a date range, is branch-scoped for
@@ -71,4 +74,79 @@ export async function admissionsReport(tx: Tx, ctx: ScopedCtx, input: Range): Pr
   const range = rangeSchema.parse(input);
   const scope = { branchIds: ctx.branchIds };
   return { ...range, joined: await joinedBetween(tx, scope, range.from, range.to), left: await leftBetween(tx, scope, range.from, range.to) };
+}
+
+// The register's receipts as chart columns: one per day, or per month past 62 days.
+export type Bucket = { from: string; to: string; count: number; totalPaise: Paise };
+export function collectionBuckets(r: Pick<CollectionRegister, "from" | "to" | "byDay">): { unit: "day" | "month"; buckets: Bucket[] } {
+  const unit = addDays(r.from, 62) <= r.to ? "month" : "day";
+  const keyOf = (day: string) => (unit === "day" ? day : day.slice(0, 7));
+  const out = new Map<string, Bucket>();
+  for (let day = r.from; day <= r.to; day = addDays(day, 1)) {
+    const b = out.get(keyOf(day));
+    out.set(keyOf(day), b ? { ...b, to: day } : { from: day, to: day, count: 0, totalPaise: 0n });
+  }
+  for (const t of r.byDay) {
+    const b = out.get(keyOf(t.key));
+    if (b) out.set(keyOf(t.key), { ...b, count: b.count + t.count, totalPaise: b.totalPaise + t.totalPaise });
+  }
+  return { unit, buckets: [...out.values()] };
+}
+
+// ---- attendance (docs/03 §11): by batch and by student; trials aren't students
+
+type WithPercent<T> = T & { percent: number | null };
+const withPercent = <T extends MarkCounts>(x: T): WithPercent<T> => ({ ...x, percent: attendancePercent(x) });
+export type AttendanceReport = Range & { batches: WithPercent<BatchMarks>[]; students: WithPercent<StudentMarks>[] };
+
+export async function attendanceReport(tx: Tx, ctx: ScopedCtx, input: Range): Promise<AttendanceReport> {
+  assertCan(ctx, "reports:view");
+  const range = rangeSchema.parse(input);
+  return {
+    ...range,
+    batches: (await marksByBatch(tx, ctx.branchIds, range.from, range.to)).map(withPercent),
+    students: (await marksByStudent(tx, ctx.branchIds, range.from, range.to)).map(withPercent),
+  };
+}
+
+// ---- at risk (agreed 2026-09-25): under 60% attendance in the last 30 days,
+// or a family with two or more invoices past their due date, not fully paid.
+
+export const AT_RISK = { days: 30, below: 60, overdue: 2 };
+export type AtRisk = Range & {
+  attendance: WithPercent<StudentMarks>[] | null;
+  unpaid: { studentId: string; name: string; code: string; overdue: number; owedPaise: Paise }[] | null;
+};
+
+// Each part only for those who may see it (attendance, invoices); null otherwise.
+export async function atRisk(tx: Tx, ctx: ScopedCtx): Promise<AtRisk> {
+  assertCan(ctx, "students:read");
+  const to = await tenantToday(tx);
+  const from = addDays(to, -(AT_RISK.days - 1));
+  // Exact, not the rounded percent: 59.6% is under 60.
+  const low = (c: MarkCounts) => c.present + c.late + c.absent > 0 && (c.present + c.late) * 100 < AT_RISK.below * (c.present + c.late + c.absent);
+  const attendance = allows(ctx, "attendance:read")
+    ? (await marksByStudent(tx, ctx.branchIds, from, to))
+        .filter((s) => s.active && low(s))
+        .map(withPercent)
+        .sort((a, b) => (a.percent ?? 0) - (b.percent ?? 0))
+    : null;
+  let unpaid: AtRisk["unpaid"] = null;
+  if (allows(ctx, "invoices:read")) {
+    const families = new Map((await familiesOverdue(tx, ctx.branchIds, to, AT_RISK.overdue)).map((f) => [f.householdId, f]));
+    unpaid = (await activeStudentsOf(tx, { branchIds: ctx.branchIds }, [...families.keys()])).map((s) => ({
+      studentId: s.id,
+      name: s.fullName,
+      code: s.code,
+      overdue: families.get(s.householdId)?.overdue ?? 0,
+      owedPaise: families.get(s.householdId)?.owedPaise ?? 0n,
+    }));
+  }
+  return { from, to, attendance, unpaid };
+}
+
+// The enquiry tab's report, for its CSV.
+export async function enquiryFunnel(tx: Tx, ctx: ScopedCtx, input: Range): Promise<EnquiryReport> {
+  assertCan(ctx, "reports:view");
+  return enquiryReport(tx, ctx, input);
 }

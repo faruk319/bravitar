@@ -1,8 +1,11 @@
 import { rupeesText } from "@/lib/money/format";
+import type { MarkCounts } from "@/modules/attendance/repo";
+import { LOST_REASON_LABELS, SOURCE_LABELS } from "@/modules/enquiries/lists";
+import type { EnquiryReport } from "@/modules/enquiries/service";
 import { METHOD_LABEL } from "@/modules/payments/labels";
 import type { PaymentMethod } from "@/modules/payments/schema";
 import { LEFT_REASON_LABELS } from "@/modules/students/schema";
-import type { AdmissionsReport, CollectionRegister, DuesReport } from "./service";
+import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, type CollectionRegister, type DuesReport } from "./service";
 
 // Each report as spreadsheet rows; amounts in plain rupees so Excel can add them up.
 
@@ -42,5 +45,54 @@ export function admissionsRows(r: AdmissionsReport): string[][] {
     [],
     ["Joined", String(r.joined.length)],
     ["Left", String(r.left.length)],
+  ];
+}
+
+const marks = (c: MarkCounts & { percent: number | null }) => [c.present, c.late, c.absent, c.excused].map(String).concat(c.percent === null ? "" : String(c.percent));
+
+export function attendanceRows(r: AttendanceReport): string[][] {
+  return [
+    ["Attendance summary", `${r.from} to ${r.to}`, "% = (present + late) / (present + late + absent)"],
+    [],
+    ["Batch", "Classes", "Present", "Late", "Absent", "Excused", "%"],
+    ...r.batches.map((b) => [b.batchName, String(b.classes), ...marks(b)]),
+    [],
+    ["Student", "Code", "Present", "Late", "Absent", "Excused", "%"],
+    ...r.students.map((s) => [s.name, s.code, ...marks(s)]),
+  ];
+}
+
+export function atRiskRows(r: AtRisk): string[][] {
+  return [
+    ["At risk", `${r.from} to ${r.to}`],
+    ...(r.attendance
+      ? [[], [`Attendance under ${AT_RISK.below}%`], ["Student", "Code", "Present", "Late", "Absent", "Excused", "%"], ...r.attendance.map((s) => [s.name, s.code, ...marks(s)])]
+      : []),
+    ...(r.unpaid ? [[], [`${AT_RISK.overdue} or more invoices overdue`], ["Student", "Code", "Overdue invoices", "Owed"], ...r.unpaid.map((s) => [s.name, s.code, String(s.overdue), rupeesText(s.owedPaise)])] : []),
+  ];
+}
+
+export function enquiryRows(r: EnquiryReport): string[][] {
+  const f = r.funnel;
+  const pct = (n: number, of: number) => (of ? String(Math.round((n / of) * 100)) : "");
+  const stages: [string, number][] = [
+    ["Received", f.received],
+    ["Contacted", f.contacted],
+    ["Trial booked", f.trialBooked],
+    ["Trial done", f.trialDone],
+    ["Joined", f.won],
+    ["Lost", f.lost],
+  ];
+  return [
+    ["Enquiry funnel", `${r.from} to ${r.to}`],
+    [],
+    ["Stage", "Enquiries", "% of received"],
+    ...stages.map(([label, n]) => [label, String(n), pct(n, f.received)]),
+    [],
+    ["Source", "Received", "Joined", "% joined"],
+    ...r.sources.map((s) => [s.source ? SOURCE_LABELS[s.source] : "Not set", String(s.received), String(s.won), pct(s.won, s.received)]),
+    [],
+    ["Why they were lost", "Enquiries"],
+    ...r.lost.map((l) => [l.reason ? LOST_REASON_LABELS[l.reason] : "No reason", String(l.count)]),
   ];
 }

@@ -174,3 +174,13 @@ export async function leftBetween(tx: Tx, scope: Scope, from: string, to: string
     .orderBy(asc(students.leftOn), asc(students.fullName));
   return rows.map((r) => ({ ...r, on: r.on ?? "" }));
 }
+
+// Active students of these families, for the at-risk list.
+export async function activeStudentsOf(tx: Tx, scope: Scope, householdIds: string[]): Promise<Pick<Student, "id" | "fullName" | "code" | "householdId">[]> {
+  if (!householdIds.length) return [];
+  return tx
+    .select({ id: students.id, fullName: students.fullName, code: students.code, householdId: students.householdId })
+    .from(students)
+    .where(and(inArray(students.householdId, householdIds), eq(students.status, "active"), isNull(students.deletedAt), inScope(scope)))
+    .orderBy(asc(students.fullName));
+}

@@ -3,11 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 // The report's dates (GET, so the address can be shared) and its CSV.
-export function RangeForm({ from, to, csv }: { from?: string; to?: string; csv: string }) {
+export function RangeForm({ from, to, csv, keep = {} }: { from?: string; to?: string; csv?: string; keep?: Record<string, string> }) {
   return (
     <div className="mb-5 flex flex-wrap items-end gap-2">
       {from && to ? (
         <form className="flex flex-wrap items-end gap-2" method="get">
+          {Object.entries(keep).map(([name, value]) => (
+            <input key={name} type="hidden" name={name} value={value} />
+          ))}
           <label className="flex flex-col gap-1 text-label">
             From
             <Input type="date" name="from" defaultValue={from} className="w-44" />
@@ -21,9 +24,11 @@ export function RangeForm({ from, to, csv }: { from?: string; to?: string; csv: 
           </Button>
         </form>
       ) : null}
-      <Button variant="outline" nativeButton={false} render={<a href={csv} download />}>
-        <Download data-icon="inline-start" /> Download CSV
-      </Button>
+      {csv ? (
+        <Button variant="outline" nativeButton={false} render={<a href={csv} download />}>
+          <Download data-icon="inline-start" /> Download CSV
+        </Button>
+      ) : null}
     </div>
   );
 }

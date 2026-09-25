@@ -176,6 +176,12 @@ export async function studentAttendance(tx: Tx, ctx: ScopedCtx, studentId: strin
   const classes = await studentClasses(tx, studentId, from, to, now);
   const counts: StudentAttendance["counts"] = { present: 0, absent: 0, late: 0, excused: 0, unmarked: 0 };
   for (const c of classes) counts[c.mark ?? "unmarked"]++;
-  const counted = counts.present + counts.late + counts.absent;
-  return { from, to, counts, percent: counted ? Math.round(((counts.present + counts.late) / counted) * 100) : null, recent: classes.slice(-10).reverse() };
+  return { from, to, counts, percent: attendancePercent(counts), recent: classes.slice(-10).reverse() };
+}
+
+// docs/03 §7: (present + late) / (present + late + absent); unmarked and excused
+// don't count. Null when nothing counted.
+export function attendancePercent(c: { present: number; late: number; absent: number }): number | null {
+  const counted = c.present + c.late + c.absent;
+  return counted ? Math.round(((c.present + c.late) / counted) * 100) : null;
 }

@@ -73,7 +73,7 @@ export default async function EnquiriesPage({ searchParams }: PageProps<"/enquir
       />
       <SegmentedTabs label="Enquiries" items={tabs} />
       {shown ? (
-        <EnquiryReport r={shown} />
+        <EnquiryReport r={shown} csv={allows(ctx, "reports:view")} />
       ) : (
         <Card className="overflow-hidden p-0 md:p-0">
           {rows.length ? (

@@ -352,3 +352,14 @@ export async function duesByFamily(tx: Tx, branchIds: string[], today: string): 
     .orderBy(desc(sql`sum(${owed})`), asc(households.name));
   return rows.map((r) => ({ ...r, notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) }));
 }
+
+// Families with at least `min` invoices past their due date and not fully paid.
+export async function familiesOverdue(tx: Tx, branchIds: string[], today: string, min: number): Promise<{ householdId: string; overdue: number; owedPaise: bigint }[]> {
+  const rows = await tx
+    .select({ householdId: invoices.householdId, overdue: sql<number>`count(*)::int`, owed: sql<string>`sum(${invoices.totalPaise} - ${invoices.paidPaise})::text` })
+    .from(invoices)
+    .where(and(inArray(invoices.status, [...OWED]), lt(invoices.dueDate, today), invoiceScope(branchIds)))
+    .groupBy(invoices.householdId)
+    .having(sql`count(*) >= ${min}`);
+  return rows.map((r) => ({ householdId: r.householdId, overdue: r.overdue, owedPaise: BigInt(r.owed) }));
+}

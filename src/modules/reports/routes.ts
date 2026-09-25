@@ -3,8 +3,8 @@ import { selectedBranchIds } from "@/lib/auth/server";
 import { toCsv } from "@/lib/csv";
 import type { Tx } from "@/lib/db/client";
 import { NotFoundError } from "@/lib/errors";
-import { admissionsRows, collectionRows, duesRows } from "./csv";
-import { admissionsReport, collectionRegister, outstandingDues, type Range, thisMonth } from "./service";
+import { admissionsRows, atRiskRows, attendanceRows, collectionRows, duesRows, enquiryRows } from "./csv";
+import { admissionsReport, atRisk, attendanceReport, collectionRegister, enquiryFunnel, outstandingDues, type Range, thisMonth } from "./service";
 
 type Csv = { rows: string[][]; stamp: string };
 const span = (r: Range) => `${r.from}-to-${r.to}`;
@@ -16,6 +16,12 @@ const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range) => Promise<Csv>
     return { rows: duesRows(r), stamp: r.asOf };
   },
   admissions: async (tx, ctx, range) => ({ rows: admissionsRows(await admissionsReport(tx, ctx, range)), stamp: span(range) }),
+  attendance: async (tx, ctx, range) => ({ rows: attendanceRows(await attendanceReport(tx, ctx, range)), stamp: span(range) }),
+  "at-risk": async (tx, ctx) => {
+    const r = await atRisk(tx, ctx);
+    return { rows: atRiskRows(r), stamp: r.to };
+  },
+  enquiries: async (tx, ctx, range) => ({ rows: enquiryRows(await enquiryFunnel(tx, ctx, range)), stamp: span(range) }),
 };
 
 // GET /api/reports/<name>?from=&to= : the report as a CSV download, UTF-8 with

@@ -4,7 +4,7 @@ import type { Tx } from "@/lib/db/client";
 import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
-import { todayIn } from "@/lib/dates";
+import { addDays, todayIn } from "@/lib/dates";
 import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
@@ -16,7 +16,7 @@ import { addStaff, createStaffMember, loadAccessContext } from "@/modules/staff/
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { generateInvoices } from "@/modules/fees/invoicing";
-import { invoices } from "@/modules/fees/schema";
+import { type Invoice, invoices } from "@/modules/fees/schema";
 import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
@@ -39,15 +39,17 @@ const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string;
 ];
 
 // Six students per academy: one family with two siblings, an adult, a paused
-// one. All but the Shaikhs said yes to WhatsApp messages.
-function demoStudents(vertical: string): (NewStudentInput & { paused?: boolean })[] {
+// one, a family behind on fees and a child who often misses class (the at-risk
+// list). All but the Shaikhs said yes to WhatsApp messages.
+type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean; oftenAbsent?: boolean };
+function demoStudents(vertical: string): DemoStudent[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
   const consents = { dataProcessing: true, photo: true, whatsapp: true };
   return [
     { fullName: "Aarav Deshmukh", dateOfBirth: "2015-03-12", gender: "male", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
     { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", gender: "female", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
-    { fullName: "Zoya Shaikh", dateOfBirth: "2014-11-20", gender: "female", guardian: { fullName: "Sana Shaikh", phone: "9876500002", relation: "mother" }, programInterest: interest, consents: { dataProcessing: true, photo: false } },
-    { fullName: "Ishaan Patil", dateOfBirth: "2016-01-30", gender: "male", guardian: { fullName: "Vikram Patil", phone: "9876500003", relation: "father" }, programInterest: interest, consents },
+    { fullName: "Zoya Shaikh", dateOfBirth: "2014-11-20", gender: "female", guardian: { fullName: "Sana Shaikh", phone: "9876500002", relation: "mother" }, programInterest: interest, consents: { dataProcessing: true, photo: false }, oftenAbsent: true },
+    { fullName: "Ishaan Patil", dateOfBirth: "2016-01-30", gender: "male", guardian: { fullName: "Vikram Patil", phone: "9876500003", relation: "father" }, programInterest: interest, consents, behindOnFees: true },
     { fullName: "Meher Kaur", dateOfBirth: "1998-05-05", gender: "female", adultPhone: "9876500004", programInterest: interest, consents },
     { fullName: "Rohan Joshi", dateOfBirth: "2013-09-09", gender: "male", guardian: { fullName: "Priya Joshi", phone: "9876500005", relation: "mother" }, programInterest: interest, consents, paused: true },
   ];
@@ -92,7 +94,7 @@ function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]
 
 // The last 30 days of classes, marked mostly present with a few absences and
 // late arrivals, so Today, the register and profiles have something to show.
-async function seedHistory(tx: Tx, ctx: StudentCtx): Promise<void> {
+async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>): Promise<void> {
   const now = new Date();
   await reconcileSessions(tx, { now: new Date(now.getTime() - 30 * 86_400_000) });
   await reconcileSessions(tx, { now });
@@ -102,47 +104,47 @@ async function seedHistory(tx: Tx, ctx: StudentCtx): Promise<void> {
     const roster = await classRoster(tx, ctx, c.id, { now: at });
     const marks = roster.entries
       .filter((e) => !e.paused)
-      .map((e, i) => ({ studentId: e.studentId, status: (i + day) % 9 === 0 ? ("absent" as const) : (i + day) % 13 === 0 ? ("late" as const) : ("present" as const) }));
+      .map((e, i) => ({ studentId: e.studentId, status: (oftenAbsent.has(e.studentId) ? day % 5 < 3 : (i + day) % 9 === 0) ? ("absent" as const) : (i + day) % 13 === 0 ? ("late" as const) : ("present" as const) }));
     if (marks.length) await saveAttendance(tx, ctx, c.id, { marks }, { now: at });
   }
 }
 
-// A sibling discount and this month's invoices as drafts, waiting for review.
+// A sibling discount, then last month's and this month's invoices, each made
+// and issued on the 1st as the monthly run would.
 async function seedFees(tx: Tx, ctx: StudentCtx, studentIds: Map<string, string>): Promise<void> {
   const sibling = await createDiscount(tx, ctx, { name: "Sibling 10%", kind: "percent", value: 10 });
   await createDiscount(tx, ctx, { name: "Scholarship", kind: "percent", value: 100 });
   await giveDiscount(tx, ctx, studentIds.get("Anaya Deshmukh") ?? "", { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
-  const firstOfMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
-  await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now: new Date(`${firstOfMonth}T04:00:00Z`) });
-}
-
-// This month's invoices issued and three paid (cash in full, UPI in part, a
-// cheque), so the collection sheet and receipts have a day to show.
-async function seedPayments(tx: Tx, ctx: StudentCtx): Promise<void> {
-  await issueInvoices(tx, ctx, "all").catch((e: unknown) => {
-    if (!(e instanceof ConflictError)) throw e; // nothing to issue this month
-  });
-  const open = await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number)).limit(3);
-  const how = [
-    { method: "cash" as const, half: false },
-    { method: "upi" as const, half: true, reference: "UPI 4471 0923" },
-    { method: "cheque" as const, half: false, reference: "000451" },
-  ];
-  for (const [i, inv] of open.entries()) {
-    const h = how[i];
-    if (!h) break;
-    const balance = inv.totalPaise - inv.paidPaise;
-    const amount = h.half ? (split(balance, 2)[0] ?? balance) : balance;
-    await recordPayment(tx, ctx, {
-      requestId: uuidv7(),
-      householdId: inv.householdId,
-      branchId: inv.branchId,
-      amountPaise: String(amount),
-      method: h.method,
-      ...(h.reference ? { reference: h.reference } : {}),
-      allocations: [{ invoiceId: inv.id, amountPaise: String(amount) }],
+  const thisMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
+  for (const first of [`${addDays(thisMonth, -1).slice(0, 7)}-01`, thisMonth]) {
+    const now = new Date(`${first}T04:00:00Z`);
+    await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now });
+    await issueInvoices(tx, ctx, "all", { now }).catch((e: unknown) => {
+      if (!(e instanceof ConflictError)) throw e; // nothing to issue that month
     });
   }
+}
+
+// Last month paid by all but the family behind on fees; this month's came in
+// over the days, two today (cash, UPI in part), so the register and today's
+// collection sheet differ. Their receipts wait under Messages → To send.
+async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>): Promise<void> {
+  const today = todayIn("Asia/Kolkata");
+  const thisMonth = `${today.slice(0, 7)}-01`;
+  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !behind.has(i.householdId));
+  const pay = (inv: Invoice, on: string, method: "cash" | "upi" | "cheque", half = false) => {
+    const balance = inv.totalPaise - inv.paidPaise;
+    const amount = String(half ? (split(balance, 2)[0] ?? balance) : balance);
+    const reference = { cash: "", upi: `UPI 4471 ${on.slice(5).replace("-", "")}`, cheque: "000451" }[method];
+    const input = { requestId: uuidv7(), householdId: inv.householdId, branchId: inv.branchId, amountPaise: amount, method, ...(reference ? { reference } : {}), allocations: [{ invoiceId: inv.id, amountPaise: amount }] };
+    return recordPayment(tx, ctx, input, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
+  };
+  for (const [i, inv] of open.filter((x) => x.issueDate < thisMonth).entries()) await pay(inv, addDays(inv.issueDate, Math.min(2 + 5 * i, 27)), i % 2 ? "upi" : "cash");
+  const [first, second, third] = open.filter((x) => x.issueDate >= thisMonth);
+  const fourth = addDays(thisMonth, 3);
+  if (first) await pay(first, fourth < today ? fourth : today, "cheque");
+  if (second) await pay(second, today, "cash");
+  if (third) await pay(third, today, "upi", true);
 }
 
 // Five enquiries along the funnel: two new (one due today), one called, one
@@ -198,13 +200,17 @@ export async function seed(): Promise<SeedResult> {
       const families = new Map<string, string>(); // guardian phone -> household id
       const studentIds = new Map<string, string>();
       const toPause: string[] = [];
-      for (const { paused, ...student } of demoStudents(input.verticalPreset ?? "general")) {
+      const behind = new Set<string>(); // household ids
+      const oftenAbsent = new Set<string>(); // student ids
+      for (const { paused, behindOnFees, oftenAbsent: absent, ...student } of demoStudents(input.verticalPreset ?? "general")) {
         const phone = student.guardian?.phone ?? student.adultPhone ?? "";
         const householdId = families.get(phone);
         const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}) });
         families.set(phone, created.household.id);
         studentIds.set(student.fullName, created.student.id);
         if (paused) toPause.push(created.student.id);
+        if (behindOnFees) behind.add(created.household.id);
+        if (absent) oftenAbsent.add(created.student.id);
       }
 
       const plan = demoBatches(input.verticalPreset ?? "general");
@@ -228,14 +234,14 @@ export async function seed(): Promise<SeedResult> {
       }
       // Paused after joining, so their batches show as paused too.
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
-      await seedHistory(tx, sctx);
+      await seedHistory(tx, sctx, oftenAbsent);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
       await seedFees(tx, sctx, studentIds);
-      await seedPayments(tx, sctx); // their receipts wait under Messages → To send
+      await seedPayments(tx, sctx, behind);
       await queueReminders(tx); // what the hourly job would queue now
       await seedEnquiries(tx, sctx, programIds.values().next().value ?? "");
     });
-    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, this month's invoices issued, 3 payments`);
+    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, two months of invoices, payments spread over them`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
     result.tenantsCreated.push(input.slug);
   }
