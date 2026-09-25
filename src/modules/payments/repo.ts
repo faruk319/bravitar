@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
@@ -154,9 +154,8 @@ export type SheetPayment = Pick<Payment, "id" | "receiptNumber" | "amountPaise" 
   collectorName: string | null;
 };
 
-// One branch's payments recorded on a day, cancelled ones too, in the order taken.
-export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string): Promise<SheetPayment[]> {
-  return tx
+const recorded = (tx: Tx, where: SQL | undefined) =>
+  tx
     .select({
       id: payments.id,
       receiptNumber: payments.receiptNumber,
@@ -175,8 +174,17 @@ export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string):
     .from(payments)
     .innerJoin(households, eq(households.id, payments.householdId))
     .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
-    .where(and(eq(payments.branchId, branchId), eq(payments.recordedOn, day)))
-    .orderBy(asc(payments.createdAt), asc(payments.id));
+    .where(where)
+    .orderBy(asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id));
+
+// One branch's payments recorded on a day, cancelled ones too, in the order taken.
+export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string): Promise<SheetPayment[]> {
+  return recorded(tx, and(eq(payments.branchId, branchId), eq(payments.recordedOn, day)));
+}
+
+// The collection register: every day in [from, to] in the viewer's branches.
+export async function paymentsRecordedBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<SheetPayment[]> {
+  return recorded(tx, and(paymentScope(branchIds), gte(payments.recordedOn, from), lte(payments.recordedOn, to)));
 }
 
 export type SheetRefund = Pick<Refund, "id" | "paymentId" | "amountPaise" | "method" | "reason" | "refundedAt"> & { receiptNumber: string; householdName: string };

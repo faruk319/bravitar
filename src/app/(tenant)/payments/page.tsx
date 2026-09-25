@@ -2,7 +2,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
-import { METHOD_LABEL } from "@/components/payments/method-label";
+import { METHOD_LABEL } from "@/modules/payments/labels";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";

@@ -13,6 +13,13 @@ export function formatPaise(paise: bigint, opts: { showPaise?: boolean } = {}): 
   return `${negative ? "-" : ""}₹${body}`;
 }
 
+// Plain rupees for a spreadsheet: "1234.50", no symbol or separators.
+export function rupeesText(paise: bigint): string {
+  const sign = paise < 0n ? "-" : "";
+  const abs = paise < 0n ? -paise : paise;
+  return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, "0")}`;
+}
+
 export function formatCount(n: number | bigint): string {
   return count.format(n);
 }

@@ -378,7 +378,8 @@ export type CollectionSheet = {
 };
 
 // Money that came in: a later refund doesn't undo that it was received that day.
-const COUNTED = new Set<Payment["status"]>(["confirmed", "refunded"]);
+// What counts as money collected: a cancelled payment never does.
+export const COUNTED = new Set<Payment["status"]>(["confirmed", "refunded"]);
 
 function byMethod(rows: { method: PaymentMethod; amountPaise: Paise }[]): MethodTotal[] {
   return PAYMENT_METHODS.map((method) => {

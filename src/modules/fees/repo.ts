@@ -327,3 +327,28 @@ export async function lockDrafts(tx: Tx, branchIds: string[], ids: string[]): Pr
     .orderBy(asc(invoices.issueDate), asc(invoices.createdAt), asc(invoices.id))
     .for("update");
 }
+
+export type FamilyDues = { householdId: string; name: string; invoices: number; notDue: bigint; days0to30: bigint; days31to60: bigint; over60: bigint };
+
+// Outstanding dues aged by days past the due date (agreed 2026-09-25).
+export async function duesByFamily(tx: Tx, branchIds: string[], today: string): Promise<FamilyDues[]> {
+  const owed = sql`${invoices.totalPaise} - ${invoices.paidPaise}`;
+  const late = sql`(${today}::date - ${invoices.dueDate})`;
+  const bucket = (when: SQL) => sql<string>`coalesce(sum(${owed}) FILTER (WHERE ${when}), 0)::text`;
+  const rows = await tx
+    .select({
+      householdId: invoices.householdId,
+      name: households.name,
+      invoices: sql<number>`count(*)::int`,
+      notDue: bucket(sql`${late} < 0`),
+      days0to30: bucket(sql`${late} BETWEEN 0 AND 30`),
+      days31to60: bucket(sql`${late} BETWEEN 31 AND 60`),
+      over60: bucket(sql`${late} > 60`),
+    })
+    .from(invoices)
+    .innerJoin(households, eq(households.id, invoices.householdId))
+    .where(and(inArray(invoices.status, [...OWED]), invoiceScope(branchIds)))
+    .groupBy(invoices.householdId, households.name)
+    .orderBy(desc(sql`sum(${owed})`), asc(households.name));
+  return rows.map((r) => ({ ...r, notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) }));
+}

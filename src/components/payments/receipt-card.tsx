@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Money } from "@/components/money";
-import { METHOD_LABEL } from "@/components/payments/method-label";
+import { METHOD_LABEL } from "@/modules/payments/labels";
 import { Card } from "@/components/ui/card";
 import { formatDate } from "@/lib/dates";
 import type { Receipt } from "@/modules/payments/service";

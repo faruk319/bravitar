@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, or, type SQL } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, or, type SQL } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
@@ -153,4 +153,24 @@ export async function currentConsents(tx: Tx, studentId: string): Promise<Partia
 export async function countJoinedSince(tx: Tx, scope: Scope, from: string): Promise<number> {
   const [row] = await tx.select({ n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope), gte(students.joinedOn, from)));
   return row?.n ?? 0;
+}
+
+export type StudentMove = Pick<Student, "id" | "fullName" | "code" | "leftReason"> & { on: string };
+
+// Admissions and dropouts: who joined, or left, between two dates.
+export async function joinedBetween(tx: Tx, scope: Scope, from: string, to: string): Promise<StudentMove[]> {
+  return tx
+    .select({ id: students.id, fullName: students.fullName, code: students.code, leftReason: students.leftReason, on: students.joinedOn })
+    .from(students)
+    .where(and(isNull(students.deletedAt), inScope(scope), gte(students.joinedOn, from), lte(students.joinedOn, to)))
+    .orderBy(asc(students.joinedOn), asc(students.fullName));
+}
+
+export async function leftBetween(tx: Tx, scope: Scope, from: string, to: string): Promise<StudentMove[]> {
+  const rows = await tx
+    .select({ id: students.id, fullName: students.fullName, code: students.code, leftReason: students.leftReason, on: students.leftOn })
+    .from(students)
+    .where(and(isNull(students.deletedAt), inScope(scope), gte(students.leftOn, from), lte(students.leftOn, to)))
+    .orderBy(asc(students.leftOn), asc(students.fullName));
+  return rows.map((r) => ({ ...r, on: r.on ?? "" }));
 }

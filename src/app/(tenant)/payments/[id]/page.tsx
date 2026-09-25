@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { Money } from "@/components/money";
 import { Composer } from "@/components/messaging/composer";
 import { PageHeader } from "@/components/page-header";
-import { METHOD_LABEL } from "@/components/payments/method-label";
+import { METHOD_LABEL } from "@/modules/payments/labels";
 import { CancelPayment, PrintReceipt, RefundPayment } from "@/components/payments/payment-actions";
 import { ReceiptCard } from "@/components/payments/receipt-card";
 import { Gate } from "@/components/shell/gate";

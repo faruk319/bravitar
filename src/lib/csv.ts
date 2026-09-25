@@ -78,7 +78,12 @@ export function decodeCsvBytes(bytes: Uint8Array): DecodedCsv {
 }
 
 // Comma-separated, CRLF, with a BOM so Excel opens Devanagari correctly.
-export function toCsv(rows: string[][], { bom = true }: { bom?: boolean } = {}): string {
-  const cell = (v: string) => (/[",\r\n]/.test(v) || /^\s|\s$/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+// `formulaSafe` (reports): text that Excel would run as a formula starts with ' instead.
+export function toCsv(rows: string[][], { bom = true, formulaSafe = false }: { bom?: boolean; formulaSafe?: boolean } = {}): string {
+  const safe = (v: string) => (formulaSafe && /^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v) ? `'${v}` : v);
+  const cell = (raw: string) => {
+    const v = safe(raw);
+    return /[",\r\n]/.test(v) || /^\s|\s$/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  };
   return (bom ? "﻿" : "") + rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }

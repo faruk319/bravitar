@@ -82,3 +82,19 @@ describe("toCsv", () => {
     expect(parseCsv(csv)).toEqual(rows);
   });
 });
+
+describe("toCsv for reports", () => {
+  it("starts with a BOM, keeps Devanagari, and defuses what Excel would run as a formula", () => {
+    const out = toCsv(
+      [
+        ["=HYPERLINK(\"x\")", "-500", "-12.50", "@home", "+91 98765", "आरव शर्मा", "a, b"],
+        ["plain", "", "0", "", "", "", ""],
+      ],
+      { formulaSafe: true },
+    );
+    expect(out.startsWith("﻿")).toBe(true);
+    const [first] = parseCsv(out.slice(1));
+    expect(first).toEqual(["'=HYPERLINK(\"x\")", "-500", "-12.50", "'@home", "'+91 98765", "आरव शर्मा", "a, b"]);
+    expect(toCsv([["=1+1"]])).toContain("=1+1"); // the importer's round trip is untouched
+  });
+});
