@@ -83,8 +83,8 @@ export function ConvertEnquiry({ id, name, phone, contactName, batches, batchId,
             </Button>
           </div>
         ) : null}
-        <Field label="Date of birth (optional)" id="cv-dob">
-          <Input id="cv-dob" name="dateOfBirth" type="date" />
+        <Field label={adult ? "Date of birth" : "Date of birth (optional)"} id="cv-dob">
+          <Input id="cv-dob" name="dateOfBirth" type="date" required={adult} />
         </Field>
         <Field label="Batch" id="cv-batch">
           <select id="cv-batch" name="batchId" defaultValue={batchId ?? batches[0]?.id ?? ""} className={selectClass}>

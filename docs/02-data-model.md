@@ -418,6 +418,14 @@ CREATE TABLE trial_attendances (
   attended    boolean,
   feedback    text
 );
+-- Built as (agreed 2026-09-25, migration 0021, rules in docs/03 §4):
+-- enquiries: contact_name (the parent), lost_note, created_by, and when each
+--   stage was first reached (contacted_at, trial_booked_at, trial_done_at,
+--   won_at, lost_at) for the funnel; source and lost_reason are fixed lists.
+-- enquiry_activities: to_status on status changes; append-only.
+-- trial_attendances: session_id required; mark (present | absent | late |
+--   excused) in place of attended, marked_by, marked_at, created_by and
+--   cancelled_at (never deleted); one live booking per enquiry and class.
 ```
 
 ---

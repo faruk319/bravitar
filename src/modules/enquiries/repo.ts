@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Mark } from "@/modules/attendance/schema";
@@ -166,4 +166,41 @@ export async function trialState(tx: Tx, enquiryId: string): Promise<{ attended:
     .innerJoin(sessions, eq(sessions.id, trialAttendances.sessionId))
     .where(and(eq(trialAttendances.enquiryId, enquiryId), live));
   return { attended: Boolean(r?.attended), booked: Boolean(r?.booked) };
+}
+
+// ---- the report: enquiries received in [from, to)
+
+export type Funnel = { received: number; contacted: number; trialBooked: number; trialDone: number; won: number; lost: number };
+
+export async function funnel(tx: Tx, branchIds: string[], from: Date, to: Date): Promise<Funnel> {
+  const [r] = await tx
+    .select({
+      received: sql<number>`count(*)::int`,
+      contacted: sql<number>`count(${enquiries.contactedAt})::int`,
+      trialBooked: sql<number>`count(${enquiries.trialBookedAt})::int`,
+      trialDone: sql<number>`count(${enquiries.trialDoneAt})::int`,
+      won: sql<number>`count(*) FILTER (WHERE ${enquiries.status} = 'won')::int`,
+      lost: sql<number>`count(*) FILTER (WHERE ${enquiries.status} = 'lost')::int`,
+    })
+    .from(enquiries)
+    .where(and(inScope(branchIds), gte(enquiries.createdAt, from), lt(enquiries.createdAt, to)));
+  return r ?? { received: 0, contacted: 0, trialBooked: 0, trialDone: 0, won: 0, lost: 0 };
+}
+
+export async function bySource(tx: Tx, branchIds: string[], from: Date, to: Date): Promise<{ source: Enquiry["source"]; received: number; won: number }[]> {
+  return tx
+    .select({ source: enquiries.source, received: sql<number>`count(*)::int`, won: sql<number>`count(*) FILTER (WHERE ${enquiries.status} = 'won')::int` })
+    .from(enquiries)
+    .where(and(inScope(branchIds), gte(enquiries.createdAt, from), lt(enquiries.createdAt, to)))
+    .groupBy(enquiries.source)
+    .orderBy(desc(sql`count(*)`));
+}
+
+export async function lostReasons(tx: Tx, branchIds: string[], from: Date, to: Date): Promise<{ reason: Enquiry["lostReason"]; count: number }[]> {
+  return tx
+    .select({ reason: enquiries.lostReason, count: sql<number>`count(*)::int` })
+    .from(enquiries)
+    .where(and(inScope(branchIds), eq(enquiries.status, "lost"), gte(enquiries.createdAt, from), lt(enquiries.createdAt, to)))
+    .groupBy(enquiries.lostReason)
+    .orderBy(desc(sql`count(*)`));
 }

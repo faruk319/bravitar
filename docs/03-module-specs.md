@@ -179,6 +179,24 @@ list, conversion funnel report.
 - Trial booking attaches the enquiry to a real session so the teacher sees the
   trial student on the roster, visually distinct from enrolled students.
 
+**Built as** (agreed 2026-09-25; `src/modules/enquiries/`)
+
+- Add: name, phone and program; parent, source, batch, follow-up (tomorrow),
+  assignee and a note are optional. A phone already on an open enquiry or a
+  family is flagged, never blocked.
+- Board: Follow-ups (due today or earlier, mine first) and a tab per status.
+  The first call, message or visit moves New to Contacted.
+- Sources: Walk-in, Phone call, WhatsApp, Referral, Instagram, Facebook,
+  Google, Poster/banner, Other. Lost reasons: Fees too high, Timing doesn't
+  suit, Too far, Joined elsewhere, Not interested now, No reply, Other.
+- Trials: one or more, each in a real class; free, outside capacity, cancelled
+  but never deleted. On the roster with a Trial chip, marked like a student.
+  Trial done once one is attended; a missed one keeps it at Trial booked.
+- Convert: one step, phone carried over; asks only the parent's name and
+  relation (or an adult's date of birth), batch, start date and consent.
+- Report tab: enquiries received in a date range; each stage's first-reached
+  time makes the funnel; conversion by source; lost reasons.
+
 **Acceptance**
 
 - [ ] Enquiry → trial booked → trial attended → converted, with the student's

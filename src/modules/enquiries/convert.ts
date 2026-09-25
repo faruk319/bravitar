@@ -43,6 +43,7 @@ export async function convertEnquiry(tx: Tx, ctx: ScopedCtx, id: string, input: 
   if (!e) throw new NotFoundError("Enquiry");
   if (!OPEN_STATUSES.includes(e.status)) throw new ConflictError(e.status === "won" ? "Already joined" : "Reopen it first");
   if (!d.adult && !d.guardian) throw new BadRequestError("Add the parent's name");
+  if (d.adult && !d.dateOfBirth) throw new BadRequestError("Add the date of birth for an adult");
   const batch = await getBatch(tx, ctx.branchIds, d.batchId);
   if (!batch) throw new NotFoundError("Batch");
   const today = await tenantToday(tx);

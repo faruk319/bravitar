@@ -10,9 +10,10 @@ import { getBatch, getProgram } from "@/modules/batches/repo";
 import { getStaff } from "@/modules/staff/repo";
 import { type HouseholdSuggestion, lookupGuardian } from "@/modules/students/service";
 import { pickBranch } from "@/modules/tenancy/branch-access";
-import { tenantToday } from "@/modules/tenancy/repo";
+import { localToUtc } from "@/modules/sessions/occurrences";
+import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { type EnquiryStatus, ENQUIRY_STATUSES, LOST_REASONS, OPEN_STATUSES, SOURCES } from "./lists";
-import { type ActivityRow, activitiesOf, type EnquiryRow, enquiryRow, followUpsDue, getEnquiry, insertActivity, insertEnquiry, listByStatus, openByPhone, statusCounts, updateEnquiry } from "./repo";
+import { type ActivityRow, activitiesOf, bySource, type EnquiryRow, enquiryRow, followUpsDue, type Funnel, funnel, getEnquiry, insertActivity, insertEnquiry, listByStatus, lostReasons, openByPhone, statusCounts, updateEnquiry } from "./repo";
 import type { Enquiry } from "./schema";
 
 const actorOf = (ctx: ScopedCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
@@ -188,4 +189,17 @@ export async function reopenEnquiry(tx: Tx, ctx: ScopedCtx, id: string): Promise
   const e = await requireEnquiry(tx, ctx, id);
   if (e.status !== "lost") throw new ConflictError("Only a lost enquiry can be reopened");
   return setStatus(tx, ctx, e, "contacted", { lostReason: null, lostNote: null, lostAt: null, nextFollowUp: addDays(await tenantToday(tx), 1) });
+}
+
+// ---- the report (docs/03 §4): enquiries received in a date range, in the academy's days
+
+export const reportSchema = z.object({ from: isoDate, to: isoDate }).refine((r) => r.from <= r.to, "The start comes after the end");
+export type EnquiryReport = { from: string; to: string; funnel: Funnel; sources: Awaited<ReturnType<typeof bySource>>; lost: Awaited<ReturnType<typeof lostReasons>> };
+
+export async function enquiryReport(tx: Tx, ctx: ScopedCtx, input: z.input<typeof reportSchema>): Promise<EnquiryReport> {
+  assertCan(ctx, "enquiries:read");
+  const { from, to } = reportSchema.parse(input);
+  const tz = (await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata";
+  const [start, end] = [localToUtc(from, "00:00", tz), localToUtc(addDays(to, 1), "00:00", tz)];
+  return { from, to, funnel: await funnel(tx, ctx.branchIds, start, end), sources: await bySource(tx, ctx.branchIds, start, end), lost: await lostReasons(tx, ctx.branchIds, start, end) };
 }

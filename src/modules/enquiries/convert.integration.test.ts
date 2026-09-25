@@ -111,6 +111,7 @@ describe("converting an enquiry", () => {
     const e = await enquiry("Zoya Shaikh");
     await expect(convert(desk, e.id, { guardian: { fullName: "Sana Shaikh", relation: "mother" }, consents: { dataProcessing: false } })).rejects.toThrow("Data-processing consent is required");
     await expect(convert(desk, e.id, {})).rejects.toThrow("Add the parent's name");
+    await expect(convert(desk, e.id, { adult: true })).rejects.toThrow("Add the date of birth for an adult");
     await expect(convert(teacher, e.id, { guardian: { fullName: "Sana Shaikh", relation: "mother" } })).rejects.toMatchObject({ status: 403 });
     await withTenant(T, (tx) => markLost(tx, desk, e.id, { reason: "fees" }));
     await expect(convert(desk, e.id, { guardian: { fullName: "Sana Shaikh", relation: "mother" } })).rejects.toThrow("Reopen it first");

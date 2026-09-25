@@ -20,6 +20,8 @@ import { invoices } from "@/modules/fees/schema";
 import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
+import { createEnquiry, logActivity, markLost } from "@/modules/enquiries/service";
+import { bookTrial, trialChoices } from "@/modules/enquiries/trials";
 import { queueReminders } from "@/modules/messaging/reminders";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -143,6 +145,22 @@ async function seedPayments(tx: Tx, ctx: StudentCtx): Promise<void> {
   }
 }
 
+// Five enquiries along the funnel: two new (one due today), one called, one
+// with a trial booked, one lost; so the board, Follow-ups and Report show.
+async function seedEnquiries(tx: Tx, ctx: StudentCtx, programId: string): Promise<void> {
+  const today = todayIn("Asia/Kolkata");
+  const add = (name: string, phone: string, source: "walk_in" | "instagram" | "referral" | "whatsapp" | "poster", extra: object = {}) => createEnquiry(tx, ctx, { name, phone, programId, source, ...extra });
+  await add("Advait Kulkarni", "9812300001", "walk_in", { nextFollowUp: today });
+  await add("Sia Mehta", "9812300002", "instagram", { contactName: "Pooja Mehta" });
+  const called = await add("Vihaan Rao", "9812300003", "referral");
+  await logActivity(tx, ctx, called.id, { kind: "call", note: "Asked about weekend batches" });
+  const trial = await add("Kiara Nair", "9812300004", "whatsapp");
+  const [first] = await trialChoices(tx, ctx, trial);
+  if (first?.classes[0]) await bookTrial(tx, ctx, trial.id, { sessionId: first.classes[0].sessionId });
+  const lost = await add("Arjun Iyer", "9812300005", "poster");
+  await markLost(tx, ctx, lost.id, { reason: "timing", note: "Needs mornings" });
+}
+
 const DEMO_HOLIDAYS = [
   { date: "2026-10-02", name: "Gandhi Jayanti" },
   { date: "2026-12-25", name: "Christmas" },
@@ -215,6 +233,7 @@ export async function seed(): Promise<SeedResult> {
       await seedFees(tx, sctx, studentIds);
       await seedPayments(tx, sctx); // their receipts wait under Messages → To send
       await queueReminders(tx); // what the hourly job would queue now
+      await seedEnquiries(tx, sctx, programIds.values().next().value ?? "");
     });
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, this month's invoices issued, 3 payments`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
