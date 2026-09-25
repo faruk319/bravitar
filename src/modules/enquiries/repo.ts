@@ -130,18 +130,18 @@ export async function updateTrial(tx: Tx, id: string, patch: Partial<typeof tria
   return t;
 }
 
-export type TrialRow = TrialAttendance & { batchName: string; startsAt: Date; endsAt: Date; sessionStatus: string };
+export type TrialRow = TrialAttendance & { batchId: string; batchName: string; startsAt: Date; endsAt: Date; sessionStatus: string };
 
 // An enquiry's trials with their classes, newest first; cancelled ones too.
 export async function trialsOf(tx: Tx, enquiryId: string): Promise<TrialRow[]> {
   const list = await tx
-    .select({ t: trialAttendances, batchName: batches.name, startsAt: sessions.startsAt, endsAt: sessions.endsAt, sessionStatus: sessions.status })
+    .select({ t: trialAttendances, batchId: sessions.batchId, batchName: batches.name, startsAt: sessions.startsAt, endsAt: sessions.endsAt, sessionStatus: sessions.status })
     .from(trialAttendances)
     .innerJoin(sessions, eq(sessions.id, trialAttendances.sessionId))
     .innerJoin(batches, eq(batches.id, sessions.batchId))
     .where(eq(trialAttendances.enquiryId, enquiryId))
     .orderBy(desc(sessions.startsAt));
-  return list.map((r) => ({ ...r.t, batchName: r.batchName, startsAt: r.startsAt, endsAt: r.endsAt, sessionStatus: r.sessionStatus }));
+  return list.map((r) => ({ ...r.t, batchId: r.batchId, batchName: r.batchName, startsAt: r.startsAt, endsAt: r.endsAt, sessionStatus: r.sessionStatus }));
 }
 
 export type RosterTrial = { id: string; enquiryId: string; name: string; mark: Mark | null; feedback: string | null; markedBy: string | null };

@@ -1,5 +1,7 @@
 import { MessageCircle, Phone } from "lucide-react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ConvertEnquiry } from "@/components/enquiries/convert-enquiry";
 import { BookTrial, CancelTrial, EditEnquiry, LogActivity, MarkLost, Reopen } from "@/components/enquiries/enquiry-actions";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
@@ -17,6 +19,7 @@ import { coachOptions, listPrograms } from "@/modules/batches/repo";
 import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { listBatchViews } from "@/modules/batches/service";
 import { ACTIVITY_LABELS, LOST_REASON_LABELS, OPEN_STATUSES, SOURCE_LABELS, STATUS_LABELS } from "@/modules/enquiries/lists";
+import { suggestedBatch } from "@/modules/enquiries/convert";
 import { trialsOf, type TrialRow } from "@/modules/enquiries/repo";
 import { enquiryDetail } from "@/modules/enquiries/service";
 import { trialChoices } from "@/modules/enquiries/trials";
@@ -39,17 +42,20 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
   const ctx = scopedCtx(session);
   if (!allows(ctx, "enquiries:read")) return <Gate permission="enquiries:read">{null}</Gate>;
   const canUpdate = allows(ctx, "enquiries:update");
+  const canConvert = allows(ctx, "enquiries:convert") && allows(ctx, "students:create") && allows(ctx, "enrollments:manage");
   const tz = session.tenant.timezone;
   const data = await withTenant(session.tenant.id, async (tx) => {
     const detail = await enquiryDetail(tx, ctx, id);
     const open = OPEN_STATUSES.includes(detail.enquiry.status);
+    const batchViews = canUpdate || canConvert ? await listBatchViews(tx, ctx.branchIds) : [];
     return {
       ...detail,
       trials: await trialsOf(tx, id),
+      convert: canConvert && open ? { batches: batchViews.map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })), batchId: await suggestedBatch(tx, id, detail.enquiry.batchId) } : undefined,
       ...(canUpdate
         ? {
             programs: (await listPrograms(tx, { activeOnly: true })).map((p) => ({ id: p.id, name: p.name })),
-            batches: (await listBatchViews(tx, ctx.branchIds)).map((b) => ({ id: b.id, name: b.name, programId: b.programId })),
+            batches: batchViews.map((b) => ({ id: b.id, name: b.name, programId: b.programId })),
             staff: (await coachOptions(tx)).map((s) => ({ id: s.id, name: s.fullName })),
             choices: open
               ? (await trialChoices(tx, ctx, detail.enquiry)).map((b) => ({
@@ -81,6 +87,11 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
     <Gate permission="enquiries:read">
       <PageHeader title={e.name} crumbs={[{ href: "/enquiries", label: "Enquiries" }]}>
         <span className={cn("mt-1 inline-block rounded-full px-2 py-0.5 text-label", STATUS_CLASS[e.status] ?? "bg-accent-50 text-accent-600")}>{STATUS_LABELS[e.status]}</span>
+        {e.convertedStudentId ? (
+          <Link href={`/students/${e.convertedStudentId}`} className="ml-2 text-label text-accent-600 hover:underline">
+            View student →
+          </Link>
+        ) : null}
       </PageHeader>
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <Card>
@@ -95,7 +106,7 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
               </Button>
             </span>
           </div>
-          {matches.enquiries.length || matches.family ? (
+          {isOpen && (matches.enquiries.length || matches.family) ? (
             <p className="mt-3 rounded-lg bg-warning-600/10 px-3 py-2 text-label">
               {matches.enquiries.map((m) => (
                 <a key={m.id} href={`/enquiries/${m.id}`} className="block underline">
@@ -115,6 +126,7 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
           </dl>
           {canUpdate && data.programs ? (
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              {data.convert ? <ConvertEnquiry id={e.id} name={e.name} phone={e.phone} contactName={e.contactName} batches={data.convert.batches} batchId={data.convert.batchId} today={today} /> : null}
               {isOpen ? <LogActivity id={e.id} nextFollowUp={e.nextFollowUp && e.nextFollowUp > today ? e.nextFollowUp : addDays(today, 2)} /> : null}
               <EditEnquiry e={e} programs={data.programs} batches={data.batches ?? []} staff={data.staff ?? []} />
               {isOpen ? <MarkLost id={e.id} /> : null}

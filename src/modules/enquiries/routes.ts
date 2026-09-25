@@ -1,4 +1,5 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
+import { convertEnquiry } from "./convert";
 import { createEnquiry, editEnquiry, logActivity, markLost, phoneMatches, reopenEnquiry } from "./service";
 import { bookTrial, cancelTrial } from "./trials";
 
@@ -31,3 +32,6 @@ export const cancelTrialRoute = withStaffRequest("enquiries:update", async (r) =
   await cancelTrial(r.tx, ctxOf(r), pathSegment(r.req, 3));
   return json({ ok: true });
 });
+
+// One step: student, family, guardian and enrollment (409 with the family when the phone is known).
+export const convertRoute = withStaffRequest("enquiries:convert", async (r) => json(await convertEnquiry(r.tx, ctxOf(r), idOf(r), await readJson(r.req)), { status: 201 }));
