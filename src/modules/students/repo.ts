@@ -32,6 +32,17 @@ export async function findGuardianByPhone(tx: Tx, phone: string): Promise<Guardi
   return row;
 }
 
+export async function getGuardian(tx: Tx, id: string): Promise<Guardian | undefined> {
+  const [g] = await tx.select().from(guardians).where(and(eq(guardians.id, id), isNull(guardians.deletedAt)));
+  return g;
+}
+
+export async function updateGuardian(tx: Tx, id: string, patch: Partial<typeof guardians.$inferInsert>): Promise<Guardian> {
+  const [g] = await tx.update(guardians).set(patch).where(eq(guardians.id, id)).returning();
+  if (!g) throw new Error("guardian update matched no row");
+  return g;
+}
+
 export async function guardiansOfHousehold(tx: Tx, householdId: string): Promise<Guardian[]> {
   return tx.select().from(guardians).where(and(eq(guardians.householdId, householdId), isNull(guardians.deletedAt))).orderBy(asc(guardians.isPrimary), asc(guardians.fullName));
 }

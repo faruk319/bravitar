@@ -47,6 +47,8 @@ export const guardians = app.table("guardians", {
   email: citext("email"),
   canLogin: boolean("can_login").notNull().default(true),
   isPrimary: boolean("is_primary").notNull().default(false),
+  whatsappOptin: boolean("whatsapp_optin").notNull().default(false), // automated messages only after this
+  whatsappOptinAt: timestamp("whatsapp_optin_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

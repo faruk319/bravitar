@@ -16,6 +16,7 @@ import {
   createHousehold,
   currentConsents,
   findGuardianByPhone,
+  getGuardian,
   getHousehold,
   getStudent,
   guardiansOfHousehold,
@@ -25,6 +26,7 @@ import {
   recordConsent,
   type Scope,
   studentsOfHousehold,
+  updateGuardian,
   updateStudent,
 } from "./repo";
 import { type ConsentKind, type Guardian, type Household, LEFT_REASONS, RELATIONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
@@ -54,7 +56,7 @@ export const newStudentSchema = z.object({
     })
     .optional(),
   householdId: z.uuid().optional(), // link to an existing family instead of creating one
-  consents: z.object({ dataProcessing: z.boolean(), photo: z.boolean().optional() }),
+  consents: z.object({ dataProcessing: z.boolean(), photo: z.boolean().optional(), whatsapp: z.boolean().optional() }), // whatsapp: the guardian's opt-in
 });
 export type NewStudentInput = z.input<typeof newStudentSchema>;
 
@@ -155,6 +157,8 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   const consent = { tenantId: ctx.tenantId, studentId: student.id, guardianId: guardian.id, method: opts.consentMethod ?? "staff_recorded", ...(ctx.ip ? { grantedIp: ctx.ip } : {}) };
   await recordConsent(tx, { ...consent, kind: "data_processing", granted: true });
   if (data.consents.photo !== undefined) await recordConsent(tx, { ...consent, kind: "photo", granted: data.consents.photo });
+  // Ticking it opts the guardian in; leaving it blank never takes an opt-in away.
+  if (data.consents.whatsapp && !guardian.whatsappOptin) guardian = await updateGuardian(tx, guardian.id, { whatsappOptin: true, whatsappOptinAt: new Date() });
 
   await writeAudit(tx, { ...actor(ctx), action: "student.create", entityType: "student", entityId: student.id, after: { code, householdId: household.id, source: opts.source ?? "form" } });
   return { student, household, guardian };
@@ -241,6 +245,18 @@ export async function setStudentStatus(tx: Tx, ctx: StudentCtx, id: string, inpu
     data.status === "left" ? await endForStudent(tx, id, today) : data.status === "paused" ? await pauseForStudent(tx, id, today) : s.status === "paused" ? await resumeForStudent(tx, id) : [];
   if (data.status === "left") await endCharges(tx, actor(ctx), enrollmentIds);
   await writeAudit(tx, { ...actor(ctx), action: "student.status.set", entityType: "student", entityId: id, before: { status: s.status }, after: { status: data.status, reason: data.reason ?? null, enrollmentIds } });
+  return after;
+}
+
+// docs/03 §10 (agreed 2026-09-25): automated WhatsApp only after the guardian says yes.
+export async function setGuardianWhatsapp(tx: Tx, ctx: StudentCtx, guardianId: string, on: boolean): Promise<Guardian> {
+  assertCan(ctx, "students:update");
+  const g = await getGuardian(tx, guardianId);
+  const kids = g ? await studentsOfHousehold(tx, g.householdId) : [];
+  if (!g || !kids.some((k) => !ctx.branchIds.length || ctx.branchIds.includes(k.branchId))) throw new NotFoundError("Guardian");
+  if (g.whatsappOptin === on) return g;
+  const after = await updateGuardian(tx, guardianId, { whatsappOptin: on, whatsappOptinAt: on ? new Date() : null });
+  await writeAudit(tx, { ...actor(ctx), action: on ? "guardian.whatsapp_optin" : "guardian.whatsapp_optout", entityType: "guardian", entityId: guardianId });
   return after;
 }
 

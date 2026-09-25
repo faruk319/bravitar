@@ -1,3 +1,3 @@
-﻿Student name,Date of birth,Gender,Parent name,Parent phone,Relation,Student phone,Interested in,Branch,Joined on,Photo consent
-Aarav Deshmukh,12/03/2015,Male,Rakesh Deshmukh,98765 43210,Father,,Beginners,,01/06/2024,Yes
-Meher Kaur,05/05/1998,Female,,,,98765 12345,Advanced,,15/01/2025,No
+﻿Student name,Date of birth,Gender,Parent name,Parent phone,Relation,Student phone,Interested in,Branch,Joined on,Photo consent,WhatsApp OK
+Aarav Deshmukh,12/03/2015,Male,Rakesh Deshmukh,98765 43210,Father,,Beginners,,01/06/2024,Yes,Yes
+Meher Kaur,05/05/1998,Female,,,,98765 12345,Advanced,,15/01/2025,No,No

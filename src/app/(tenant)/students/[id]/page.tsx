@@ -15,6 +15,7 @@ import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
+import { WhatsappOptin } from "@/components/students/whatsapp-optin";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows, can } from "@/lib/auth/can";
@@ -294,8 +295,11 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
             <ul className="mt-2 divide-y divide-neutral-100">
               {o.guardians.map((g) => (
                 <li key={g.id} className="flex min-h-14 items-center justify-between gap-3">
-                  <span className="text-body">
-                    {g.fullName} <span className="text-caption text-muted-foreground capitalize">· {g.relation}</span>
+                  <span className="min-w-0">
+                    <span className="block text-body">
+                      {g.fullName} <span className="text-caption text-muted-foreground capitalize">· {g.relation}</span>
+                    </span>
+                    <WhatsappOptin guardianId={g.id} on={g.whatsappOptin} canUpdate={canUpdate} />
                   </span>
                   <a href={`tel:${g.phone}`} className="text-body text-accent-600 tabular-nums">
                     {formatPhone(g.phone)}

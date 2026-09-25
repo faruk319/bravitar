@@ -45,7 +45,7 @@ export function AddStudentForm() {
         ? { adultPhone: str("adultPhone") }
         : { guardian: { fullName: str("guardianName"), phone: str("guardianPhone"), relation: str("relation") ?? "father" } }),
       ...(linkTo ? { householdId: linkTo } : {}),
-      consents: { dataProcessing: f.get("dataProcessing") === "on", photo: f.get("photo") === "on" },
+      consents: { dataProcessing: f.get("dataProcessing") === "on", photo: f.get("photo") === "on", whatsapp: f.get("whatsapp") === "on" },
     };
     const res = await fetch("/api/students", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     const body = (await res.json().catch(() => ({}))) as { error?: string; details?: Suggestion; student?: { id: string } };
@@ -148,6 +148,9 @@ export function AddStudentForm() {
         </label>
         <label className="flex min-h-12 items-center gap-3 text-body">
           <input type="checkbox" name="photo" className="size-5" /> Photos
+        </label>
+        <label className="flex min-h-12 items-center gap-3 text-body">
+          <input type="checkbox" name="whatsapp" className="size-5" /> WhatsApp messages
         </label>
       </fieldset>
 

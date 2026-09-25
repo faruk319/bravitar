@@ -9,6 +9,7 @@ import {
   createStudent,
   lookupGuardian,
   setConsent,
+  setGuardianWhatsapp,
   setStudentCode,
   setStudentStatus,
   type StudentCtx,
@@ -60,6 +61,13 @@ export const changeConsent = withStaffRequest("students:update", async (r) => {
 export const removeStudent = withStaffRequest("students:update", async (r) => {
   await archiveStudent(r.tx, studentCtx(r), pathSegment(r.req, 2));
   return json({ ok: true });
+});
+
+export const guardianRoute = withStaffRequest("students:update", async (r) => {
+  const { whatsappOptin } = await readJson<{ whatsappOptin?: unknown }>(r.req);
+  if (typeof whatsappOptin !== "boolean") throw new BadRequestError("Say whether WhatsApp messages are OK");
+  const g = await setGuardianWhatsapp(r.tx, studentCtx(r), pathSegment(r.req, 2), whatsappOptin);
+  return json({ id: g.id, whatsappOptin: g.whatsappOptin });
 });
 
 export const guardianLookup = withStaffRequest("students:read", async (r) => {

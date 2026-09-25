@@ -31,6 +31,7 @@ export const IMPORT_FIELDS = [
   "branch",
   "joinedOn",
   "photoConsent",
+  "whatsappOptIn",
 ] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 export type ImportMapping = Partial<Record<ImportField, number>>;
@@ -50,6 +51,7 @@ export const IMPORT_FIELD_LABELS: Record<ImportField, string> = {
   branch: "Branch",
   joinedOn: "Joined on",
   photoConsent: "Photo consent",
+  whatsappOptIn: "WhatsApp messages OK",
 };
 
 // Lower-case, no punctuation; keeps Devanagari vowel signs (\p{M}).
@@ -76,10 +78,12 @@ const SYNONYMS: Record<ImportField, string[]> = {
   branch: ["branch", "centre", "center", "location"],
   joinedOn: ["joined", "joined on", "joining date", "date of joining", "doj", "admission date", "date of admission", "admission"],
   photoConsent: ["photo", "photos", "photo consent", "photo permission"],
+  whatsappOptIn: ["whatsapp ok", "whatsapp consent", "whatsapp opt in", "whatsapp optin", "whatsapp messages", "whatsapp permission", "whatsapp allowed"],
 };
 
 // Looser rules for headers the synonyms miss, tried in this order.
 const KEYWORDS: [ImportField, (h: string) => boolean][] = [
+  ["whatsappOptIn", (h) => /whatsapp/.test(h) && /\b(ok|consent|opt|allow|permission|messages?|yes)\b/.test(h)],
   ["dateOfBirth", (h) => /birth|\bdob\b|जन्म/.test(h)],
   ["guardianPhone", (h) => /father|mother|parent|guardian|पिता|माता|पालक/.test(h) && /phone|mobile|contact|whatsapp|मोबाइल|फोन/.test(h)],
   ["studentPhone", (h) => /student/.test(h) && /phone|mobile|contact/.test(h)],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, render, TEMPLATE_KEYS } from "./templates";
+import { DEFAULT_TEMPLATES, joinNames, LANGUAGES, render, TEMPLATE_KEYS, TEMPLATE_VARIABLES, variablesIn } from "./templates";
 
 describe("render", () => {
   it("fills variables and leaves no gap for an empty one", () => {
@@ -8,21 +8,11 @@ describe("render", () => {
     expect(render("Paid {{amount}} ({{ invoice_number }}).", { amount: "₹800", invoice_number: "INV/2026-27/0001" })).toBe("Paid ₹800 (INV/2026-27/0001).");
   });
 
-  it("every default uses only the variables its sender provides", () => {
-    const provided: Record<string, string[]> = {
-      fee_due: ["guardian_name", "student_names", "amount", "academy", "due_date", "invoice_number", "link"],
-      fee_overdue: ["guardian_name", "student_names", "amount", "academy", "due_date", "invoice_number", "link"],
-      receipt: ["guardian_name", "academy", "amount", "date", "receipt_number", "link"],
-      absent: ["guardian_name", "student_name", "batch", "academy", "date"],
-      class_cancelled: ["guardian_name", "student_name", "batch", "academy", "date", "time", "reason"],
-      welcome: ["academy", "guardian_name", "student_name"],
-    };
+  it("every default uses only the variables its template allows", () => {
     for (const key of TEMPLATE_KEYS) {
-      for (const lang of LANGUAGES) {
-        const used = [...DEFAULT_TEMPLATES[key][lang].matchAll(/\{\{([a-z_]+)\}\}/g)].map((m) => m[1]);
-        expect(used.filter((v) => !provided[key]?.includes(v ?? "")), `${key}/${lang}`).toEqual([]);
-      }
+      for (const lang of LANGUAGES) expect(variablesIn(DEFAULT_TEMPLATES[key][lang]).filter((v) => !TEMPLATE_VARIABLES[key].includes(v)), `${key}/${lang}`).toEqual([]);
     }
+    expect(variablesIn("{{amount}} and {{ amount }} {{link}}")).toEqual(["amount", "link"]);
   });
 });
 

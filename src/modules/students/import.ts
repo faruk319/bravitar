@@ -55,6 +55,7 @@ type RowPlan =
       programInterest?: string;
       branchName: string;
       photo?: boolean;
+      whatsapp?: boolean;
       contact: Contact;
       warnings: string[];
     };
@@ -85,6 +86,8 @@ export function planRow(cells: string[], mapping: ImportMapping, defaultRelation
   if (gender === null) warnings.push(`Couldn't read gender "${cell("gender")}"; left blank`);
   const photo = parseYesNo(cell("photoConsent"));
   if (photo === null) warnings.push(`Couldn't read photo consent "${cell("photoConsent")}"; photos not allowed`);
+  const whatsapp = parseYesNo(cell("whatsappOptIn"));
+  if (whatsapp === null) warnings.push(`Couldn't read WhatsApp consent "${cell("whatsappOptIn")}"; no automated messages`);
   const rel = parseRelation(cell("relation"));
   if (rel === null) warnings.push(`Couldn't read relation "${cell("relation")}"; used ${defaultRelation}`);
   const relation: Relation = rel ?? defaultRelation;
@@ -123,6 +126,7 @@ export function planRow(cells: string[], mapping: ImportMapping, defaultRelation
     ...(cell("programInterest") ? { programInterest: normalizeName(cell("programInterest")).slice(0, 120) } : {}),
     branchName: cell("branch"),
     ...(photo !== null && photo !== undefined ? { photo } : {}),
+    ...(whatsapp ? { whatsapp } : {}),
     contact,
     warnings,
   };
@@ -207,7 +211,7 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
             ...(plan.programInterest ? { programInterest: plan.programInterest } : {}),
             ...(branchId ? { branchId } : {}),
             ...(existing ? { householdId: existing.householdId } : {}),
-            consents: { dataProcessing: true, ...(plan.photo !== undefined ? { photo: plan.photo } : {}) },
+            consents: { dataProcessing: true, ...(plan.photo !== undefined ? { photo: plan.photo } : {}), ...(plan.whatsapp ? { whatsapp: true } : {}) },
           };
           let studentInput: NewStudentInput;
           const c = plan.contact;

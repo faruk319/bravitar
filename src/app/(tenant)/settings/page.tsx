@@ -1,5 +1,6 @@
 import { FeeSettings } from "@/components/fees/fee-settings";
 import { RazorpaySettings } from "@/components/integrations/razorpay-settings";
+import { MessagingSettings } from "@/components/messaging/messaging-settings";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
 import { Placeholder } from "@/components/shell/placeholder";
@@ -11,15 +12,20 @@ import { formatDate, timeIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { razorpayStatus } from "@/modules/integrations/service";
+import { messagingSettings } from "@/modules/messaging/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 
-// Each card follows its own permission: settings, or the Razorpay connection (owner by default).
+// Each card follows its own permission: settings, the Razorpay connection (owner by default), messages.
 export default async function SettingsPage() {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
-  const [settings, integrations] = [allows(ctx, "settings:manage"), allows(ctx, "integrations:manage") && Boolean(ctx.modules.fees)];
-  if (!settings && !integrations) return <Gate permission="settings:manage">{null}</Gate>;
-  const { tenant, razorpay } = await withTenant(session.tenant.id, async (tx) => ({ tenant: await getOwnTenant(tx), razorpay: integrations ? await razorpayStatus(tx, ctx) : undefined }));
+  const [settings, integrations, messaging] = [allows(ctx, "settings:manage"), allows(ctx, "integrations:manage") && Boolean(ctx.modules.fees), allows(ctx, "messages:manage")];
+  if (!settings && !integrations && !messaging) return <Gate permission="settings:manage">{null}</Gate>;
+  const { tenant, razorpay, messages } = await withTenant(session.tenant.id, async (tx) => ({
+    tenant: await getOwnTenant(tx),
+    razorpay: integrations ? await razorpayStatus(tx, ctx) : undefined,
+    messages: messaging ? await messagingSettings(tx, ctx) : undefined,
+  }));
   const webhookUrl = `${tenantOrigin(session.tenant.slug)}/api/webhooks/razorpay/${session.tenant.slug}`;
   const tz = session.tenant.timezone;
 
@@ -46,6 +52,12 @@ export default async function SettingsPage() {
                 lastWebhook: razorpay.lastWebhookAt ? `${formatDate(razorpay.lastWebhookAt)}, ${timeIn(tz, razorpay.lastWebhookAt)}` : null,
               }}
             />
+          </Card>
+        ) : null}
+        {messages ? (
+          <Card>
+            <CardHeader title="Messages" />
+            <MessagingSettings settings={messages} />
           </Card>
         ) : null}
         {settings ? <Placeholder title="Academy settings" hint="Name, branches, labels and integrations." action="Edit academy" /> : null}

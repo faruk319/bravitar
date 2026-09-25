@@ -28,7 +28,7 @@ export const tenantIntegrations = app.table("tenant_integrations", {
 export const webhookEvents = app.table("webhook_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  provider: text("provider", { enum: ["razorpay"] }).notNull(),
+  provider: text("provider", { enum: ["razorpay", "whatsapp"] }).notNull(),
   providerEventId: text("provider_event_id").notNull(),
   event: text("event").notNull(),
   payload: jsonb("payload").$type<unknown>().notNull(),

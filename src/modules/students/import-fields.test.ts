@@ -112,6 +112,12 @@ describe("header mapping", () => {
     expect(hindi.relation).toBe("mother");
   });
 
+  it("a WhatsApp consent column is the opt-in; a WhatsApp number column is still the phone", () => {
+    expect(suggestMapping(["Name", "Mobile", "WhatsApp OK"]).mapping).toEqual({ fullName: 0, guardianPhone: 1, whatsappOptIn: 2 });
+    expect(suggestMapping(["Name", "WhatsApp No", "Whatsapp (yes/no)"]).mapping).toEqual({ fullName: 0, guardianPhone: 1, whatsappOptIn: 2 });
+    expect(suggestMapping(["Name", "WhatsApp Number"]).mapping).toEqual({ fullName: 0, guardianPhone: 1 });
+  });
+
   it("maps every column of the downloadable template", () => {
     const [header] = parseCsv(readFileSync("public/templates/students.csv", "utf8"));
     const { mapping } = suggestMapping(header ?? []);

@@ -17,6 +17,22 @@ export const TEMPLATE_LABELS: Record<TemplateKey, string> = {
   welcome: "Welcome",
 };
 
+// What each template may use; anything else in an edited body is refused.
+export const TEMPLATE_VARIABLES: Record<TemplateKey, string[]> = {
+  fee_due: ["guardian_name", "student_names", "amount", "academy", "due_date", "invoice_number", "link"],
+  fee_overdue: ["guardian_name", "student_names", "amount", "academy", "due_date", "invoice_number", "link"],
+  receipt: ["guardian_name", "academy", "amount", "date", "receipt_number", "link"],
+  absent: ["guardian_name", "student_name", "batch", "academy", "date"],
+  class_cancelled: ["guardian_name", "student_name", "batch", "academy", "date", "time", "reason"],
+  welcome: ["academy", "guardian_name", "student_name"],
+};
+
+// docs/03 §10: at most one automated message per guardian per day per category.
+export type Category = "fees" | "receipts" | "attendance" | "classes" | "welcome";
+export const TEMPLATE_CATEGORY: Record<TemplateKey, Category> = { fee_due: "fees", fee_overdue: "fees", receipt: "receipts", absent: "attendance", class_cancelled: "classes", welcome: "welcome" };
+
+export const variablesIn = (body: string): string[] => [...new Set([...body.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map((m) => m[1] ?? ""))];
+
 export const DEFAULT_TEMPLATES: Record<TemplateKey, Record<Language, string>> = {
   fee_due: {
     en: "Hello {{guardian_name}}, {{student_names}}'s fee of {{amount}} at {{academy}} is due on {{due_date}} ({{invoice_number}}). View or pay: {{link}}",
