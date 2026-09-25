@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
       { href: "/payments/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
+      { href: "/payments", label: { text: "Collection" }, icon: "Wallet", permission: "payments:read" },
       { href: "/reports", label: { text: "Reports" }, icon: "BarChart3", permission: "reports:view" },
     ],
   },

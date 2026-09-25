@@ -19,14 +19,17 @@ export function NavIcon({ name, className }: { name: string; className?: string 
   return <Icon className={cn("size-6 shrink-0", className)} aria-hidden />;
 }
 
-export function isActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
+// The item for this page, or a parent of it; a more specific item wins
+// (/payments/new is Collect payment, not Collection).
+export function isActive(pathname: string, href: string, others: string[] = []): boolean {
+  const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  return under(href) && !others.some((h) => h.length > href.length && under(h));
 }
 
 // One row in the rail, the sheet or the bottom nav. `compact` = icon only.
-export function NavLink({ item, compact, onNavigate }: { item: NavItem; compact?: boolean | undefined; onNavigate?: (() => void) | undefined }) {
+export function NavLink({ item, compact, onNavigate, others }: { item: NavItem; compact?: boolean | undefined; onNavigate?: (() => void) | undefined; others?: string[] }) {
   const pathname = usePathname();
-  const active = isActive(pathname, item.href);
+  const active = isActive(pathname, item.href, others);
   const label = useNavLabel(item);
   return (
     <Link

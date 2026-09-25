@@ -47,6 +47,7 @@ function useRailExpanded(): [boolean, () => void] {
 }
 
 function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compact?: boolean; onNavigate?: () => void }) {
+  const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   return (
     <nav className="flex flex-col gap-4">
       {groups.map((g) => (
@@ -54,7 +55,7 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
           {!compact ? <div className="px-3 pb-1 text-caption font-medium uppercase tracking-wide text-muted-foreground">{g.title}</div> : null}
           <div className="flex flex-col gap-0.5">
             {g.items.map((item) => (
-              <NavLink key={item.href} item={item} compact={compact} onNavigate={onNavigate} />
+              <NavLink key={item.href} item={item} compact={compact} onNavigate={onNavigate} others={hrefs} />
             ))}
           </div>
         </div>
