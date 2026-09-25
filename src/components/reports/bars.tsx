@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 // One-colour bars (docs/07 §9), thin, on a lighter track of the same blue.
@@ -50,9 +50,10 @@ export function Columns({ columns, label }: { columns: Column[]; label: string }
   const max = Math.max(0, ...columns.map((c) => c.value));
   const peak = max ? columns.findIndex((c) => c.value === max) : -1;
   const n = columns.length;
-  const step = n <= 8 ? 1 : n <= 16 ? 2 : Math.ceil(n / 5);
+  const step = Math.max(1, Math.ceil(n / 5)); // five dates at most
   // Near the edges, labels hug the side they are on so they stay inside the card.
   const edge = (i: number) => (i < n / 4 ? "left-0" : i >= (3 * n) / 4 ? "right-0" : "left-1/2 -translate-x-1/2");
+  const tick = (i: number): CSSProperties => (i === 0 ? { left: 0 } : n - 1 - i < step / 2 ? { right: 0 } : { left: `${((i + 0.5) / n) * 100}%`, transform: "translateX(-50%)" });
   return (
     <figure aria-label={label}>
       <div className="flex h-44 items-end gap-0.5 border-b border-neutral-100 pt-7">
@@ -79,7 +80,7 @@ export function Columns({ columns, label }: { columns: Column[]; label: string }
       <div className="relative h-6 text-caption tabular-nums text-muted-foreground">
         {columns.map((c, i) =>
           i % step === 0 ? (
-            <span key={c.key} className="absolute top-1 whitespace-nowrap" style={i < n / 2 ? { left: `${(i / n) * 100}%` } : { right: `${((n - 1 - i) / n) * 100}%` }}>
+            <span key={c.key} className="absolute top-1 whitespace-nowrap" style={tick(i)}>
               {c.tick}
             </span>
           ) : null,

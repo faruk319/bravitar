@@ -209,13 +209,20 @@ export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<
     .orderBy(asc(refunds.refundedAt), asc(refunds.id));
 }
 
-// Money taken in on a day across branches (empty = all): what the dashboard shows.
-export async function collectedOn(tx: Tx, branchIds: string[], day: string): Promise<{ count: number; total: Paise }> {
-  const [r] = await tx
-    .select({ count: sql<number>`count(*)::int`, total: sql<string>`coalesce(sum(${payments.amountPaise}), 0)::text` })
+// Money taken in per day across branches (empty = all), the days with any.
+export async function collectedByDay(tx: Tx, branchIds: string[], from: string, to: string): Promise<{ day: string; count: number; total: Paise }[]> {
+  const rows = await tx
+    .select({ day: payments.recordedOn, count: sql<number>`count(*)::int`, total: sql<string>`sum(${payments.amountPaise})::text` })
     .from(payments)
-    .where(and(eq(payments.recordedOn, day), inArray(payments.status, ["confirmed", "refunded"]), paymentScope(branchIds)));
-  return { count: r?.count ?? 0, total: BigInt(r?.total ?? "0") };
+    .where(and(gte(payments.recordedOn, from), lte(payments.recordedOn, to), inArray(payments.status, ["confirmed", "refunded"]), paymentScope(branchIds)))
+    .groupBy(payments.recordedOn)
+    .orderBy(asc(payments.recordedOn));
+  return rows.map((r) => ({ day: r.day, count: r.count, total: BigInt(r.total) }));
+}
+
+export async function collectedOn(tx: Tx, branchIds: string[], day: string): Promise<{ count: number; total: Paise }> {
+  const [r] = await collectedByDay(tx, branchIds, day, day);
+  return { count: r?.count ?? 0, total: r?.total ?? 0n };
 }
 
 export type InvoiceReceipt = Pick<Payment, "receiptNumber" | "receivedOn" | "method"> & { paymentId: string; net: Paise };

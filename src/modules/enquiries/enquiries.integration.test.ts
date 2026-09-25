@@ -112,7 +112,7 @@ describe("the board and follow-ups", () => {
     expect(board.rows.map((r) => r.name)).toEqual(["Meher", "Rohan"]);
     expect(board.counts).toMatchObject({ follow_ups: 2, lost: 0 });
     expect((await withTenant(T, (tx) => myFollowUps(tx, desk))).map((r) => r.name)).toEqual(["Meher"]);
-    expect((await withTenant(T, (tx) => dashboardData(tx, owner))).followUps?.map((r) => r.name)).toEqual(["Rohan"]);
+    expect((await withTenant(T, (tx) => dashboardData(tx, owner))).pipeline?.mine.map((r) => r.name)).toEqual(["Rohan"]);
     expect((await withTenant(T, (tx) => enquiryBoard(tx, desk, "contacted"))).rows.map((r) => r.name).sort()).toEqual(["Ishaan", "Zoya"]);
   });
 
