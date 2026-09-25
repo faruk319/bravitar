@@ -34,7 +34,7 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
   return { ...base, branchIds };
 };
 const add = (ctx: ScopedCtx, name: string, phone: string, extra: object = {}) => withTenant(T, (tx) => createEnquiry(tx, ctx, { name, phone, programId: karate, ...extra }));
-const timeline = async (id: string) => (await withTenant(T, (tx) => activitiesOf(tx, id))).map((a) => a.toStatus ?? a.kind).reverse();
+const timeline = async (id: string) => (await withTenant(T, (tx) => activitiesOf(tx, id))).map((a) => (a.toStatus ? `${a.kind}>${a.toStatus}` : a.kind)).reverse();
 
 beforeAll(async () => {
   await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
@@ -61,7 +61,7 @@ describe("adding an enquiry", () => {
   it("name, phone and program are enough: follow-up tomorrow, assigned to whoever added it, the timeline starts", async () => {
     const e = await add(desk, "Aarav", "98765 11111");
     expect(e).toMatchObject({ status: "new", phone: "+919876511111", nextFollowUp: addDays(today, 1), ownerStaffId: desk.staffId, createdBy: desk.staffId });
-    expect(await timeline(e.id)).toEqual(["new"]);
+    expect(await timeline(e.id)).toEqual(["status_change>new"]);
     await expect(withTenant(T, (tx) => createEnquiry(tx, desk, { name: "No Program", phone: "98765 11112" } as never))).rejects.toThrow();
     await expect(add(desk, "Bad Phone", "12345")).rejects.toThrow("10-digit");
     await expect(add(desk, "Wrong Batch", "98765 11113", { programId: dance, batchId: evening })).rejects.toThrow("another program");
@@ -86,7 +86,7 @@ describe("working an enquiry", () => {
     const after = await withTenant(T, (tx) => logActivity(tx, desk, e.id, { kind: "call", note: "Wants evenings", nextFollowUp: addDays(today, 3) }));
     expect(after).toMatchObject({ status: "contacted", nextFollowUp: addDays(today, 3) });
     expect(after.contactedAt).toBeInstanceOf(Date);
-    expect(await timeline(e.id)).toEqual(["new", "note", "call", "contacted"]);
+    expect(await timeline(e.id)).toEqual(["status_change>new", "note", "call>contacted"]); // the call is the one entry
   });
 
   it("lost needs a reason from the list; reopening goes back to Contacted with a follow-up tomorrow", async () => {
@@ -97,7 +97,7 @@ describe("working an enquiry", () => {
     await expect(withTenant(T, (tx) => markLost(tx, desk, e.id, { reason: "timing" }))).rejects.toThrow("Already lost");
     const back = await withTenant(T, (tx) => reopenEnquiry(tx, desk, e.id));
     expect(back).toMatchObject({ status: "contacted", lostReason: null, lostAt: null, nextFollowUp: addDays(today, 1) });
-    expect(await timeline(e.id)).toEqual(["new", "lost", "contacted"]);
+    expect(await timeline(e.id)).toEqual(["status_change>new", "status_change>lost", "status_change>contacted"]);
   });
 });
 

@@ -57,7 +57,7 @@ export async function convertEnquiry(tx: Tx, ctx: ScopedCtx, id: string, input: 
     consents: d.consents,
   });
   const enrollment = await enroll(tx, ctx, { studentId: student.id, batchId: batch.id, startDate: d.startDate ?? today });
-  await setStatus(tx, ctx, e, "won", { convertedStudentId: student.id, nextFollowUp: null }, `Joined ${batch.name}`);
+  await setStatus(tx, ctx, e, "won", { convertedStudentId: student.id, nextFollowUp: null }, { note: `Joined ${batch.name}` });
   await writeAudit(tx, { actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId, action: "enquiry.convert", entityType: "enquiry", entityId: e.id, after: { studentId: student.id, enrollmentId: enrollment.id } });
   return { studentId: student.id, enrollmentId: enrollment.id };
 }

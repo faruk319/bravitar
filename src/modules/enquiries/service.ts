@@ -12,7 +12,7 @@ import { type HouseholdSuggestion, lookupGuardian } from "@/modules/students/ser
 import { pickBranch } from "@/modules/tenancy/branch-access";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
-import { type EnquiryStatus, ENQUIRY_STATUSES, LOST_REASONS, OPEN_STATUSES, SOURCES } from "./lists";
+import { type ActivityKind, type EnquiryStatus, ENQUIRY_STATUSES, LOST_REASONS, OPEN_STATUSES, SOURCES } from "./lists";
 import { type ActivityRow, activitiesOf, bySource, type EnquiryRow, enquiryRow, followUpsDue, type Funnel, funnel, getEnquiry, insertActivity, insertEnquiry, listByStatus, lostReasons, openByPhone, statusCounts, updateEnquiry } from "./repo";
 import type { Enquiry } from "./schema";
 
@@ -45,11 +45,14 @@ const REACHED: Partial<Record<EnquiryStatus, (keyof Enquiry)[]>> = {
   won: ["contactedAt", "wonAt"],
 };
 
-export async function setStatus(tx: Tx, ctx: ScopedCtx, e: Enquiry, to: EnquiryStatus, patch: Partial<Enquiry> = {}, note?: string): Promise<Enquiry> {
+// One timeline entry: the event that moved it (a call, a trial) or a plain
+// status change, carrying the status it led to.
+export async function setStatus(tx: Tx, ctx: ScopedCtx, e: Enquiry, to: EnquiryStatus, patch: Partial<Enquiry> = {}, event: { kind?: ActivityKind; note?: string | undefined } = {}): Promise<Enquiry> {
   const now = new Date();
+  const note = event.note;
   const stamps = Object.fromEntries((REACHED[to] ?? []).filter((k) => !e[k]).map((k) => [k, now]));
   const after = await updateEnquiry(tx, e.id, { ...patch, ...stamps, status: to });
-  await insertActivity(tx, { tenantId: ctx.tenantId, enquiryId: e.id, kind: "status_change", toStatus: to, note: note ?? null, staffId: ctx.staffId });
+  await insertActivity(tx, { tenantId: ctx.tenantId, enquiryId: e.id, kind: event.kind ?? "status_change", toStatus: to, note: note ?? null, staffId: ctx.staffId });
   await writeAudit(tx, { ...actorOf(ctx), action: "enquiry.status", entityType: "enquiry", entityId: e.id, before: { status: e.status }, after: { status: to, ...(note ? { note } : {}) } });
   return after;
 }
@@ -141,12 +144,12 @@ export const activitySchema = z.object({
 export async function logActivity(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof activitySchema>): Promise<Enquiry> {
   assertCan(ctx, "enquiries:update");
   const d = activitySchema.parse(input);
-  let e = await requireEnquiry(tx, ctx, id);
+  const e = await requireEnquiry(tx, ctx, id);
   if (d.kind === "note" && !d.note) throw new BadRequestError("Write the note");
+  const patch = d.nextFollowUp !== undefined ? { nextFollowUp: d.nextFollowUp } : {};
+  if (d.kind !== "note" && e.status === "new") return setStatus(tx, ctx, e, "contacted", patch, { kind: d.kind, note: d.note || undefined });
   await insertActivity(tx, { tenantId: ctx.tenantId, enquiryId: id, kind: d.kind, note: d.note || null, staffId: ctx.staffId });
-  if (d.nextFollowUp !== undefined) e = await updateEnquiry(tx, id, { nextFollowUp: d.nextFollowUp });
-  if (d.kind !== "note" && e.status === "new") e = await setStatus(tx, ctx, e, "contacted");
-  return e;
+  return Object.keys(patch).length ? updateEnquiry(tx, id, patch) : e;
 }
 
 export const editSchema = z.object({
@@ -180,7 +183,7 @@ export async function markLost(tx: Tx, ctx: ScopedCtx, id: string, input: z.inpu
   const d = lostSchema.parse(input);
   const e = await requireEnquiry(tx, ctx, id);
   if (!OPEN_STATUSES.includes(e.status)) throw new ConflictError(e.status === "won" ? "This enquiry already joined" : "Already lost");
-  return setStatus(tx, ctx, e, "lost", { lostReason: d.reason, lostNote: d.note || null, lostAt: new Date(), nextFollowUp: null }, d.note);
+  return setStatus(tx, ctx, e, "lost", { lostReason: d.reason, lostNote: d.note || null, lostAt: new Date(), nextFollowUp: null }, { note: d.note });
 }
 
 // Back to Contacted, with a follow-up tomorrow.

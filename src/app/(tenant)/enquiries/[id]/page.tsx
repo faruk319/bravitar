@@ -169,12 +169,19 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
             {activities.map((a) => (
               <li key={a.id} className="flex flex-col gap-0.5 py-2.5">
                 <span className="text-body">
-                  <span className="font-medium">{a.kind === "status_change" && a.toStatus ? STATUS_LABELS[a.toStatus] : ACTIVITY_LABELS[a.kind]}</span>
-                  {a.note ? ` · ${a.note}` : ""}
+                  {a.kind === "trial" ? (
+                    <span className="font-medium">{a.note}</span>
+                  ) : (
+                    <>
+                      <span className="font-medium">{a.kind === "status_change" && a.toStatus ? STATUS_LABELS[a.toStatus] : ACTIVITY_LABELS[a.kind]}</span>
+                      {a.note ? ` · ${a.note}` : ""}
+                    </>
+                  )}
                 </span>
                 <span className="text-caption text-muted-foreground">
                   {formatDate(a.happenedAt)}, {timeIn(tz, a.happenedAt)}
                   {a.staffName ? ` · ${a.staffName}` : ""}
+                  {a.toStatus && a.kind !== "status_change" ? ` · now ${STATUS_LABELS[a.toStatus]}` : ""}
                 </span>
               </li>
             ))}

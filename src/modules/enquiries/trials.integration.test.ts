@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
-import { addDays } from "@/lib/dates";
+import { addDays, formatDate } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -100,8 +100,12 @@ describe("the trial on the roster", () => {
 
     await mark(session, trialId, "absent");
     expect(await status(e.id)).toBe("trial_booked");
-    const notes = (await withTenant(T, (tx) => activitiesOf(tx, e.id))).map((a) => a.note).filter(Boolean);
-    expect(notes).toEqual(expect.arrayContaining(["Came for the trial", "Missed the trial"]));
+    const trialEvents = (await withTenant(T, (tx) => activitiesOf(tx, e.id))).filter((a) => a.kind === "trial").map((a) => [a.note?.split(" · ")[0], a.toStatus]);
+    expect(trialEvents.reverse()).toEqual([
+      ["Trial booked", "trial_booked"],
+      ["Came for the trial", "trial_done"],
+      ["Missed the trial", "trial_booked"],
+    ]);
   });
 
   it("cancelling a booking takes it off the roster and back to Contacted; a marked one can't be cancelled", async () => {
@@ -111,6 +115,8 @@ describe("the trial on the roster", () => {
     const [trial] = await withTenant(T, (tx) => trialsOf(tx, e.id));
     await withTenant(T, (tx) => cancelTrial(tx, owner, trial?.id ?? ""));
     expect(await status(e.id)).toBe("contacted");
+    const [cancelled] = await withTenant(T, (tx) => activitiesOf(tx, e.id));
+    expect(cancelled).toMatchObject({ kind: "trial", toStatus: "contacted", note: `Trial cancelled · Early · ${formatDate(addDays(today, 1))}` });
     expect((await withTenant(T, (tx) => classRoster(tx, owner, tomorrow))).entries.some((x) => x.name === "Kabir")).toBe(false);
 
     const marked = await enquiry("Riya");

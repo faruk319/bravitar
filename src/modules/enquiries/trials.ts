@@ -10,7 +10,7 @@ import type { Mark } from "@/modules/attendance/schema";
 import { listBatchViews } from "@/modules/batches/service";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { type EnquiryStatus, OPEN_STATUSES } from "./lists";
-import { getEnquiry, getTrial, insertActivity, insertTrial, trialState, updateTrial } from "./repo";
+import { getEnquiry, getTrial, insertActivity, insertTrial, trialState, trialsOf, updateTrial } from "./repo";
 import type { Enquiry } from "./schema";
 import { setStatus } from "./service";
 
@@ -21,13 +21,13 @@ import { setStatus } from "./service";
 const actorOf = (ctx: ScopedCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
 const TRIAL_DAYS = 28;
 
-// Only open enquiries follow their trials; won and lost stay as they are.
+// One "trial" entry on the timeline per event; only open enquiries follow
+// their trials, won and lost stay as they are.
 async function syncTrialStatus(tx: Tx, ctx: ScopedCtx, e: Enquiry, note: string): Promise<void> {
-  if (!OPEN_STATUSES.includes(e.status)) return;
   const { attended, booked } = await trialState(tx, e.id);
   const to: EnquiryStatus = attended ? "trial_done" : booked ? "trial_booked" : e.status === "new" ? "new" : "contacted";
-  if (to !== e.status) await setStatus(tx, ctx, e, to, {}, note);
-  else await insertActivity(tx, { tenantId: ctx.tenantId, enquiryId: e.id, kind: "note", note, staffId: ctx.staffId });
+  if (OPEN_STATUSES.includes(e.status) && to !== e.status) await setStatus(tx, ctx, e, to, {}, { kind: "trial", note });
+  else await insertActivity(tx, { tenantId: ctx.tenantId, enquiryId: e.id, kind: "trial", note, staffId: ctx.staffId });
 }
 
 async function requireOpen(tx: Tx, ctx: ScopedCtx, id: string): Promise<Enquiry> {
@@ -68,7 +68,7 @@ export async function bookTrial(tx: Tx, ctx: ScopedCtx, enquiryId: string, input
     throw err;
   });
   const tz = (await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata";
-  await syncTrialStatus(tx, ctx, e, `Trial: ${c.batchName} · ${formatDate(c.session.sessionDate)}, ${timeIn(tz, c.session.startsAt)}`);
+  await syncTrialStatus(tx, ctx, e, `Trial booked · ${c.batchName} · ${formatDate(c.session.sessionDate)}, ${timeIn(tz, c.session.startsAt)}`);
   await writeAudit(tx, { ...actorOf(ctx), action: "enquiry.trial.book", entityType: "enquiry", entityId: e.id, after: { trialId: trial.id, sessionId } });
 }
 
@@ -80,7 +80,8 @@ export async function cancelTrial(tx: Tx, ctx: ScopedCtx, trialId: string): Prom
   const e = await requireOpen(tx, ctx, t.enquiryId);
   if (t.mark) throw new ConflictError("It was already marked on the roster");
   await updateTrial(tx, t.id, { cancelledAt: new Date() });
-  await syncTrialStatus(tx, ctx, e, `Trial cancelled: ${formatDate(t.trialDate)}`);
+  const batch = (await trialsOf(tx, e.id)).find((x) => x.id === t.id)?.batchName;
+  await syncTrialStatus(tx, ctx, e, `Trial cancelled · ${batch ? `${batch} · ` : ""}${formatDate(t.trialDate)}`);
   await writeAudit(tx, { ...actorOf(ctx), action: "enquiry.trial.cancel", entityType: "enquiry", entityId: e.id, after: { trialId: t.id } });
 }
 

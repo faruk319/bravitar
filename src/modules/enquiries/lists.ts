@@ -32,6 +32,6 @@ export const LOST_REASON_LABELS: Record<LostReason, string> = {
   other: "Other",
 };
 
-export const ACTIVITY_KINDS = ["call", "whatsapp", "visit", "note", "status_change"] as const;
+export const ACTIVITY_KINDS = ["call", "whatsapp", "visit", "note", "status_change", "trial"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
-export const ACTIVITY_LABELS: Record<ActivityKind, string> = { call: "Call", whatsapp: "WhatsApp", visit: "Visit", note: "Note", status_change: "Status" };
+export const ACTIVITY_LABELS: Record<ActivityKind, string> = { call: "Call", whatsapp: "WhatsApp", visit: "Visit", note: "Note", status_change: "Status", trial: "Trial" };
