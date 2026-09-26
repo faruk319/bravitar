@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AccessForm, ModulesForm, OwnerInvite, PlanForm } from "@/components/platform/academy-forms";
+import { AccessForm, BranchPlanForm, ModulesForm, OwnerInvite } from "@/components/platform/academy-forms";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
@@ -12,6 +12,7 @@ import { academyDetail, allPlans } from "@/modules/platform/academies";
 import { SUBSCRIPTION_STATUSES } from "@/modules/platform/schema";
 
 const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_", " ");
+const STATUS_WORD: Record<string, string> = { trial: "Trial", active: "Active", past_due: "Past due", suspended: "Paused", cancelled: "Cancelled" };
 
 // One academy: owner, plan and usage, modules, and access (Prompt 21).
 export default async function AcademyPage({ params }: PageProps<"/platform/academies/[id]">) {
@@ -22,11 +23,6 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
     throw e;
   });
   const plans = await allPlans();
-  const limits: [string, number, number | null | undefined][] = [
-    ["Students", a.usage.students, a.plan?.maxStudents],
-    ["Staff", a.usage.staff, a.plan?.maxStaff],
-    ["Branches", a.usage.branches, a.plan?.maxBranches],
-  ];
   return (
     <>
       <Link href="/platform" className="text-label text-accent-600 hover:underline">
@@ -55,24 +51,34 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
           )}
         </Card>
         <Card>
-          <CardHeader title="Plan" />
-          <PlanForm
-            academyId={a.id}
-            plan={a.subscription?.planCode ?? ""}
-            status={a.subscription?.status ?? "trial"}
-            plans={plans.map((p) => ({ value: p.code, label: `${p.name} · ${formatPaise(p.pricePaise)}${p.isActive ? "" : " (not offered)"}` }))}
-            statuses={SUBSCRIPTION_STATUSES.map((s) => ({ value: s, label: words(s) }))}
-          />
-          <dl className="mt-4 divide-y divide-neutral-100 text-body">
-            {limits.map(([label, n, max]) => (
-              <div key={label} className="flex min-h-11 items-center justify-between">
-                <dt>{label}</dt>
-                <dd className={max !== null && max !== undefined && n > max ? "text-danger-600" : ""}>
-                  {n} {max === null || max === undefined ? "· no limit" : `of ${max}`}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <CardHeader title={`Branches · ${formatPaise(a.monthlyPaise)}/month`} />
+          <ul className="divide-y divide-neutral-100">
+            {a.branches.map((b) => {
+              const max = b.plan?.maxStudents;
+              const sub = b.subscription;
+              return (
+                <li key={b.id} className="py-3">
+                  <p className="text-body font-medium text-neutral-900">
+                    {b.name}
+                    {b.isDefault ? <span className="text-caption text-muted-foreground"> · first branch</span> : null}
+                  </p>
+                  <p className={max !== null && max !== undefined && b.students > max ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+                    {b.students} {max === null || max === undefined ? "students · no limit" : `of ${max} students`} · {sub ? STATUS_WORD[sub.status] : "No plan"}
+                    {sub?.status === "trial" && sub.trialEndsAt ? ` until ${formatDate(sub.trialEndsAt)}` : ""}
+                  </p>
+                  <div className="mt-2">
+                    <BranchPlanForm
+                      branchId={b.id}
+                      plan={sub?.planCode ?? plans[0]?.code ?? ""}
+                      status={sub?.status ?? "active"}
+                      plans={plans.map((p) => ({ value: p.code, label: `${p.name} · ${formatPaise(p.pricePaise)}${p.isActive ? "" : " (not offered)"}` }))}
+                      statuses={SUBSCRIPTION_STATUSES.map((s) => ({ value: s, label: STATUS_WORD[s] ?? words(s) }))}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </Card>
         <Card>
           <CardHeader title="Modules" />

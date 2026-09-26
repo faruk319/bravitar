@@ -66,7 +66,7 @@ beforeAll(async () => {
   await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const created = await createTenantWithDefaults(
     { actorType: "system" },
-    { name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } },
+    { name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", planCode: "pro", owner: { name: "Owner", email: `owner-${stamp}@example.test` } }, // no student limit for the 500-row run
   );
   T = created.tenant.id;
   mainBranch = created.branch.id;

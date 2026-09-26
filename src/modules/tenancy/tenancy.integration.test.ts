@@ -7,7 +7,7 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { resolveLabels } from "@/lib/tenant/labels";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
-import { ensurePlatformPlans, getOwnSubscription } from "@/modules/platform/repo";
+import { ensurePlatformPlans, ownBranchPlans } from "@/modules/platform/repo";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { branches, tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
@@ -41,12 +41,12 @@ describe("createTenantWithDefaults", () => {
     const seen = await withTenant(tenant.id, async (tx) => ({
       tenant: await getOwnTenant(tx),
       branches: await listBranches(tx),
-      subscription: await getOwnSubscription(tx),
+      plans: await ownBranchPlans(tx),
       audit: await tx.select({ action: auditLog.action, actorType: auditLog.actorType, entityId: auditLog.entityId }).from(auditLog),
     }));
     expect(seen.tenant?.id).toBe(tenant.id);
     expect(seen.branches.map((b) => b.id)).toEqual([branch.id]);
-    expect(seen.subscription?.id).toBe(subscription.id);
+    expect(seen.plans.map((p) => [p.branchId, p.subscription?.id, p.plan?.code])).toEqual([[branch.id, subscription.id, "starter"]]); // the first branch's trial
     expect(seen.audit).toEqual([{ action: "tenant.create", actorType: "system", entityId: tenant.id }]);
   });
 

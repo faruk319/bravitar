@@ -7,8 +7,8 @@ import { financialYear } from "@/lib/money/fy";
 import { ensureSeries } from "@/modules/numbering/repo";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { phoneSchema } from "@/lib/phone";
-import { createSubscription } from "@/modules/platform/repo";
-import type { TenantSubscription } from "@/modules/platform/schema";
+import { createBranchSubscription } from "@/modules/platform/repo";
+import type { BranchSubscription } from "@/modules/platform/schema";
 import { createStaff, replaceStaffRoles, syncPermissions } from "@/modules/staff/repo";
 import { PASSWORD_UNSET, type StaffUser } from "@/modules/staff/schema";
 import { createPresetRoles } from "@/modules/staff/service";
@@ -42,7 +42,7 @@ export function codePrefixFor(name: string): string {
   return p.length >= 2 ? p : (p + "ST").slice(0, 2);
 }
 
-export type CreatedTenant = { tenant: Tenant; branch: Branch; subscription: TenantSubscription; owner: StaffUser };
+export type CreatedTenant = { tenant: Tenant; branch: Branch; subscription: BranchSubscription; owner: StaffUser };
 
 export async function createTenantWithDefaults(
   actor: Pick<AuditEntry, "actorType" | "actorId" | "impersonatedBy">,
@@ -56,7 +56,8 @@ export async function createTenantWithDefaults(
     audit.entityId = tenant.id;
     const branch = await createBranch(tx, { tenantId: tenant.id, name: data.branchName, isDefault: true });
     await ensureSeries(tx, tenant.id, financialYear(todayIn(tenant.timezone), tenant.fyStartMonth));
-    const subscription = await createSubscription(tx, { tenantId: tenant.id, planCode: data.planCode, status: "trial", trialEndsAt });
+    // Only the first branch gets the trial (agreed 2026-09-26).
+    const subscription = await createBranchSubscription(tx, { tenantId: tenant.id, branchId: branch.id, planCode: data.planCode, status: "trial", trialEndsAt });
     await syncPermissions(tx);
     const roles = await createPresetRoles(tx, tenant.id);
     // No password yet: the invite / set-password flow (auth slice) sets it.

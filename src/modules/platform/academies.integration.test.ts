@@ -10,7 +10,7 @@ import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { acceptInvite, inviteInfo, loadAccessContext } from "@/modules/staff/service";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { findTenantBySlug } from "@/modules/tenancy/repo";
-import { academyDetail, createAcademy, editPlan, listAcademies, setAcademyStatus, setModules, setPlan } from "./academies";
+import { academyDetail, createAcademy, editPlan, listAcademies, setAcademyStatus, setBranchPlan, setModules } from "./academies";
 import { platformPlans } from "./schema";
 
 // Prompt 21: academies from /platform. A new one is usable with zero manual
@@ -27,7 +27,7 @@ let tenantId = "";
 beforeAll(async () => {
   await withPlatformAdmin({ action: "test.setup", actorType: "system" }, async (tx) => {
     await ensurePlatformPlans(tx);
-    await tx.insert(platformPlans).values({ code: PLAN, name: "Test plan", pricePaise: 50_000n, billingCycle: "monthly", maxStudents: 1, maxStaff: 2, maxBranches: 1 });
+    await tx.insert(platformPlans).values({ code: PLAN, name: "Test plan", pricePaise: 50_000n, billingCycle: "monthly", maxStudents: 1 });
   });
 });
 
@@ -50,7 +50,7 @@ describe("a new academy", () => {
     await expect(createAcademy(ME, { name: "Again", slug: SLUG, verticalPreset: "general", planCode: "starter", owner: { name: "X", email: `x-${stamp}@example.test` } })).rejects.toThrow("That address is taken");
   });
 
-  it("is listed with what it uses against its plan: left students don't count", async () => {
+  it("is listed with its first branch on trial and the students against it: left ones don't count", async () => {
     const owner = (await academyDetail(tenantId)).owner?.id ?? "";
     await withTenant(tenantId, async (tx) => {
       const ctx = { ...(await loadAccessContext(tx, owner)), branchIds: [] };
@@ -62,18 +62,23 @@ describe("a new academy", () => {
       await setStudentStatus(tx, ctx, left.student.id, { status: "left", reason: "moved_away" });
     });
     const [row] = await listAcademies(SLUG);
-    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", plan: { code: "starter" }, usage: { students: 2, staff: 1, branches: 1 } });
+    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", staff: 1, monthlyPaise: 99_900n, over: false });
+    expect(row?.branches).toMatchObject([{ isDefault: true, students: 2, plan: { code: "starter" }, subscription: { status: "trial" } }]);
   });
 });
 
 describe("changing an academy", () => {
-  it("plan and modules follow; a plan's limits and price can be edited", async () => {
-    await setPlan(ME, tenantId, { planCode: PLAN, status: "active" });
+  it("each branch has its own plan; a paused one pays nothing; a plan's price and limit can be edited", async () => {
+    const branch = (await academyDetail(tenantId)).branches[0]?.id ?? "";
+    await setBranchPlan(ME, branch, { planCode: PLAN, status: "active" });
     await setModules(ME, tenantId, { students: true, enquiries: false, batches: true, attendance: true, fees: true, messaging: true, reports: true });
     const a = await academyDetail(tenantId);
-    expect([a.plan?.code, a.subscription?.status, a.modules.enquiries]).toEqual([PLAN, "active", false]);
-    await editPlan(ME, PLAN, { name: "Test plan", price: "750", maxStudents: "", maxStaff: "3", maxBranches: "2", isActive: false });
-    expect((await academyDetail(tenantId)).plan).toMatchObject({ pricePaise: 75_000n, maxStudents: null, maxStaff: 3, maxBranches: 2, isActive: false });
+    expect([a.branches[0]?.plan?.code, a.branches[0]?.subscription?.status, a.monthlyPaise, a.over, a.modules.enquiries]).toEqual([PLAN, "active", 50_000n, true, false]); // 2 students on a plan for 1
+    await editPlan(ME, PLAN, { name: "Test plan", price: "750", maxStudents: "", isActive: false });
+    expect((await academyDetail(tenantId)).branches[0]?.plan).toMatchObject({ pricePaise: 75_000n, maxStudents: null, isActive: false });
+    await setBranchPlan(ME, branch, { planCode: PLAN, status: "suspended" });
+    expect((await academyDetail(tenantId)).monthlyPaise).toBe(0n);
+    await setBranchPlan(ME, branch, { planCode: "starter", status: "active" });
   });
 
   it("suspending ends sessions and refuses sign-in with the paused message; restoring lets them back", async () => {
@@ -85,6 +90,6 @@ describe("changing an academy", () => {
     expect((await platformRead((tx) => findTenantBySlug(tx, SLUG)))?.status).toBe("suspended");
     await setAcademyStatus(ME, tenantId, { status: "active", reason: "Paid up" });
     expect((await login({ slug: SLUG, email: OWNER, password: PASSWORD })).token).toBeTruthy();
-    expect((await listAcademies(SLUG))[0]?.usage.students).toBe(2); // nothing deleted
+    expect((await listAcademies(SLUG))[0]?.branches[0]?.students).toBe(2); // nothing deleted
   });
 });

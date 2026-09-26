@@ -3,7 +3,7 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
-import { createAcademy, editPlan, ownerInvite, setAcademyStatus, setModules, setPlan } from "./academies";
+import { createAcademy, editPlan, ownerInvite, setAcademyStatus, setBranchPlan, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
 // POST /api/platform/login, on the main site only.
@@ -36,14 +36,19 @@ function withPlatformRequest(handler: (req: Request, actor: { actorType: "platfo
 // POST /api/platform/academies
 export const createAcademyHandler = withPlatformRequest(async (req, actor) => json(await createAcademy(actor, await readJson(req)), { status: 201 }));
 
-// PATCH /api/platform/academies/<id> { plan } | { modules } | { status }
+// PATCH /api/platform/academies/<id> { modules } | { status }
 export const academyHandler = withPlatformRequest(async (req, actor) => {
   const id = pathSegment(req, 3);
   const body = (await readJson(req)) as Record<string, unknown>;
-  if (body.plan) await setPlan(actor, id, body.plan as never);
-  else if (body.modules) await setModules(actor, id, body.modules as Record<string, boolean>);
+  if (body.modules) await setModules(actor, id, body.modules as Record<string, boolean>);
   else if (body.status) await setAcademyStatus(actor, id, body.status as never);
   else throw new NotFoundError("Change");
+  return json({ ok: true });
+});
+
+// PATCH /api/platform/branches/<id> { planCode, status }: a branch's own plan.
+export const branchHandler = withPlatformRequest(async (req, actor) => {
+  await setBranchPlan(actor, pathSegment(req, 3), await readJson(req));
   return json({ ok: true });
 });
 

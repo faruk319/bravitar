@@ -9,7 +9,7 @@ import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
 import { createPlatformAdmin } from "@/modules/platform/auth";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
+import { createBranchSubscription, ensurePlatformPlans } from "@/modules/platform/repo";
 import { platformAdmins } from "@/modules/platform/schema";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
@@ -218,6 +218,8 @@ export async function seed(): Promise<SeedResult> {
       await setPassword(tx, ctx, owner.id, DEMO_PASSWORD);
       const room = await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
       const second = extraBranch ? await createBranch(tx, { tenantId: tenant.id, name: extraBranch }) : undefined;
+      // Each branch pays on its own (agreed 2026-09-26); only the first had a trial.
+      if (second) await createBranchSubscription(tx, { tenantId: tenant.id, branchId: second.id, planCode: "starter", status: "active" });
       const roles = await listRoles(tx);
       const roleId = (name: string) => roles.filter((r) => r.name === name).map((r) => r.id); // demo data only
       const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: roleId("Teacher") });

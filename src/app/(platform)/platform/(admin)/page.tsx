@@ -3,23 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { requirePlatformPage } from "@/lib/auth/server";
+import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import { listAcademies } from "@/modules/platform/academies";
 
 const typeLabel = (t: string) => (t[0]?.toUpperCase() ?? "") + t.slice(1);
 
-function Use({ n, max }: { n: number; max: number | null | undefined }) {
-  const over = max !== null && max !== undefined && n > max;
-  return (
-    <span className={cn("tabular-nums", over && "text-danger-600")}>
-      {n}
-      {max === null || max === undefined ? "" : ` / ${max}`}
-      {over ? " · over" : ""}
-    </span>
-  );
-}
-
-// Every academy with its plan and what it uses against the plan (Prompt 21).
+// Every academy: its branches, each on its own plan (agreed 2026-09-26), and
+// the students against those plans (Prompt 21).
 export default async function PlatformAcademies({ searchParams }: PageProps<"/platform">) {
   await requirePlatformPage();
   const q = (await searchParams).q;
@@ -42,10 +33,9 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
           <thead>
             <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-2 font-medium">Academy</th>
-              <th className="py-2 font-medium">Plan</th>
+              <th className="py-2 font-medium">Branches and plans</th>
               <th className="py-2 font-medium">Students</th>
               <th className="py-2 font-medium">Staff</th>
-              <th className="py-2 font-medium">Branches</th>
               <th className="px-4 py-2 font-medium">Status</th>
             </tr>
           </thead>
@@ -61,18 +51,14 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
                   </span>
                 </td>
                 <td className="py-2">
-                  {a.plan?.name ?? "—"}
-                  <span className="block text-caption text-muted-foreground">{a.subscription?.status.replace("_", " ")}</span>
+                  {a.branches.length} {a.branches.length === 1 ? "branch" : "branches"} · {formatPaise(a.monthlyPaise)}/month
+                  <span className="block text-caption text-muted-foreground">{a.branches.map((b) => b.plan?.name ?? "No plan").join(", ")}</span>
                 </td>
-                <td className="py-2">
-                  <Use n={a.usage.students} max={a.plan?.maxStudents} />
+                <td className={cn("py-2 tabular-nums", a.over && "text-danger-600")}>
+                  {a.branches.reduce((n, b) => n + b.students, 0)}
+                  {a.over ? " · over" : ""}
                 </td>
-                <td className="py-2">
-                  <Use n={a.usage.staff} max={a.plan?.maxStaff} />
-                </td>
-                <td className="py-2">
-                  <Use n={a.usage.branches} max={a.plan?.maxBranches} />
-                </td>
+                <td className="py-2 tabular-nums">{a.staff}</td>
                 <td className={cn("px-4 py-2", a.status === "active" ? "text-success-600" : "text-danger-600")}>{a.status === "active" ? "● Active" : "⏸ Suspended"}</td>
               </tr>
             ))}

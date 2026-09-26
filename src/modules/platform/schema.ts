@@ -1,8 +1,9 @@
 import { bigint, boolean, customType, inet, integer, jsonb, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
-import { tenants } from "@/modules/tenancy/schema";
+import { branches, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0003_platform_layer.sql and 0024_platform_admins.sql. What
-// the academy pays us — shares no tables with what the academy charges students.
+// Mirrors migrations/0003_platform_layer.sql, 0024_platform_admins.sql and
+// 0025_branch_subscriptions.sql. What the academy pays us — shares no tables
+// with what the academy charges students.
 const app = pgSchema("app");
 const citext = customType<{ data: string }>({ dataType: () => "extensions.citext" });
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
@@ -12,18 +13,19 @@ export const platformPlans = app.table("platform_plans", {
   name: text("name").notNull(),
   pricePaise: bigint("price_paise", { mode: "bigint" }).notNull(),
   billingCycle: text("billing_cycle", { enum: ["monthly", "yearly"] }).notNull(),
-  maxStudents: integer("max_students"),
-  maxStaff: integer("max_staff"),
-  maxBranches: integer("max_branches"),
+  maxStudents: integer("max_students"), // per branch; the only limit (agreed 2026-09-26)
   includedModules: jsonb("included_modules").$type<Record<string, boolean>>().notNull().default({}),
   isActive: boolean("is_active").notNull().default(true),
 });
 
 export const SUBSCRIPTION_STATUSES = ["trial", "active", "past_due", "suspended", "cancelled"] as const;
 
-export const tenantSubscriptions = app.table("tenant_subscriptions", {
+// A plan per branch (agreed 2026-09-26), like a team on Vercel: each is billed
+// on its own. "suspended" shows as Paused.
+export const branchSubscriptions = app.table("branch_subscriptions", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  branchId: uuid("branch_id").notNull().unique().references(() => branches.id),
   planCode: text("plan_code").notNull().references(() => platformPlans.code),
   status: text("status", { enum: SUBSCRIPTION_STATUSES }).notNull(),
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
@@ -53,4 +55,4 @@ export const platformLoginAttempts = app.table("platform_login_attempts", {
 
 export type PlatformAdmin = typeof platformAdmins.$inferSelect;
 export type PlatformPlan = typeof platformPlans.$inferSelect;
-export type TenantSubscription = typeof tenantSubscriptions.$inferSelect;
+export type BranchSubscription = typeof branchSubscriptions.$inferSelect;

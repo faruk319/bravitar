@@ -154,7 +154,8 @@ export function OwnerInvite({ academyId }: { academyId: string }) {
   );
 }
 
-export function PlanForm({ academyId, plans, statuses, plan, status }: { academyId: string; plans: Option[]; statuses: Option[]; plan: string; status: string }) {
+// One branch's own plan and status (agreed 2026-09-26).
+export function BranchPlanForm({ branchId, plans, statuses, plan, status }: { branchId: string; plans: Option[]; statuses: Option[]; plan: string; status: string }) {
   const s = useSave();
   return (
     <form
@@ -162,11 +163,11 @@ export function PlanForm({ academyId, plans, statuses, plan, status }: { academy
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        void s.save(`/api/platform/academies/${academyId}`, "PATCH", { plan: { planCode: f.get("plan"), status: f.get("status") } });
+        void s.save(`/api/platform/branches/${branchId}`, "PATCH", { planCode: f.get("plan"), status: f.get("status") });
       }}
     >
-      <Field label="Plan" id="plan">
-        <select id="plan" name="plan" defaultValue={plan} className={selectClass}>
+      <Field label="Plan" id={`${branchId}-plan`}>
+        <select id={`${branchId}-plan`} name="plan" defaultValue={plan} className={selectClass}>
           {plans.map((p) => (
             <option key={p.value} value={p.value}>
               {p.label}
@@ -174,8 +175,8 @@ export function PlanForm({ academyId, plans, statuses, plan, status }: { academy
           ))}
         </select>
       </Field>
-      <Field label="Subscription" id="status">
-        <select id="status" name="status" defaultValue={status} className={selectClass}>
+      <Field label="Status" id={`${branchId}-status`}>
+        <select id={`${branchId}-status`} name="status" defaultValue={status} className={selectClass}>
           {statuses.map((p) => (
             <option key={p.value} value={p.value}>
               {p.label}
@@ -241,18 +242,18 @@ export function AccessForm({ academyId, suspended }: { academyId: string; suspen
   );
 }
 
-export type PlanRowData = { code: string; name: string; price: string; maxStudents: number | null; maxStaff: number | null; maxBranches: number | null; isActive: boolean };
+export type PlanRowData = { code: string; name: string; price: string; maxStudents: number | null; isActive: boolean };
 
 export function PlanRow({ p }: { p: PlanRowData }) {
   const s = useSave();
   const num = (v: number | null) => (v === null ? "" : String(v));
   return (
     <form
-      className="grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_6rem_6rem_6rem_auto_auto]"
+      className="grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_9rem_auto_auto]"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        void s.save(`/api/platform/plans/${p.code}`, "PATCH", { name: f.get("name"), price: f.get("price"), maxStudents: f.get("maxStudents"), maxStaff: f.get("maxStaff"), maxBranches: f.get("maxBranches"), isActive: f.get("isActive") === "on" });
+        void s.save(`/api/platform/plans/${p.code}`, "PATCH", { name: f.get("name"), price: f.get("price"), maxStudents: f.get("maxStudents"), isActive: f.get("isActive") === "on" });
       }}
     >
       <Field label={`Name · ${p.code}`} id={`${p.code}-name`}>
@@ -261,14 +262,8 @@ export function PlanRow({ p }: { p: PlanRowData }) {
       <Field label="Price ₹/month" id={`${p.code}-price`}>
         <Input id={`${p.code}-price`} name="price" inputMode="decimal" defaultValue={p.price} />
       </Field>
-      <Field label="Students" id={`${p.code}-s`}>
+      <Field label="Students per branch" id={`${p.code}-s`}>
         <Input id={`${p.code}-s`} name="maxStudents" inputMode="numeric" placeholder="No limit" defaultValue={num(p.maxStudents)} />
-      </Field>
-      <Field label="Staff" id={`${p.code}-t`}>
-        <Input id={`${p.code}-t`} name="maxStaff" inputMode="numeric" placeholder="No limit" defaultValue={num(p.maxStaff)} />
-      </Field>
-      <Field label="Branches" id={`${p.code}-b`}>
-        <Input id={`${p.code}-b`} name="maxBranches" inputMode="numeric" placeholder="No limit" defaultValue={num(p.maxBranches)} />
       </Field>
       <label className="flex min-h-12 items-center gap-2 text-body">
         <input type="checkbox" name="isActive" defaultChecked={p.isActive} className="size-5 accent-accent-600" /> Offered

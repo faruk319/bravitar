@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { MODULES } from "@/lib/auth/permissions";
 import { hashToken, newToken } from "@/lib/auth/token";
@@ -12,15 +12,20 @@ import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { sessionsAuth } from "@/modules/auth/schema";
 import { INVITE_DAYS } from "@/modules/staff/service";
 import { PASSWORD_UNSET, staffInvites, staffUsers } from "@/modules/staff/schema";
-import { type EnabledModules, tenants } from "@/modules/tenancy/schema";
+import { branches, type EnabledModules, tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults, setTenantModules } from "@/modules/tenancy/service";
-import { type PlatformPlan, platformPlans, SUBSCRIPTION_STATUSES, type TenantSubscription, tenantSubscriptions } from "./schema";
-import { NO_USAGE, type Usage, usageByTenant } from "./usage";
+import { type BranchSubscription, branchSubscriptions, type PlatformPlan, platformPlans, SUBSCRIPTION_STATUSES } from "./schema";
+import { staffByTenant, studentsByBranch } from "./usage";
 
 // The /platform area's academies (Prompt 21). Every write goes through
 // withPlatformAdmin, and the ones about an academy land in its audit log too.
 
 type Actor = Pick<AuditEntry, "actorType" | "actorId">;
+
+// Paused and cancelled branches pay nothing; a trial is priced as it will be.
+const PAYING = new Set(["trial", "active", "past_due"]);
+
+export type AcademyBranch = { id: string; name: string; isDefault: boolean; students: number; subscription: BranchSubscription | null; plan: PlatformPlan | null };
 export type Academy = {
   id: string;
   name: string;
@@ -28,28 +33,30 @@ export type Academy = {
   type: string;
   status: "active" | "suspended" | "closed";
   createdAt: Date;
-  plan: PlatformPlan | undefined;
-  subscription: Pick<TenantSubscription, "planCode" | "status" | "trialEndsAt"> | undefined;
-  usage: Usage;
+  branches: AcademyBranch[];
+  staff: number;
+  monthlyPaise: bigint;
+  over: boolean; // a branch over its plan's student limit
 };
 
-async function currentSubscriptions(tx: PlatformTx, tenantIds: string[]): Promise<Map<string, TenantSubscription>> {
-  if (!tenantIds.length) return new Map();
-  const rows = await tx
-    .selectDistinctOn([tenantSubscriptions.tenantId])
-    .from(tenantSubscriptions)
-    .where(inArray(tenantSubscriptions.tenantId, tenantIds))
-    .orderBy(tenantSubscriptions.tenantId, desc(tenantSubscriptions.createdAt));
-  return new Map(rows.map((r) => [r.tenantId, r]));
-}
+const isOver = (b: AcademyBranch) => b.plan?.maxStudents !== null && b.plan?.maxStudents !== undefined && b.students > b.plan.maxStudents;
 
 async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Promise<Academy[]> {
   const rows = await tx.select().from(tenants).where(and(isNull(tenants.deletedAt), where)).orderBy(asc(tenants.name));
   const ids = rows.map((t) => t.id);
-  const [usage, subs, plans] = [await usageByTenant(tx, ids), await currentSubscriptions(tx, ids), new Map((await tx.select().from(platformPlans)).map((p) => [p.code, p]))];
+  if (!ids.length) return [];
+  const branchRows = await tx
+    .select({ b: branches, s: branchSubscriptions, p: platformPlans })
+    .from(branches)
+    .leftJoin(branchSubscriptions, eq(branchSubscriptions.branchId, branches.id))
+    .leftJoin(platformPlans, eq(platformPlans.code, branchSubscriptions.planCode))
+    .where(and(inArray(branches.tenantId, ids), isNull(branches.deletedAt)))
+    .orderBy(asc(branches.createdAt));
+  const [students, staff] = [await studentsByBranch(tx, { tenantIds: ids }), await staffByTenant(tx, ids)];
   return rows.map((t) => {
-    const sub = subs.get(t.id);
-    return { id: t.id, name: t.name, slug: t.slug, type: t.verticalPreset, status: t.status, createdAt: t.createdAt, plan: sub ? plans.get(sub.planCode) : undefined, subscription: sub, usage: usage.get(t.id) ?? NO_USAGE };
+    const own = branchRows.filter((r) => r.b.tenantId === t.id).map((r) => ({ id: r.b.id, name: r.b.name, isDefault: r.b.isDefault, students: students.get(r.b.id) ?? 0, subscription: r.s, plan: r.p }));
+    const monthlyPaise = own.reduce((sum, b) => (b.plan && b.subscription && PAYING.has(b.subscription.status) ? sum + b.plan.pricePaise : sum), 0n);
+    return { id: t.id, name: t.name, slug: t.slug, type: t.verticalPreset, status: t.status, createdAt: t.createdAt, branches: own, staff: staff.get(t.id) ?? 0, monthlyPaise, over: own.some(isOver) };
   });
 }
 
@@ -108,14 +115,20 @@ export async function createAcademy(actor: Actor, input: z.input<typeof newAcade
 
 export const planChangeSchema = z.object({ planCode: z.string().min(1), status: z.enum(SUBSCRIPTION_STATUSES) });
 
-export async function setPlan(actor: Actor, tenantId: string, input: z.input<typeof planChangeSchema>): Promise<void> {
+// A branch's plan and status; a branch that never had a plan gets one.
+export async function setBranchPlan(actor: Actor, branchId: string, input: z.input<typeof planChangeSchema>): Promise<void> {
   const d = planChangeSchema.parse(input);
-  await withPlatformAdmin({ ...actor, action: "tenant.plan.set", tenantId, entityType: "tenant", entityId: tenantId, after: d }, async (tx, audit) => {
-    const current = (await currentSubscriptions(tx, [tenantId])).get(tenantId);
-    if (!current) throw new NotFoundError("Subscription");
+  await withPlatformAdmin({ ...actor, action: "branch.plan.set", entityType: "branch", entityId: branchId, after: d }, async (tx, audit) => {
+    const [b] = await tx.select({ tenantId: branches.tenantId }).from(branches).where(and(eq(branches.id, branchId), isNull(branches.deletedAt)));
+    if (!b) throw new NotFoundError("Branch");
     if (!(await tx.select({ code: platformPlans.code }).from(platformPlans).where(eq(platformPlans.code, d.planCode))).length) throw new NotFoundError("Plan");
-    audit.before = { planCode: current.planCode, status: current.status };
-    await tx.update(tenantSubscriptions).set({ planCode: d.planCode, status: d.status }).where(eq(tenantSubscriptions.id, current.id));
+    audit.tenantId = b.tenantId;
+    const [before] = await tx.select({ planCode: branchSubscriptions.planCode, status: branchSubscriptions.status }).from(branchSubscriptions).where(eq(branchSubscriptions.branchId, branchId));
+    audit.before = before ?? null;
+    await tx
+      .insert(branchSubscriptions)
+      .values({ id: uuidv7(), tenantId: b.tenantId, branchId, planCode: d.planCode, status: d.status })
+      .onConflictDoUpdate({ target: branchSubscriptions.branchId, set: { planCode: d.planCode, status: d.status } });
   });
 }
 
@@ -143,13 +156,11 @@ export async function setModules(actor: Actor, tenantId: string, input: Record<s
 
 // ---- plans (placeholder prices and limits, editable here)
 
-const limit = z.union([z.literal(""), z.coerce.number().int().min(0).max(1_000_000)]).transform((v) => (v === "" ? null : v));
+const limit = z.union([z.literal(""), z.coerce.number().int().min(0).max(1_000_000)]).transform((v) => (v === "" ? null : v)); // blank = no limit
 export const planEditSchema = z.object({
   name: z.string().trim().min(2).max(60),
   price: z.string().trim().transform((v, ctx) => parseRupees(v) ?? (ctx.addIssue({ code: "custom", message: "Enter the price in rupees" }), z.NEVER)),
   maxStudents: limit,
-  maxStaff: limit,
-  maxBranches: limit,
   isActive: z.boolean(),
 });
 
@@ -160,7 +171,7 @@ export async function editPlan(actor: Actor, code: string, input: z.input<typeof
   await withPlatformAdmin({ ...actor, action: "platform_plan.edit", entityType: "platform_plan", after: { code, ...d, price: String(d.price) } }, async (tx) => {
     const [row] = await tx
       .update(platformPlans)
-      .set({ name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, maxStaff: d.maxStaff, maxBranches: d.maxBranches, isActive: d.isActive })
+      .set({ name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, isActive: d.isActive })
       .where(eq(platformPlans.code, code))
       .returning({ code: platformPlans.code });
     if (!row) throw new NotFoundError("Plan");
