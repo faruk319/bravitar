@@ -20,7 +20,7 @@ export default async function PortalLayout({ children }: LayoutProps<"/">) {
             {others.length ? (
               <details className="relative">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-lg px-3 text-label text-neutral-700 hover:bg-neutral-50">
-                  Switch academy <ChevronDown className="size-4" aria-hidden />
+                  Switch<span className="hidden sm:inline"> academy</span> <ChevronDown className="size-4" aria-hidden />
                 </summary>
                 <div className="absolute right-0 mt-1 w-64 rounded-xl border border-neutral-100 bg-card p-1 shadow-card">
                   {others.map((a) => (

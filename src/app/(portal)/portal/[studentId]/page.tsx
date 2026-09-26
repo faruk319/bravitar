@@ -106,7 +106,7 @@ function Attendance({ p }: { p: ChildPage }) {
           <Meter fraction={(p.attendance.percent ?? 0) / 100} />
         </div>
       ) : (
-        <p className="mt-4 text-body text-muted-foreground">No marked classes this month yet.</p>
+        <p className="mt-4 text-body text-muted-foreground">No classes marked{p.month === p.today.slice(0, 7) ? " yet" : ""}.</p>
       )}
     </Card>
   );
