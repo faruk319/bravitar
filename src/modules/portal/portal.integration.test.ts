@@ -23,7 +23,8 @@ import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
-import { childPage, childrenOf, familyReceipts, type GuardianCtx, portalReceipt } from "./service";
+import { sharedInvoice } from "@/modules/messaging/public";
+import { childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt } from "./service";
 
 // docs/06 Prompt 20, written before the feature: a parent sees their own
 // children and nothing else. Another family's id is a 404, like a missing one.
@@ -143,5 +144,14 @@ describe("the portal", () => {
     expect(aarav.fees.map((f) => [f.duePaise, f.overdue])).toEqual([[80_000n, false]]);
     expect((await withTenant(T, (tx) => childPage(tx, a, kid.anaya ?? ""))).fees).toEqual([]);
     expect(aarav.timings.map((t) => t.batchName)).toEqual(["Early"]);
+  });
+
+  it("pay online opens the private page of this family's unpaid invoice, on its own academy only", async () => {
+    const [due] = (await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? ""))).fees;
+    const link = await withTenant(T, (tx) => payLink(tx, a, due?.id ?? ""));
+    const token = link.replace("/i/", "");
+    expect((await sharedInvoice(token, `portal-${stamp}`))?.invoice.id).toBe(due?.id);
+    expect(await sharedInvoice(token, `other-${stamp}`)).toBeUndefined();
+    await expect(withTenant(T, (tx) => payLink(tx, b, due?.id ?? ""))).rejects.toMatchObject({ status: 404 });
   });
 });

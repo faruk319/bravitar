@@ -12,7 +12,8 @@ export const sharePath = (kind: ShareKind, token: string) => `/${kind === "invoi
 // in the message, the database keeps its hash.
 export async function makeShareLink(tx: Tx, actor: Actor, kind: ShareKind, entityId: string): Promise<string> {
   const token = newToken();
-  await tx.insert(shareLinks).values({ id: uuidv7(), tenantId: actor.tenantId, kind, entityId, tokenHash: hashToken(token), createdBy: actor.actorId ?? null });
+  const createdBy = actor.actorType === "staff" ? (actor.actorId ?? null) : null; // staff only; a parent's is in the audit
+  await tx.insert(shareLinks).values({ id: uuidv7(), tenantId: actor.tenantId, kind, entityId, tokenHash: hashToken(token), createdBy });
   await writeAudit(tx, { ...actor, action: "share_link.create", entityType: kind, entityId });
   return token;
 }

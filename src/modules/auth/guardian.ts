@@ -45,3 +45,16 @@ export async function verifyPortalCode(input: z.input<typeof phoneSignInSchema>,
   }
   return { academies: await Promise.all(signed.flatMap(({ a, guardian }) => (guardian ? [handoffTo(a, { guardianId: guardian.id }, now)] : []))) };
 }
+
+// Where else this number is a parent, for "Switch academy".
+export async function otherAcademies(phone: string, tenantId: string): Promise<StaffAcademy[]> {
+  return (await guardianAcademiesByPhone(phone)).filter((a) => a.tenantId !== tenantId);
+}
+
+// "Switch academy" (agreed 2026-09-25): the phone this session's code proved
+// opens another academy where it is a parent, with no new code.
+export async function switchAcademy(phone: string, slug: string, now = new Date()): Promise<Academy | undefined> {
+  const there = (await guardianAcademiesByPhone(phone)).find((a) => a.slug === slug);
+  const guardian = there ? await withTenant(there.tenantId, (tx) => findGuardianByPhone(tx, phone)) : undefined;
+  return there && guardian ? handoffTo(there, { guardianId: guardian.id }, now) : undefined;
+}

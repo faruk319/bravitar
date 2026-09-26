@@ -10,8 +10,9 @@ import { rulesOn, summarizeSchedule } from "@/modules/batches/schedule";
 import { enrollmentsOfStudent } from "@/modules/enrollments/repo";
 import { isCurrentEnrollment } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
-import { listInvoices } from "@/modules/fees/repo";
+import { getInvoice, listInvoices } from "@/modules/fees/repo";
 import { razorpayConnected } from "@/modules/integrations/service";
+import { makeShareLink } from "@/modules/messaging/links";
 import { getPayment } from "@/modules/payments/repo";
 import { type Receipt, receiptOf } from "@/modules/payments/service";
 import { getGuardian } from "@/modules/students/repo";
@@ -84,9 +85,20 @@ export async function familyReceipts(tx: Tx, g: GuardianCtx): Promise<FamilyPaym
   return familyPayments(tx, await familyOf(tx, g));
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function portalReceipt(tx: Tx, g: GuardianCtx, paymentId: string): Promise<Receipt> {
   const family = await familyOf(tx, g);
-  const p = /^[0-9a-f-]{36}$/i.test(paymentId) ? await getPayment(tx, [], paymentId) : undefined;
+  const p = UUID.test(paymentId) ? await getPayment(tx, [], paymentId) : undefined;
   if (!p || p.householdId !== family || p.status === "cancelled") throw new NotFoundError("Receipt");
   return receiptOf(tx, p);
+}
+
+// "Pay online": the invoice's private page, which has Pay when Razorpay is
+// connected (agreed 2026-09-26). Only an unpaid invoice of this family.
+export async function payLink(tx: Tx, g: GuardianCtx, invoiceId: string): Promise<string> {
+  const family = await familyOf(tx, g);
+  const inv = UUID.test(invoiceId) ? await getInvoice(tx, [], invoiceId) : undefined;
+  if (!inv || inv.householdId !== family || (inv.status !== "issued" && inv.status !== "part_paid")) throw new NotFoundError("Invoice");
+  return `/i/${await makeShareLink(tx, { actorType: "guardian", actorId: g.guardianId, tenantId: g.tenantId }, "invoice", inv.id)}`;
 }

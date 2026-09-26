@@ -11,7 +11,7 @@ import { updateGuardian } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import type { CodeSender } from "./codes";
-import { requestPortalCode, verifyPortalCode } from "./guardian";
+import { otherAcademies, requestPortalCode, switchAcademy, verifyPortalCode } from "./guardian";
 import { logoutHandler } from "./routes";
 import { redeemHandoff } from "./service";
 
@@ -79,6 +79,16 @@ describe("signing in", () => {
     const opened = await redeemHandoff(made.a.slug, tokenOf(toA), {});
     expect(opened?.home).toBe("/portal");
     expect((await getGuardianSessionFromToken(opened?.token ?? ""))?.tenant.id).toBe(made.a.id);
+  });
+});
+
+describe("switch academy", () => {
+  it("opens another academy with the number the code proved, only where it is a parent", async () => {
+    expect((await otherAcademies(P, made.a.id)).map((a) => a.slug)).toEqual([made.b.slug]);
+    const pass = await switchAcademy(P, made.b.slug);
+    const opened = await redeemHandoff(made.b.slug, tokenOf(pass?.url ?? ""), {});
+    expect((await getGuardianSessionFromToken(opened?.token ?? ""))?.tenant.id).toBe(made.b.id);
+    expect(await switchAcademy(P, made.c.slug)).toBeUndefined();
   });
 });
 
