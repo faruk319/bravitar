@@ -128,12 +128,14 @@ export async function batchRoster(tx: Tx, ctx: ScopedCtx, batchId: string): Prom
   return rosterOf(tx, batchId, await tenantToday(tx));
 }
 
+// Not ended yet; one starting later counts from its start.
+export const isCurrentEnrollment = (e: Pick<StudentEnrollment, "startDate" | "endDate">, today: string): boolean => e.endDate === null || e.endDate >= (e.startDate > today ? e.startDate : today);
+
 export async function studentBatches(tx: Tx, ctx: ScopedCtx, studentId: string): Promise<{ current: StudentEnrollment[]; past: StudentEnrollment[] }> {
   await requireStudent(tx, ctx, studentId);
   const today = await tenantToday(tx);
   const all = await enrollmentsOfStudent(tx, studentId);
-  const isCurrent = (e: StudentEnrollment) => e.endDate === null || e.endDate >= (e.startDate > today ? e.startDate : today);
-  return { current: all.filter(isCurrent), past: all.filter((e) => !isCurrent(e)).reverse() };
+  return { current: all.filter((e) => isCurrentEnrollment(e, today)), past: all.filter((e) => !isCurrentEnrollment(e, today)).reverse() };
 }
 
 export async function batchChoices(tx: Tx, ctx: ScopedCtx): Promise<BatchView[]> {
