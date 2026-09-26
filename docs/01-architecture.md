@@ -157,8 +157,13 @@ OTP hashed in the database, 5-minute expiry, single use.
   and phone. Codes come from one Bravitar number (`PLATFORM_WHATSAPP_*`), never
   an academy's; no SMS yet. The limits above live in the database functions
   `otp_issue` and `otp_check`; the app can't read `otp_codes`.
-- Parents and adult students get the phone path with the portal (Prompt 20):
-  one box, "Phone number or email", and an academy list after the code.
+- Parents and adult students (built 2026-09-26, Prompt 20): the same box
+  takes a phone number and sends a WhatsApp code (purpose `portal_login`),
+  only to a guardian who may sign in with a child at an active academy; the
+  answer is the same for any number. On the main site the code lists the
+  academies with that number, each through its one-time pass. The session
+  (actor `guardian`, 30 days) keeps the phone the code proved, so "Switch
+  academy" needs no new code; the guardian is re-read on every request.
 
 **Session payload assembled on login:**
 

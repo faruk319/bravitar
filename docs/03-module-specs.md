@@ -678,6 +678,21 @@ fee dues, receipts, batch timings, notices.
   submit a leave note.
 - Never show other students' names, marks, or fee information. Ever.
 
+**Built as** (agreed 2026-09-26; `src/modules/portal/`, `src/modules/auth/guardian.ts`)
+
+- On the academy's address, no navigation: the academy's name, Switch
+  academy and Sign out. A child switcher when there are several children.
+- A child's page in the student-profile look: the month's classes as a
+  calendar (each day tinted with its mark's icon, exactly as marked), the
+  Present/Late/Absent/Excused counts and the share attended; what is unpaid
+  on the child's invoices, with Pay online (the invoice's private page) when
+  Razorpay is connected; class timings; holidays and cancelled classes in the
+  next 30 days. Notices written by the owner and leave notes come later.
+- The family's receipts, each to print or save as PDF.
+- Only the children linked to this guardian; another family's child,
+  receipt or invoice is a 404, like one that doesn't exist. The security test
+  (`src/modules/portal/portal.integration.test.ts`) was written first.
+
 **Acceptance**
 
 - [ ] A parent with two children in one academy sees both, and nothing else

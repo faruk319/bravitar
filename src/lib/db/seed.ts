@@ -252,6 +252,7 @@ async function main(): Promise<void> {
   try {
     const r = await seed();
     console.log(`seed: plans created [${r.plansCreated.join(", ")}]`);
+    console.log("seed: parents sign in with their phone, e.g. 98765 00001 (a parent at both academies); dev prints the code in the server log");
     console.log(`seed: tenants created [${r.tenantsCreated.join(", ")}], already present [${r.tenantsPresent.join(", ")}]`);
   } finally {
     await runtimeSql.end({ timeout: 5 });
