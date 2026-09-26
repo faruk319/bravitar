@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { currentStaffSession } from "@/lib/auth/server";
+import { currentGuardianSession, currentStaffSession } from "@/lib/auth/server";
 import { homeFor, shellFor } from "@/lib/auth/shell";
 import { slugFromHost } from "@/modules/auth/routes";
 
@@ -11,7 +11,8 @@ export default async function Home() {
   const slug = slugFromHost((await headers()).get("host"));
   if (slug) {
     const session = await currentStaffSession();
-    redirect(session ? homeFor(shellFor(session)) : "/login");
+    if (session) redirect(homeFor(shellFor(session)));
+    redirect((await currentGuardianSession()) ? "/portal" : "/login");
   }
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-3 p-6">

@@ -1,6 +1,8 @@
-import { clearSessionCookieHeader, sessionCookieHeader } from "@/lib/auth/cookie";
+import { clearSessionCookieHeader, readSessionCookie, sessionCookieHeader } from "@/lib/auth/cookie";
 import { json, jsonError, readJson, scopedCtx, withStaffRequest } from "@/lib/auth/route";
+import { getGuardianSessionFromToken, getStaffSessionFromToken } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
+import { requestPortalCode, verifyPortalCode } from "./guardian";
 import { requestReset, resetPassword } from "./reset";
 import { login, logout, redeemHandoff, setOwnPhone, signIn } from "./service";
 
@@ -31,10 +33,17 @@ export async function loginHandler(req: Request): Promise<Response> {
   }
 }
 
-export const logoutHandler = withStaffRequest(null, async ({ session }) => {
-  await logout(session.tenant.id, session.sessionId, session.actor.id);
-  return json({ ok: true }, { headers: { "set-cookie": clearSessionCookieHeader() } });
-});
+// Ends this address's session, a staff member's or a guardian's.
+export async function logoutHandler(req: Request): Promise<Response> {
+  try {
+    const token = readSessionCookie(req);
+    const session = token ? ((await getStaffSessionFromToken(token)) ?? (await getGuardianSessionFromToken(token))) : undefined;
+    if (session) await logout(session.tenant.id, session.sessionId, { actorType: session.actor.type, actorId: session.actor.id });
+    return json({ ok: true }, { headers: { "set-cookie": clearSessionCookieHeader() } });
+  } catch (err) {
+    return jsonError(err);
+  }
+}
 
 export const meHandler = withStaffRequest(null, async ({ session }) => {
   const { actor, tenant, branchIds, isOwner, modules, permissions } = session;
@@ -57,7 +66,7 @@ export async function signInHandler(req: Request): Promise<Response> {
 export async function handoffHandler(req: Request): Promise<Response> {
   const token = new URL(req.url).searchParams.get("t") ?? "";
   const opened = await redeemHandoff(slugFromHost(req.headers.get("host")), token, metaOf(req));
-  const headers = new Headers({ location: opened ? "/" : "/login?expired=1", "referrer-policy": "no-referrer", "cache-control": "no-store" });
+  const headers = new Headers({ location: opened?.home ?? "/login?expired=1", "referrer-policy": "no-referrer", "cache-control": "no-store" });
   if (opened) headers.set("set-cookie", sessionCookieHeader(opened.token));
   return new Response(null, { status: 303, headers });
 }
@@ -93,3 +102,26 @@ export const phoneHandler = withStaffRequest(null, async (r) => {
   const phone = await setOwnPhone(r.tx, scopedCtx(r.session, r.req), await readJson(r.req));
   return phone ? json({ phone }) : json({ error: "That password isn't right" }, { status: 400 });
 });
+
+// POST /api/auth/code: a parent's sign-in code on WhatsApp; the same answer for any number.
+export async function phoneCodeHandler(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    await requestPortalCode({ phone: String(body.phone ?? "") }, { slug: slugFromHost(req.headers.get("host")) });
+    return json({ ok: true });
+  } catch (err) {
+    return jsonError(err);
+  }
+}
+
+// POST /api/auth/verify: on an academy's address it signs in here; on the
+// main site it answers like sign-in, with a pass per academy.
+export async function phoneSignInHandler(req: Request): Promise<Response> {
+  try {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const done = await verifyPortalCode({ phone: String(body.phone ?? ""), code: String(body.code ?? "") }, { slug: slugFromHost(req.headers.get("host")), meta: metaOf(req) });
+    return "token" in done ? json({ ok: true }, { headers: { "set-cookie": sessionCookieHeader(done.token) } }) : json({ academies: done.academies });
+  } catch (err) {
+    return jsonError(err);
+  }
+}

@@ -97,16 +97,25 @@ export async function staffAcademiesByEmail(email: string): Promise<StaffAcademy
   return rows.map((r) => ({ tenantId: r.tenant_id, slug: r.slug, name: r.name }));
 }
 
-export async function insertHandoff(tx: Tx, row: { tenantId: string; staffId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
+// Before any academy is known: where this phone is a guardian who may sign in.
+export async function guardianAcademiesByPhone(phone: string): Promise<StaffAcademy[]> {
+  const rows = await db.execute<{ tenant_id: string; slug: string; name: string }>(sql`SELECT * FROM app.guardian_academies_by_phone(${phone})`);
+  return rows.map((r) => ({ tenantId: r.tenant_id, slug: r.slug, name: r.name }));
+}
+
+export type HandoffFor = { staffId: string } | { guardianId: string };
+
+export async function insertHandoff(tx: Tx, row: HandoffFor & { tenantId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
   await tx.insert(loginHandoffs).values({ id: uuidv7(), ...row });
 }
 
 // Uses up a live pass in one statement; returns whose it was.
-export async function useHandoff(tx: Tx, tokenHash: string, now: Date): Promise<string | undefined> {
+export async function useHandoff(tx: Tx, tokenHash: string, now: Date): Promise<HandoffFor | undefined> {
   const [row] = await tx
     .update(loginHandoffs)
     .set({ usedAt: now })
     .where(and(eq(loginHandoffs.tokenHash, tokenHash), isNull(loginHandoffs.usedAt), gt(loginHandoffs.expiresAt, now)))
-    .returning({ staffId: loginHandoffs.staffId });
-  return row?.staffId;
+    .returning({ staffId: loginHandoffs.staffId, guardianId: loginHandoffs.guardianId });
+  if (row?.staffId) return { staffId: row.staffId };
+  return row?.guardianId ? { guardianId: row.guardianId } : undefined;
 }

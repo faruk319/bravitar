@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Card } from "@/components/ui/card";
-import { currentStaffSession } from "@/lib/auth/server";
+import { currentGuardianSession, currentStaffSession } from "@/lib/auth/server";
 import { homeFor, shellFor } from "@/lib/auth/shell";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { slugFromHost } from "@/modules/auth/routes";
@@ -13,6 +13,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   // Already signed in (a live session, not just a cookie): go home.
   const session = await currentStaffSession();
   if (session) redirect(homeFor(shellFor(session)));
+  if (await currentGuardianSession()) redirect("/portal");
   const slug = slugFromHost((await headers()).get("host"));
   const tenant = slug ? await resolveTenantBySlug(slug) : undefined;
   if (slug && !tenant) {
