@@ -26,6 +26,17 @@ usage), suspend/reactivate, impersonate (read-only), platform-wide message log.
 - Impersonation is read-only, shows a persistent banner in the tenant UI, and
   writes an audit row containing a typed reason.
 
+**To plan with Prompt 21** (agreed 2026-09-26, not built)
+
+- Self sign-up: the owner's personal details first, then the academy type; the
+  academy details then follow the type. A deeniyat academy is usually a masjid or
+  a madrasa, so it asks for the masjid or madrasa name.
+- Deeniyat is free after verification (that it is a genuine masjid or madrasa);
+  a subscription stays optional. Free academies will show ads (Google AdSense
+  until there is an own ad platform). Ads come later, not with Prompt 21.
+- To ask before building: what verification checks and who approves it, what
+  the free plan includes, and the subscription price.
+
 **Acceptance**
 
 - [ ] A new tenant is usable (login → add student → mark attendance) with zero

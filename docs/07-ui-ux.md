@@ -50,6 +50,20 @@ accent-600   #2B5FD9   primary button, active nav, links
 accent-50    #EEF3FD   active nav background, selected row
 ```
 
+**The accent by academy type** (agreed 2026-09-26). The academy's type sets
+`data-vertical` on `<html>` and re-points the two accent tokens (`globals.css`);
+neutrals and status colours never change. Each accent was checked against
+present, absent and late, so a type never paints its buttons in a status colour.
+It follows the type; there is no theme picker.
+
+| Type | accent-600 | accent-50 | Why |
+|---|---|---|---|
+| general, tuition | #2B5FD9 blue | #EEF3FD | the default |
+| deeniyat | #0C6B8A turquoise | #E7F3F7 | masjid-tile turquoise; green would read as Present |
+| karate | #7F1D1D maroon | #FBEFEF | dojo red, kept apart from Absent |
+| dance | #7C3AED violet | #F5F3FF | |
+| sports | #0369A1 sky | #F0F9FF | |
+
 Status colours are a **separate system** from the accent. They never appear on
 buttons or navigation, only on data.
 

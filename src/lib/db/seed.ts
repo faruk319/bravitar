@@ -36,18 +36,30 @@ const DEMO_PASSWORD = "Demo@1234";
 const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string })[] = [
   { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo", phone: "9800000001" }, coach: { name: "Ravi Patil", email: "coach@shivaji-karate.demo" } },
   { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
+  { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" } },
 ];
 
 // Six students per academy: one family with two siblings, an adult, a paused
 // one, a family behind on fees and a child who often misses class (the at-risk
 // list). All but the Shaikhs said yes to WhatsApp messages.
-type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean; oftenAbsent?: boolean };
+type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean; oftenAbsent?: boolean; sibling?: boolean };
 function demoStudents(vertical: string): DemoStudent[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
   const consents = { dataProcessing: true, photo: true, whatsapp: true };
+  // A madrasa's own families, on their own phones.
+  if (vertical === "deeniyat") {
+    return [
+      { fullName: "Ayaan Shaikh", dateOfBirth: "2015-04-10", gender: "male", guardian: { fullName: "Salim Shaikh", phone: "9876500011", relation: "father" }, programInterest: "Qaida", consents },
+      { fullName: "Maryam Shaikh", dateOfBirth: "2017-08-22", gender: "female", guardian: { fullName: "Salim Shaikh", phone: "9876500011", relation: "father" }, programInterest: "Qaida", consents, sibling: true },
+      { fullName: "Zainab Khan", dateOfBirth: "2014-01-15", gender: "female", guardian: { fullName: "Rukhsar Khan", phone: "9876500012", relation: "mother" }, programInterest: "Nazra", consents: { dataProcessing: true, photo: false }, oftenAbsent: true },
+      { fullName: "Ibrahim Patel", dateOfBirth: "2016-06-30", gender: "male", guardian: { fullName: "Yusuf Patel", phone: "9876500013", relation: "father" }, programInterest: "Nazra", consents, behindOnFees: true },
+      { fullName: "Fatima Ansari", dateOfBirth: "1999-02-11", gender: "female", adultPhone: "9876500014", programInterest: "Hifz", consents },
+      { fullName: "Umar Qureshi", dateOfBirth: "2013-11-05", gender: "male", guardian: { fullName: "Nasreen Qureshi", phone: "9876500015", relation: "mother" }, programInterest: "Qaida", consents, paused: true },
+    ];
+  }
   return [
     { fullName: "Aarav Deshmukh", dateOfBirth: "2015-03-12", gender: "male", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
-    { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", gender: "female", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents },
+    { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", gender: "female", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, programInterest: interest, consents, sibling: true },
     { fullName: "Zoya Shaikh", dateOfBirth: "2014-11-20", gender: "female", guardian: { fullName: "Sana Shaikh", phone: "9876500002", relation: "mother" }, programInterest: interest, consents: { dataProcessing: true, photo: false }, oftenAbsent: true },
     { fullName: "Ishaan Patil", dateOfBirth: "2016-01-30", gender: "male", guardian: { fullName: "Vikram Patil", phone: "9876500003", relation: "father" }, programInterest: interest, consents, behindOnFees: true },
     { fullName: "Meher Kaur", dateOfBirth: "1998-05-05", gender: "female", adultPhone: "9876500004", programInterest: interest, consents },
@@ -60,6 +72,17 @@ const days = (weekdays: number[], startTime: string, endTime: string) => weekday
 
 // Early Morning (5:30 AM) is there for Prompt 9's timezone test.
 function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]; batches: DemoBatch[] } {
+  if (vertical === "deeniyat") {
+    return {
+      programs: ["Qaida", "Nazra", "Hifz"],
+      plans: [{ name: "Madrasa Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "30000" }],
+      batches: [
+        { name: "Qaida (Beginners)", program: "Qaida", plan: "Madrasa Monthly", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 2, 3, 4, 6], "17:00", "18:00"), students: ["Ayaan Shaikh", "Maryam Shaikh", "Umar Qureshi"] },
+        { name: "Nazra", program: "Nazra", plan: "Madrasa Monthly", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 2, 3, 4, 6], "18:15", "19:15"), students: ["Zainab Khan", "Ibrahim Patel"] },
+        { name: "Hifz (Morning)", program: "Hifz", plan: "Madrasa Monthly", coach: "owner", capacity: 15, startDate: "2026-06-01", slots: days([0, 1, 2, 3, 4, 6], "06:00", "07:30"), students: ["Fatima Ansari"] },
+      ],
+    };
+  }
   if (vertical === "karate") {
     return {
       programs: ["Karate"],
@@ -111,10 +134,10 @@ async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>): P
 
 // A sibling discount, then last month's and this month's invoices, each made
 // and issued on the 1st as the monthly run would.
-async function seedFees(tx: Tx, ctx: StudentCtx, studentIds: Map<string, string>): Promise<void> {
+async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string): Promise<void> {
   const sibling = await createDiscount(tx, ctx, { name: "Sibling 10%", kind: "percent", value: 10 });
   await createDiscount(tx, ctx, { name: "Scholarship", kind: "percent", value: 100 });
-  await giveDiscount(tx, ctx, studentIds.get("Anaya Deshmukh") ?? "", { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
+  await giveDiscount(tx, ctx, siblingId, { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
   const thisMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
   for (const first of [`${addDays(thisMonth, -1).slice(0, 7)}-01`, thisMonth]) {
     const now = new Date(`${first}T04:00:00Z`);
@@ -200,15 +223,17 @@ export async function seed(): Promise<SeedResult> {
       const families = new Map<string, string>(); // guardian phone -> household id
       const studentIds = new Map<string, string>();
       const toPause: string[] = [];
+      let siblingId = "";
       const behind = new Set<string>(); // household ids
       const oftenAbsent = new Set<string>(); // student ids
-      for (const { paused, behindOnFees, oftenAbsent: absent, ...student } of demoStudents(input.verticalPreset ?? "general")) {
+      for (const { paused, behindOnFees, oftenAbsent: absent, sibling, ...student } of demoStudents(input.verticalPreset ?? "general")) {
         const phone = student.guardian?.phone ?? student.adultPhone ?? "";
         const householdId = families.get(phone);
         const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}) });
         families.set(phone, created.household.id);
         studentIds.set(student.fullName, created.student.id);
         if (paused) toPause.push(created.student.id);
+        if (sibling) siblingId = created.student.id;
         if (behindOnFees) behind.add(created.household.id);
         if (absent) oftenAbsent.add(created.student.id);
       }
@@ -236,7 +261,7 @@ export async function seed(): Promise<SeedResult> {
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
       await seedHistory(tx, sctx, oftenAbsent);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
-      await seedFees(tx, sctx, studentIds);
+      await seedFees(tx, sctx, siblingId);
       await seedPayments(tx, sctx, behind);
       await queueReminders(tx); // what the hourly job would queue now
       await seedEnquiries(tx, sctx, programIds.values().next().value ?? "");

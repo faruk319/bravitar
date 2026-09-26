@@ -113,6 +113,28 @@
   --color-sidebar-ring: var(--color-accent-600);
 }
 
+/*
+ * The accent by academy type (agreed 2026-09-26), from <html data-vertical>.
+ * Status colours never change; each accent was checked against them, which is
+ * why deeniyat is masjid-tile turquoise, not green (green means present).
+ */
+[data-vertical="deeniyat"] {
+  --color-accent-600: #0c6b8a;
+  --color-accent-50: #e7f3f7;
+}
+[data-vertical="karate"] {
+  --color-accent-600: #7f1d1d;
+  --color-accent-50: #fbefef;
+}
+[data-vertical="dance"] {
+  --color-accent-600: #7c3aed;
+  --color-accent-50: #f5f3ff;
+}
+[data-vertical="sports"] {
+  --color-accent-600: #0369a1;
+  --color-accent-50: #f0f9ff;
+}
+
 /* Dark mode ships after V1: add a `.dark` block that re-points these vars. */
 
 @layer base {
