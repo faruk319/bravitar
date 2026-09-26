@@ -5,6 +5,7 @@ import { currentGuardianSession, currentStaffSession } from "@/lib/auth/server";
 import { homeFor, shellFor } from "@/lib/auth/shell";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { slugFromHost } from "@/modules/auth/routes";
+import { PAUSED } from "@/modules/auth/service";
 import { LoginForm } from "./login-form";
 
 // docs/07 §7.9. On an academy's address, that academy; on the main site, the
@@ -21,6 +22,14 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <main className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
         <h1 className="text-display">No academy here</h1>
         <p className="text-body text-muted-foreground">Check the address you were given.</p>
+      </main>
+    );
+  }
+  if (tenant?.status === "suspended") {
+    return (
+      <main className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <h1 className="text-display">{tenant.name}</h1>
+        <p className="text-body text-muted-foreground">{PAUSED}</p>
       </main>
     );
   }

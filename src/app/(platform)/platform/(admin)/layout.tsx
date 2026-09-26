@@ -9,9 +9,17 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
     <div className="min-h-dvh bg-canvas">
       <header className="border-b border-neutral-100 bg-card">
         <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-3 px-4">
-          <Link href="/platform" className="text-heading text-neutral-900">
-            Bravitar platform
-          </Link>
+          <nav className="flex items-center gap-4">
+            <Link href="/platform" className="text-heading text-neutral-900">
+              Bravitar platform
+            </Link>
+            <Link href="/platform" className="text-label text-neutral-700 hover:text-neutral-900">
+              Academies
+            </Link>
+            <Link href="/platform/plans" className="text-label text-neutral-700 hover:text-neutral-900">
+              Plans
+            </Link>
+          </nav>
           <span className="flex items-center gap-2 text-label text-muted-foreground">
             {s.actor.name}
             <SignOutButton variant="ghost" to="/platform/login" />

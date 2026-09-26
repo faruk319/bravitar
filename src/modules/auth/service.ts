@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type AccessContext, assertCan } from "@/lib/auth/can";
+import { type AccessContext, assertCan, ForbiddenError } from "@/lib/auth/can";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/cookie";
 import { dummyPasswordHash, hashPassword, passwordSchema, verifyPassword } from "@/lib/auth/password";
 import { buildSessionContext, type GuardianContext, type SessionContext } from "@/lib/auth/session";
@@ -29,6 +29,8 @@ export const loginSchema = z.object({
 export type LoginInput = z.input<typeof loginSchema>;
 
 const BAD_CREDENTIALS = "Wrong email or password";
+// Suspended from /platform (Prompt 21): data kept, sign-in refused.
+export const PAUSED = "This academy's account is paused. Contact Bravitar support.";
 
 export type Meta = { ip?: string | undefined; userAgent?: string | undefined };
 export type OpenedSession = { token: string; sessionId: string; context: SessionContext };
@@ -77,6 +79,7 @@ export async function openGuardianSession(tx: Tx, guardianId: string, phone: str
 export async function login(input: LoginInput): Promise<OpenedSession> {
   const data = loginSchema.parse(input);
   const tenant = await resolveTenantBySlug(data.slug);
+  if (tenant?.status === "suspended") throw new ForbiddenError(PAUSED);
   if (!tenant || tenant.status !== "active") throw new UnauthorizedError(BAD_CREDENTIALS);
 
   const failures = await withTenant(tenant.id, (tx) => countRecentFailures(tx, tenant.id, data.email, LOGIN_WINDOW_MINUTES));
