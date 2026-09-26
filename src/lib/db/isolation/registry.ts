@@ -43,4 +43,6 @@ export const PLATFORM_TABLES: Record<string, string> = {
   platform_plans: "global reference data; app_runtime has SELECT only, the platform role edits it",
   permissions: "global catalog synced from src/lib/auth/permissions.ts; app_runtime has SELECT only",
   otp_codes: "a phone's login codes, not an academy's; app_runtime has no access, only otp_issue and otp_check (migration 0020)",
+  platform_admins: "Bravitar's own admins; app_runtime has no access, only the platform role (migration 0024)",
+  platform_login_attempts: "sign-in tries on /platform; app_runtime has no access (migration 0024)",
 };

@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { and, asc, inArray, lt, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
@@ -8,7 +8,9 @@ import { addDays, todayIn } from "@/lib/dates";
 import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
+import { createPlatformAdmin } from "@/modules/platform/auth";
 import { ensurePlatformPlans } from "@/modules/platform/repo";
+import { platformAdmins } from "@/modules/platform/schema";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
 import { listRoles } from "@/modules/staff/repo";
@@ -30,6 +32,8 @@ import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy
 
 // Dev-only login for the seeded owners. Never reuse in production.
 const DEMO_PASSWORD = "Demo@1234";
+// Dev-only /platform admin (Prompt 21) and its authenticator setup key.
+const DEV_ADMIN = { email: "admin@bravitar.demo", fullName: "Bravitar Admin", password: "Demo@1234-platform", secret: "JBSWY3DPEHPK3PXP" };
 
 // Demo data for local development. Idempotent by natural key (plan code,
 // tenant slug): inserts what is missing, never updates what is there.
@@ -195,6 +199,9 @@ export type SeedResult = { plansCreated: string[]; tenantsCreated: string[]; ten
 
 export async function seed(): Promise<SeedResult> {
   const plansCreated = await withPlatformAdmin({ action: "seed.plans", actorType: "system" }, ensurePlatformPlans);
+  const [admin] = await platformRead((tx) => tx.select({ id: platformAdmins.id }).from(platformAdmins).where(eq(platformAdmins.email, DEV_ADMIN.email)));
+  if (!admin) await createPlatformAdmin(DEV_ADMIN, { secret: DEV_ADMIN.secret });
+  console.log(`seed: /platform admin ${DEV_ADMIN.email} / ${DEV_ADMIN.password}, authenticator key ${DEV_ADMIN.secret} (dev only)`);
   const result: SeedResult = { plansCreated, tenantsCreated: [], tenantsPresent: [] };
 
   for (const { resource, coach, extraBranch, ...input } of DEMO_TENANTS) {

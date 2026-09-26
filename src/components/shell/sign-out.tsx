@@ -6,7 +6,7 @@ import { syncNow } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { queue } from "@/lib/offline/queue";
 
-export function SignOutButton({ variant = "outline" }: { variant?: "outline" | "ghost" }) {
+export function SignOutButton({ variant = "outline", to = "/login" }: { variant?: "outline" | "ghost"; to?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
@@ -27,7 +27,7 @@ export function SignOutButton({ variant = "outline" }: { variant?: "outline" | "
           // Cached rosters hold student names.
           await queue.clear().catch(() => {});
           await caches?.delete("bravitar-pages").catch(() => false);
-          router.replace("/login");
+          router.replace(to);
           router.refresh();
         }}
       >

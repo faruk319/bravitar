@@ -7,8 +7,8 @@ import { SESSION_COOKIE } from "@/lib/auth/cookie";
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // Invite links and a family's private receipt (/r/) or invoice (/i/) links carry their own token.
-  const open = pathname === "/login" || pathname === "/" || ["/login/", "/invite/", "/r/", "/i/"].some((p) => pathname.startsWith(p));
-  if (!open && !req.cookies.has(SESSION_COOKIE)) return NextResponse.redirect(new URL("/login", req.url));
+  const open = pathname === "/login" || pathname === "/" || pathname === "/platform/login" || ["/login/", "/invite/", "/r/", "/i/"].some((p) => pathname.startsWith(p));
+  if (!open && !req.cookies.has(SESSION_COOKIE)) return NextResponse.redirect(new URL(pathname.startsWith("/platform") ? "/platform/login" : "/login", req.url));
   return NextResponse.next();
 }
 

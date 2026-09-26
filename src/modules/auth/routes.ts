@@ -1,7 +1,8 @@
 import { clearSessionCookieHeader, readSessionCookie, sessionCookieHeader } from "@/lib/auth/cookie";
 import { json, jsonError, readJson, scopedCtx, withStaffRequest } from "@/lib/auth/route";
-import { getGuardianSessionFromToken, getStaffSessionFromToken } from "@/lib/auth/session";
+import { getGuardianSessionFromToken, getPlatformSessionFromToken, getStaffSessionFromToken } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
+import { platformLogout } from "@/modules/platform/auth";
 import { requestPortalCode, verifyPortalCode } from "./guardian";
 import { requestReset, resetPassword } from "./reset";
 import { login, logout, redeemHandoff, setOwnPhone, signIn } from "./service";
@@ -16,7 +17,7 @@ export function slugFromHost(host: string | null, appDomain = getEnv().APP_DOMAI
   return slug && !slug.includes(".") ? slug : undefined;
 }
 
-const metaOf = (req: Request) => {
+export const metaOf = (req: Request) => {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const userAgent = req.headers.get("user-agent") ?? undefined;
   return { ...(ip ? { ip } : {}), ...(userAgent ? { userAgent } : {}) };
@@ -33,12 +34,14 @@ export async function loginHandler(req: Request): Promise<Response> {
   }
 }
 
-// Ends this address's session, a staff member's or a guardian's.
+// Ends this address's session: a staff member's, a guardian's or yours on /platform.
 export async function logoutHandler(req: Request): Promise<Response> {
   try {
     const token = readSessionCookie(req);
     const session = token ? ((await getStaffSessionFromToken(token)) ?? (await getGuardianSessionFromToken(token))) : undefined;
     if (session) await logout(session.tenant.id, session.sessionId, { actorType: session.actor.type, actorId: session.actor.id });
+    const platform = token && !session ? await getPlatformSessionFromToken(token) : undefined;
+    if (platform) await platformLogout(platform.sessionId, platform.actor.id);
     return json({ ok: true }, { headers: { "set-cookie": clearSessionCookieHeader() } });
   } catch (err) {
     return jsonError(err);

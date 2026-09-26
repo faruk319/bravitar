@@ -1,8 +1,10 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { readSessionCookie } from "@/lib/auth/cookie";
 import { hashToken } from "@/lib/auth/token";
 import { db, type Tx } from "@/lib/db/client";
+import { platformRead } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { platformAdmins } from "@/modules/platform/schema";
 import { setCachedContext } from "@/modules/auth/repo";
 import { getStaff, staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
@@ -53,11 +55,15 @@ type LookupRow = {
   revoked_at: Date | null;
 };
 
-async function liveSession(token: string, actorType: "staff" | "guardian"): Promise<(LookupRow & { tenant_id: string }) | undefined> {
+async function liveRow(token: string, actorType: "staff" | "guardian" | "platform"): Promise<LookupRow | undefined> {
   const [row] = await db.execute<LookupRow>(sql`SELECT * FROM app.session_by_token_hash(${hashToken(token)})`);
-  if (!row || row.actor_type !== actorType || !row.tenant_id) return undefined;
-  if (row.revoked_at || new Date(row.expires_at).getTime() <= Date.now()) return undefined;
-  return { ...row, tenant_id: row.tenant_id };
+  if (!row || row.actor_type !== actorType || row.revoked_at || new Date(row.expires_at).getTime() <= Date.now()) return undefined;
+  return row;
+}
+
+async function liveSession(token: string, actorType: "staff" | "guardian"): Promise<(LookupRow & { tenant_id: string }) | undefined> {
+  const row = await liveRow(token, actorType);
+  return row?.tenant_id ? { ...row, tenant_id: row.tenant_id } : undefined;
 }
 
 // Cookie -> live session, or undefined.
@@ -91,4 +97,14 @@ export async function getGuardianSessionFromToken(token: string): Promise<Guardi
   const context = row.cached_context as GuardianContext;
   const guardian = await withTenant(row.tenant_id, (tx) => getGuardian(tx, row.actor_id));
   return guardian?.canLogin ? { sessionId: row.id, ...context, actor: { ...context.actor, name: guardian.fullName } } : undefined;
+}
+
+// You, in /platform (Prompt 21): no academy. The admin is re-read every time.
+export type PlatformSession = { sessionId: string; actor: { type: "platform"; id: string; name: string } };
+
+export async function getPlatformSessionFromToken(token: string): Promise<PlatformSession | undefined> {
+  const row = await liveRow(token, "platform");
+  if (!row || row.tenant_id) return undefined;
+  const [admin] = await platformRead((tx) => tx.select({ id: platformAdmins.id, name: platformAdmins.fullName }).from(platformAdmins).where(and(eq(platformAdmins.id, row.actor_id), eq(platformAdmins.isActive, true))));
+  return admin ? { sessionId: row.id, actor: { type: "platform", id: admin.id, name: admin.name } } : undefined;
 }
