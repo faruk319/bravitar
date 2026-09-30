@@ -2,8 +2,8 @@ import { bigint, boolean, date, integer, pgSchema, smallint, text, timestamp, uu
 import { platformAdmins } from "@/modules/platform/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0026_activity_billing.sql, 0027_activity_plans.sql and
-// 0028_billing_invoices.sql.
+// Mirrors migrations/0026_activity_billing.sql, 0027_activity_plans.sql,
+// 0028_billing_invoices.sql and 0029_module_catalog.sql.
 // What an academy pays Bravitar, per activity per branch; shares no tables
 // with what academies charge students.
 const app = pgSchema("app");
@@ -14,13 +14,15 @@ export const activities = app.table("activities", {
   key: text("key").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  icon: text("icon").notNull(), // one of ACTIVITY_ICONS (src/lib/activities.ts)
   status: text("status", { enum: ACTIVITY_STATUSES }).notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Starter, Growth…: a price and optional limits (null = no limit). Owners pick
-// offered plans; the platform may use any.
+// offered plans; the platform may use any. The default one (offered, one per
+// module) is used when none is picked.
 export const activityPlans = app.table("activity_plans", {
   id: uuid("id").primaryKey(),
   activityKey: text("activity_key").notNull().references(() => activities.key),
@@ -30,6 +32,7 @@ export const activityPlans = app.table("activity_plans", {
   maxStaff: integer("max_staff"),
   billingInterval: text("billing_interval", { enum: ["month"] }).notNull().default("month"),
   isOffered: boolean("is_offered").notNull().default(true),
+  isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

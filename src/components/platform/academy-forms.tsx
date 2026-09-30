@@ -185,7 +185,7 @@ export function ModulesForm({ academyId, modules }: { academyId: string; modules
       </div>
       <div className="flex items-center gap-3">
         <Button type="submit" variant="outline" disabled={s.busy}>
-          Save modules
+          Save features
         </Button>
         <Feedback error={s.error} done={s.done} />
       </div>
@@ -215,27 +215,36 @@ export function AccessForm({ academyId, suspended }: { academyId: string; suspen
   );
 }
 
-export type ActivityRowData = { key: string; name: string; description: string; status: string };
+export type ActivityRowData = { key: string; name: string; description: string; icon: string; status: string };
 
-// One activity in the catalog: its name and whether academies can have it.
-export function ActivityRow({ a, statuses }: { a: ActivityRowData; statuses: Option[] }) {
+// One module in the catalog: its name, icon and whether academies can have it.
+export function ActivityRow({ a, statuses, icons }: { a: ActivityRowData; statuses: Option[]; icons: Option[] }) {
   const s = useSave();
   const [initial] = useState(a); // after a save the fields already hold what was saved
   const id = (f: string) => `${a.key}-${f}`;
   return (
     <form
-      className="grid grid-cols-2 items-end gap-2 pb-3 md:grid-cols-[1fr_2fr_9rem_auto]"
+      className="grid grid-cols-2 items-end gap-2 pb-3 md:grid-cols-[1fr_2fr_10rem_9rem_auto]"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        void s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), status: f.get("status") });
+        void s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), icon: f.get("icon"), status: f.get("status") });
       }}
     >
-      <Field label="Activity" id={id("name")}>
+      <Field label="Module" id={id("name")}>
         <Input id={id("name")} name="name" defaultValue={initial.name} />
       </Field>
       <Field label="Description" id={id("description")}>
         <Input id={id("description")} name="description" defaultValue={initial.description} />
+      </Field>
+      <Field label="Icon" id={id("icon")}>
+        <select id={id("icon")} name="icon" defaultValue={initial.icon} className={selectClass}>
+          {icons.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Status" id={id("status")}>
         <select id={id("status")} name="status" defaultValue={initial.status} className={selectClass}>
@@ -259,7 +268,7 @@ export function ActivityRow({ a, statuses }: { a: ActivityRowData; statuses: Opt
 }
 
 export type PlanValues = { name: string; price: string; maxStudents: string; maxStaff: string; isOffered: boolean };
-export type PlanRowData = PlanValues & { id: string; used: string; changes: string[] };
+export type PlanRowData = PlanValues & { id: string; isDefault: boolean; used: string; changes: string[] };
 
 const PLAN_GRID = "grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_7rem_7rem_7rem_1fr_7rem]";
 const planBody = (f: FormData) => ({ name: f.get("name"), price: f.get("price"), maxStudents: f.get("maxStudents"), maxStaff: f.get("maxStaff"), isOffered: f.get("isOffered") === "on" });
@@ -308,12 +317,26 @@ export function PlanRow({ p }: { p: PlanRowData }) {
       <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
         Save
       </Button>
-      <div className="col-span-full flex flex-wrap items-baseline gap-x-3">
+      <div className="col-span-full flex flex-wrap items-center gap-x-3">
+        {p.isDefault ? <span className="rounded-full bg-accent-50 px-2.5 py-0.5 text-label text-accent-600">Default</span> : p.isOffered ? <MakeDefault planId={p.id} /> : null}
         <p className="text-caption text-muted-foreground">{p.used}</p>
         <Feedback error={s.error} done={s.done} />
         {p.changes.length ? <p className="text-caption text-muted-foreground">{p.changes.join(" · ")}</p> : null}
       </div>
     </form>
+  );
+}
+
+// The plan a new start of its module gets when none is picked.
+function MakeDefault({ planId }: { planId: string }) {
+  const s = useSave();
+  return (
+    <>
+      <Button type="button" variant="ghost" size="sm" disabled={s.busy} onClick={() => void s.save(`/api/platform/plans/${planId}/default`, "POST", {})}>
+        Make default
+      </Button>
+      <Feedback error={s.error} done={false} />
+    </>
   );
 }
 

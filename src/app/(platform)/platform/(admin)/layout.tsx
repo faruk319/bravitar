@@ -16,8 +16,8 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
             <Link href="/platform" className="text-label text-neutral-700 hover:text-neutral-900">
               Academies
             </Link>
-            <Link href="/platform/activities" className="text-label text-neutral-700 hover:text-neutral-900">
-              Activities
+            <Link href="/platform/modules" className="text-label text-neutral-700 hover:text-neutral-900">
+              Modules & pricing
             </Link>
           </nav>
           <span className="flex items-center gap-2 text-label text-muted-foreground">

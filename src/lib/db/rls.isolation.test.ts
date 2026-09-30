@@ -1,4 +1,4 @@
-import { sql as q } from "drizzle-orm";
+import { eq, sql as q } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assertDatabaseSafety } from "@/lib/db/assert-safe";
 import { db, sql as runtimeSql } from "@/lib/db/client";
@@ -235,9 +235,18 @@ describe("activities and their plans", () => {
     const rows = await withTenant(A, (tx) => tx.select({ key: activities.key }).from(activities));
     expect(rows.map((r) => r.key)).toContain("karate");
     expect((await withTenant(A, (tx) => tx.select({ id: activityPlans.id }).from(activityPlans))).length).toBeGreaterThan(0);
-    await expect(withTenant(A, (tx) => tx.insert(activities).values({ key: "free", name: "Free" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(withTenant(A, (tx) => tx.insert(activities).values({ key: "free", name: "Free", icon: "shapes" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
     await expect(withTenant(A, (tx) => tx.update(activities).set({ name: "Changed" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
     await expect(withTenant(A, (tx) => tx.update(activityPlans).set({ pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+  });
+
+  // Modules come from the code registry and migrations only (migration 0029).
+  it("can't be added, removed or re-keyed by the platform, which only edits names, icons and status", async () => {
+    const karate = eq(activities.key, "karate");
+    await expect(platformDb.insert(activities).values({ key: "free", name: "Free", icon: "shapes" })).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(platformDb.delete(activities).where(karate)).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(platformDb.update(activities).set({ key: "kick" }).where(karate)).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await platformDb.update(activities).set({ name: q`name`, icon: q`icon`, status: q`status` }).where(karate); // allowed; changes nothing
   });
 });
 

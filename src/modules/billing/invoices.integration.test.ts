@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { addTestActivities, removeTestActivities, testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -19,7 +19,7 @@ import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { runBillingRenew } from "./job";
 import { getBillingSettings } from "./repo";
-import { type ActivitySubscription, activities, activityPlans, activitySubscriptions, type BillingSettings, billingInvoices } from "./schema";
+import { type ActivitySubscription, activityPlans, activitySubscriptions, type BillingSettings, billingInvoices } from "./schema";
 import { changePlan, setCancelAtPeriodEnd, startActivity } from "./service";
 
 // Bravitar's bills (agreed 2026-09-30): monthly in advance, one per activity in
@@ -28,7 +28,7 @@ import { changePlan, setCancelAtPeriodEnd, startActivity } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const ME = { actorType: "platform" as const };
-const KEY = `inv-${stamp}`;
+const KEY = `test-inv-${stamp}` as const;
 const D0 = "2026-01-31";
 const plan = { paid: "", cheap: "", zero: "", trial: "" };
 let subs: Record<"paid" | "zero" | "down" | "drop" | "cancel", ActivitySubscription>;
@@ -66,7 +66,7 @@ const auditOf = (action: string, entityId: string) =>
 
 beforeAll(async () => {
   settings = await platformRead(getBillingSettings);
-  await platformDb.insert(activities).values({ key: KEY, name: "Test lessons" });
+  await addTestActivities([{ key: KEY, name: "Test lessons" }]);
   plan.paid = await makePlan(KEY, "Paid", 50_000n);
   plan.cheap = await makePlan(KEY, "Cheap", 20_000n, 0);
   plan.zero = await makePlan(KEY, "Zero", 0n);
@@ -105,7 +105,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await deleteTenantsCompletely([A, T].filter(Boolean));
   await platformDb.delete(activityPlans).where(inArray(activityPlans.id, Object.values(plan).filter(Boolean)));
-  await platformDb.delete(activities).where(eq(activities.key, KEY));
+  await removeTestActivities([KEY]);
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
 });

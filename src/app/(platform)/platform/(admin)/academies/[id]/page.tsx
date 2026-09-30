@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ActivityIcon } from "@/components/activity-icon";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -79,6 +80,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                     <div key={s.id} className="mt-2 flex flex-col gap-1">
                       <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
                         <span>
+                          <ActivityIcon name={s.activityIcon} className="mr-1.5 inline size-4 align-[-2px] text-accent-600" />
                           {s.activityName} · {s.plan.name}{" "}
                           <span className={s.status === "paused" || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
                             · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {stateOf(s)}
@@ -128,7 +130,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
           )}
         </Card>
         <Card>
-          <CardHeader title="Modules" />
+          <CardHeader title="Features" />
           <ModulesForm academyId={a.id} modules={MODULES.filter((m) => m !== "core").map((m) => ({ key: m, label: words(m), on: a.modules[m] !== false }))} />
         </Card>
         <Card>

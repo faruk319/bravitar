@@ -43,6 +43,15 @@ export async function listPlans(tx: AnyTx, activityKey?: string): Promise<Activi
     .orderBy(asc(activityPlans.pricePaise), asc(activityPlans.name));
 }
 
+// The plan a new start gets when none is picked.
+export async function defaultPlan(tx: AnyTx, activityKey: string): Promise<ActivityPlan | undefined> {
+  const [row] = await tx
+    .select()
+    .from(activityPlans)
+    .where(and(eq(activityPlans.activityKey, activityKey), eq(activityPlans.isDefault, true)));
+  return row;
+}
+
 export async function getPlan(tx: AnyTx, id: string): Promise<ActivityPlan | undefined> {
   const [row] = await tx.select().from(activityPlans).where(eq(activityPlans.id, id));
   return row;
@@ -82,7 +91,7 @@ export async function updateSubscription(tx: PlatformTx, id: string, patch: Part
   await tx.update(activitySubscriptions).set(patch).where(eq(activitySubscriptions.id, id));
 }
 
-export type SubscriptionRow = ActivitySubscription & { activityName: string; branchName: string; plan: ActivityPlan; nextPlanName: string | null };
+export type SubscriptionRow = ActivitySubscription & { activityName: string; activityIcon: string; branchName: string; plan: ActivityPlan; nextPlanName: string | null };
 
 const nextPlan = alias(activityPlans, "next_plan");
 
@@ -90,7 +99,7 @@ const nextPlan = alias(activityPlans, "next_plan");
 // its policies narrow this to that academy.
 export async function liveSubscriptions(tx: AnyTx, opts: { tenantIds?: string[] } = {}): Promise<SubscriptionRow[]> {
   const rows = await tx
-    .select({ s: activitySubscriptions, activityName: activities.name, branchName: branches.name, plan: activityPlans, nextPlanName: nextPlan.name })
+    .select({ s: activitySubscriptions, activityName: activities.name, activityIcon: activities.icon, branchName: branches.name, plan: activityPlans, nextPlanName: nextPlan.name })
     .from(activitySubscriptions)
     .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
     .innerJoin(branches, eq(branches.id, activitySubscriptions.branchId))
@@ -98,7 +107,7 @@ export async function liveSubscriptions(tx: AnyTx, opts: { tenantIds?: string[] 
     .leftJoin(nextPlan, eq(nextPlan.id, activitySubscriptions.nextPlanId))
     .where(and(ne(activitySubscriptions.status, "cancelled"), opts.tenantIds ? inArray(activitySubscriptions.tenantId, opts.tenantIds) : undefined))
     .orderBy(asc(branches.createdAt), asc(activities.name));
-  return rows.map((r) => ({ ...r.s, activityName: r.activityName, branchName: r.branchName, plan: r.plan, nextPlanName: r.nextPlanName }));
+  return rows.map((r) => ({ ...r.s, activityName: r.activityName, activityIcon: r.activityIcon, branchName: r.branchName, plan: r.plan, nextPlanName: r.nextPlanName }));
 }
 
 // The activities an academy has on, in any branch or in one.

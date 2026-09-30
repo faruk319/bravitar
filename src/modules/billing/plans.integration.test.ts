@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { addTestActivities, removeTestActivities, testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -16,7 +16,7 @@ import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { listPlans, liveSubscriptions } from "./repo";
-import { activities, activityPlans, planPriceHistory } from "./schema";
+import { activityPlans, planPriceHistory } from "./schema";
 import { changePlan, editPlan, startActivity } from "./service";
 
 // Plans inside an activity (agreed 2026-09-30): a new price is for new
@@ -25,8 +25,8 @@ import { changePlan, editPlan, startActivity } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const ME = { actorType: "platform" as const };
-const KEY = `plans-${stamp}`;
-const BARE = `bare-${stamp}`;
+const KEY = `test-plans-${stamp}` as const;
+const BARE = `test-bare-${stamp}` as const;
 const plan = { small: "", big: "", hidden: "", bare: "", seats: "" };
 let A = "";
 let C = "";
@@ -42,9 +42,11 @@ let yStaff = "";
 const batch = { one: "", two: "", other: "" };
 const student: string[] = [];
 
-const makePlan = async (activityKey: string, name: string, v: { price: bigint; students?: number; staff?: number; offered?: boolean }) => {
+const makePlan = async (activityKey: string, name: string, v: { price: bigint; students?: number; staff?: number; offered?: boolean; isDefault?: boolean }) => {
   const id = uuidv7();
-  await platformDb.insert(activityPlans).values({ id, activityKey, name, pricePaise: v.price, maxStudents: v.students ?? null, maxStaff: v.staff ?? null, isOffered: v.offered ?? true });
+  await platformDb
+    .insert(activityPlans)
+    .values({ id, activityKey, name, pricePaise: v.price, maxStudents: v.students ?? null, maxStaff: v.staff ?? null, isOffered: v.offered ?? true, isDefault: v.isDefault ?? false });
   return id;
 };
 const start = (tenantId: string, branchId: string, activityKey: string, planId?: string) =>
@@ -60,11 +62,11 @@ const join = async (as: ScopedCtx, i: number, batchId: string) => (await withTen
 const leave = (enrollmentId: string) => withTenant(A, (tx) => leaveEnrollment(tx, owner, enrollmentId));
 
 beforeAll(async () => {
-  await platformDb.insert(activities).values([
+  await addTestActivities([
     { key: KEY, name: "Test activity" },
     { key: BARE, name: "Test bare" },
   ]);
-  plan.small = await makePlan(KEY, "Small", { price: 30_000n, students: 2, staff: 1 });
+  plan.small = await makePlan(KEY, "Small", { price: 30_000n, students: 2, staff: 1, isDefault: true });
   plan.big = await makePlan(KEY, "Big", { price: 60_000n });
   plan.hidden = await makePlan(KEY, "Hidden", { price: 10_000n, offered: false });
   plan.bare = await makePlan(BARE, "Bare", { price: 0n, offered: false });
@@ -95,7 +97,7 @@ afterAll(async () => {
   const ids = (await platformDb.select({ id: activityPlans.id }).from(activityPlans).where(inArray(activityPlans.activityKey, [KEY, BARE]))).map((p) => p.id);
   if (ids.length) await platformDb.delete(planPriceHistory).where(inArray(planPriceHistory.planId, ids));
   await platformDb.delete(activityPlans).where(inArray(activityPlans.id, [...ids, plan.seats].filter(Boolean)));
-  await platformDb.delete(activities).where(inArray(activities.key, [KEY, BARE]));
+  await removeTestActivities([KEY, BARE]);
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
 });
@@ -142,7 +144,7 @@ describe("changing plan", () => {
 describe("a plan's price and limits", () => {
   it("a new price is for new subscriptions only, and each change is kept", async () => {
     await editPlan(ME, plan.small, { name: "Small", price: "350", maxStudents: "2", maxStaff: "1", isOffered: true, reason: "New year" });
-    const third = await start(A, await branch(A, "Third"), KEY); // the cheapest on offer: Hidden is cheaper but not offered
+    const third = await start(A, await branch(A, "Third"), KEY); // the default plan
     expect(third).toMatchObject({ planId: plan.small, pricePaise: 35_000n });
     expect((await subOf(A, second))?.pricePaise).toBe(30_000n);
     expect(await platformRead((tx) => tx.select().from(planPriceHistory).where(eq(planPriceHistory.planId, plan.small)))).toMatchObject([{ oldPaise: 30_000n, newPaise: 35_000n, reason: "New year" }]);

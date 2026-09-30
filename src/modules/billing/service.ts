@@ -1,9 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { type AuditEntry, writeAudit } from "@/lib/db/audit";
 import { type PlatformTx, platformRead, withPlatformAdmin } from "@/lib/db/platform";
 import { addDays, nextMonthOn } from "@/lib/dates";
 import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { ACTIVITY_ICONS } from "@/lib/activities";
 import { uuidv7 } from "@/lib/ids";
 import { financialYear } from "@/lib/money/fy";
 import { parseRupees, percent } from "@/lib/money/paise";
@@ -11,6 +12,7 @@ import { students } from "./access";
 import {
   activityStudentCounts,
   allocateInvoiceNumber,
+  defaultPlan,
   getActivity,
   getBillingSettings,
   getPlan,
@@ -54,14 +56,14 @@ export function effectivePrice(s: Pick<ActivitySubscription, "pricePaise" | "ove
 
 export type StartInput = { tenantId: string; branchId: string; activityKey: string; planId?: string | undefined; today: string; trial: boolean };
 
-// On the given plan, else the cheapest one on offer, at its price today. Only
+// On the given plan, else the module's default one, at its price today. Only
 // an academy's first activity in its first branch gets the trial; any other
 // start bills its first month at once.
 export async function startActivity(tx: PlatformTx, input: StartInput): Promise<ActivitySubscription> {
   const activity = await getActivity(tx, input.activityKey);
   if (!activity) throw new NotFoundError("Activity");
   if (activity.status !== "active") throw new ConflictError(`${activity.name} isn't available yet`);
-  const plan = input.planId ? await getPlan(tx, input.planId) : (await listPlans(tx, activity.key)).find((p) => p.isOffered);
+  const plan = input.planId ? await getPlan(tx, input.planId) : await defaultPlan(tx, activity.key);
   if (!plan || plan.activityKey !== activity.key) throw input.planId ? new NotFoundError("Plan") : new ConflictError(`${activity.name} has no plan on offer`);
   const periodEnd = input.trial ? addDays(input.today, (await getBillingSettings(tx)).trialDays) : input.today;
   const created = await insertSubscription(tx, {
@@ -248,7 +250,7 @@ export async function changePlan(actor: Actor, subscriptionId: string, planId: s
   });
 }
 
-// ---- the catalog and settings, in /platform/activities
+// ---- the catalog and settings, in /platform/modules
 
 const optionalText = (max: number) =>
   z
@@ -261,6 +263,7 @@ const optionalText = (max: number) =>
 export const activityEditSchema = z.object({
   name: z.string().trim().min(2).max(60),
   description: optionalText(200),
+  icon: z.enum(ACTIVITY_ICONS),
   status: z.enum(ACTIVITY_STATUSES),
 });
 
@@ -269,7 +272,7 @@ export async function editActivity(actor: Actor, key: string, input: z.input<typ
   await withPlatformAdmin({ ...actor, action: "activity.edit", entityType: "activity", after: { key, ...d } }, async (tx, audit) => {
     const [before] = await tx.select().from(activities).where(eq(activities.key, key));
     if (!before) throw new NotFoundError("Activity");
-    audit.before = { key, name: before.name, description: before.description, status: before.status };
+    audit.before = { key, name: before.name, description: before.description, icon: before.icon, status: before.status };
     await tx.update(activities).set({ ...d, updatedAt: new Date() }).where(eq(activities.key, key));
   });
 }
@@ -322,6 +325,7 @@ export async function editPlan(actor: Actor, planId: string, input: z.input<type
   await withPlatformAdmin({ ...actor, action: "activity_plan.edit", entityType: "activity_plan", entityId: planId, after: planAudit(values) }, async (tx, audit) => {
     const [before] = await tx.select().from(activityPlans).where(eq(activityPlans.id, planId)).for("update");
     if (!before) throw new NotFoundError("Plan");
+    if (before.isDefault && !d.isOffered) throw new ConflictError(`${before.name} is the default plan: make another one the default first`);
     audit.before = planAudit(before);
     if (before.pricePaise !== d.price) {
       await tx.insert(planPriceHistory).values({ planId, oldPaise: before.pricePaise, newPaise: d.price, reason: d.reason, changedBy: actor.actorType === "platform" ? (actor.actorId ?? null) : null });
@@ -331,6 +335,20 @@ export async function editPlan(actor: Actor, planId: string, input: z.input<type
       .set({ ...values, updatedAt: new Date() })
       .where(eq(activityPlans.id, planId))
       .catch(nameTaken(d.name));
+  });
+}
+
+// The plan a new start gets when none is picked: one per module, on offer.
+export async function setDefaultPlan(actor: Actor, planId: string): Promise<void> {
+  await withPlatformAdmin({ ...actor, action: "activity_plan.default", entityType: "activity_plan", entityId: planId }, async (tx, audit) => {
+    const [plan] = await tx.select().from(activityPlans).where(eq(activityPlans.id, planId)).for("update");
+    if (!plan) throw new NotFoundError("Plan");
+    if (!plan.isOffered) throw new ConflictError(`Offer ${plan.name} before making it the default`);
+    const was = await defaultPlan(tx, plan.activityKey);
+    audit.before = { defaultPlanId: was?.id ?? null };
+    const now = new Date();
+    await tx.update(activityPlans).set({ isDefault: false, updatedAt: now }).where(and(eq(activityPlans.activityKey, plan.activityKey), eq(activityPlans.isDefault, true)));
+    await tx.update(activityPlans).set({ isDefault: true, updatedAt: now }).where(eq(activityPlans.id, planId));
   });
 }
 
@@ -366,10 +384,11 @@ export async function editBillingSettings(actor: Actor, input: z.input<typeof se
   });
 }
 
-// Offered first, each cheapest first: for pickers.
+// For pickers: each module's default first, then the others on offer, then
+// the hidden ones, each cheapest first.
 export async function allPlans(): Promise<ActivityPlan[]> {
   const plans = await platformRead((tx) => listPlans(tx));
-  return [...plans.filter((p) => p.isOffered), ...plans.filter((p) => !p.isOffered)];
+  return [...plans.filter((p) => p.isDefault), ...plans.filter((p) => p.isOffered && !p.isDefault), ...plans.filter((p) => !p.isOffered)];
 }
 
 export type CatalogPlan = ActivityPlan & { branches: number; changes: PriceChange[] };

@@ -40,7 +40,7 @@ export const fixtures: IsolationFixtures = {
 // reason; anything else without tenant_id fails the suite.
 export const PLATFORM_TABLES: Record<string, string> = {
   tenants: "the tenant itself; app_runtime is limited to its own row by policy tenant_self",
-  activities: "Bravitar's activity catalog and prices; app_runtime has SELECT only, the platform role edits it (migration 0026)",
+  activities: "the modules Bravitar sells, from the code registry and migrations only; app_runtime has SELECT only, the platform role may edit name, description, icon and status (migrations 0026, 0029)",
   activity_plans: "each activity's plans, prices and limits; app_runtime has SELECT only, the platform role edits them (migration 0027)",
   plan_price_history: "past plan prices; app_runtime has no access (migrations 0026, 0027)",
   billing_invoice_series: "Bravitar's bill numbers, one series for all academies; app_runtime has no access (migration 0028)",

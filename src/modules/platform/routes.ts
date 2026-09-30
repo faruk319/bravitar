@@ -3,7 +3,7 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
-import { addPlan, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd } from "@/modules/billing/service";
+import { addPlan, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan } from "@/modules/billing/service";
 import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
@@ -50,7 +50,7 @@ export const academyHandler = withPlatformRequest(async (req, actor) => {
 // POST /api/platform/academies/<id>/invite: a new link for the owner.
 export const ownerInviteHandler = withPlatformRequest(async (req, actor) => json({ inviteUrl: await ownerInvite(actor, pathSegment(req, 3)) }));
 
-// PATCH /api/platform/activities/<key>: name, description, status.
+// PATCH /api/platform/activities/<key>: name, description, icon, status.
 export const activityHandler = withPlatformRequest(async (req, actor) => {
   await editActivity(actor, pathSegment(req, 3), await readJson(req));
   return json({ ok: true });
@@ -62,6 +62,12 @@ export const addPlanHandler = withPlatformRequest(async (req, actor) => json({ i
 // PATCH /api/platform/plans/<id>: name, price, limits, offered.
 export const planHandler = withPlatformRequest(async (req, actor) => {
   await editPlan(actor, pathSegment(req, 3), await readJson(req));
+  return json({ ok: true });
+});
+
+// POST /api/platform/plans/<id>/default: its module's plan when none is picked.
+export const defaultPlanHandler = withPlatformRequest(async (req, actor) => {
+  await setDefaultPlan(actor, pathSegment(req, 3));
   return json({ ok: true });
 });
 
