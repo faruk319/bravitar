@@ -34,27 +34,28 @@ Read `docs/00-product-brief.md` before your first task in a new area.
 
 ```
 src/
-  app/                      # Next.js routes
-    (platform)/             # super-admin area
-    (tenant)/               # academy staff area
-    (portal)/               # parent/student portal
-    api/
-  modules/                  # one folder per business module
-    <module>/
-      schema.ts             # Drizzle table definitions
-      repo.ts               # data access, all queries live here
-      service.ts            # business logic
-      routes.ts             # HTTP handlers
-      <module>.test.ts
+  app/                      # Next.js routes only
+    (tenant)/ (portal)/ (platform)/ (auth)/ (public)/
+    api/**/route.ts         # re-exports a handler from modules/<feature>/routes.ts
+  modules/<feature>/        # one folder per business feature (NestJS-style)
+    schema.ts               # Drizzle table definitions
+    repo.ts                 # data access, all queries live here
+    service.ts              # business logic and zod input schemas
+    routes.ts               # HTTP handlers
+    job.ts isolation.ts *.integration.test.ts
   lib/
-    db/                     # connection, RLS session helper, migrations runner
-    auth/
-    money/                  # paise helpers, never floats
-    tenant/                 # tenant context resolution
-  components/
+    db/                     # connections, RLS session helper, migrations runner, isolation suite
+    auth/ money/ tenant/ jobs/ crypto/
+    activities.ts           # the module registry (Karate, Swimming…)
+  components/               # ui/ is shadcn; the rest mirrors modules
+  proxy.ts instrumentation.ts worker.ts
 docs/                       # specs — read these, don't guess
 migrations/                 # numbered .sql files, append-only
 ```
+
+An activity (Karate, Swimming…) gets a folder only with its first feature of its own:
+`modules/<activity>/` if only it uses it, else named after the feature (e.g. `progression/`).
+The full map for developers is in README.md "Folder structure".
 
 ## Non-negotiable rules
 
