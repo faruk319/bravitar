@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AccessForm, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
+import { InvoiceStatus } from "@/components/fees/invoice-status";
+import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
-import { formatDate, todayIn } from "@/lib/dates";
+import { addDays, formatDate, formatDayMonth, todayIn } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
 import { tenantOrigin } from "@/lib/tenant/origin";
@@ -14,9 +15,10 @@ import { academyDetail, type BranchActivity } from "@/modules/platform/academies
 const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_", " ");
 
 function stateOf(s: BranchActivity): string {
-  if (s.status === "trial") return `Trial until ${formatDate(s.periodEnd)}`;
-  if (s.status === "paused") return "Paused";
-  return s.cancelAtPeriodEnd ? `Ends ${formatDate(s.periodEnd)}` : `Next bill ${formatDate(s.periodEnd)}`;
+  const when = formatDate(s.periodEnd);
+  if (s.cancelAtPeriodEnd) return `${s.status === "paused" ? "Paused · ends" : "Ends"} ${when}`;
+  if (s.status === "trial") return `Trial until ${when}`;
+  return s.status === "paused" ? "Paused" : `Next bill ${when}`;
 }
 
 // More students than the plan allows (its limit was lowered): nobody is removed.
@@ -85,7 +87,10 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                         <span className="tabular-nums">{formatPaise(effectivePrice(s, today))}/month</span>
                       </p>
                       {s.nextPlanName ? <p className="text-caption text-muted-foreground">Moves to {s.nextPlanName} on {formatDate(s.periodEnd)}</p> : null}
-                      <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
+                        <CancelAtPeriodEnd subscriptionId={s.id} cancelling={s.cancelAtPeriodEnd} />
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -94,6 +99,33 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
               </li>
             ))}
           </ul>
+        </Card>
+        <Card>
+          <CardHeader title="Bills" />
+          {a.invoices.length ? (
+            <ul className="divide-y divide-neutral-100">
+              {a.invoices.map((i) => (
+                <li key={i.id} className="flex items-start justify-between gap-3 py-3">
+                  <span className="text-body">
+                    {i.description}
+                    <span className="block text-caption text-muted-foreground">
+                      {i.number} · {formatDayMonth(i.periodStart)} – {formatDate(addDays(i.periodEnd, -1))}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
+                    <span className="tabular-nums">{formatPaise(i.totalPaise)}</span>
+                    {i.status === "open" && today <= i.dueOn ? (
+                      <span className="text-caption text-muted-foreground">Due {formatDayMonth(i.dueOn)}</span>
+                    ) : (
+                      <InvoiceStatus status={i.status === "paid" ? "paid" : "issued"} overdue={i.status === "open"} />
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-body text-muted-foreground">No bills yet.</p>
+          )}
         </Card>
         <Card>
           <CardHeader title="Modules" />

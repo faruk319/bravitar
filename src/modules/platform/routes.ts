@@ -3,7 +3,7 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
-import { addPlan, changePlan, editActivity, editBillingSettings, editPlan } from "@/modules/billing/service";
+import { addPlan, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd } from "@/modules/billing/service";
 import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
@@ -65,10 +65,16 @@ export const planHandler = withPlatformRequest(async (req, actor) => {
   return json({ ok: true });
 });
 
-// PATCH /api/platform/subscriptions/<id> { planId }: now or at the month's end.
+// PATCH /api/platform/subscriptions/<id> { planId }: now or at the month's end;
+// { cancelAtPeriodEnd }: ends it then, or not.
 export const subscriptionHandler = withPlatformRequest(async (req, actor) => {
-  const { planId } = (await readJson(req)) as { planId?: unknown };
-  return json({ when: await changePlan(actor, pathSegment(req, 3), String(planId ?? "")) });
+  const id = pathSegment(req, 3);
+  const { planId, cancelAtPeriodEnd } = (await readJson(req)) as { planId?: unknown; cancelAtPeriodEnd?: unknown };
+  if (typeof cancelAtPeriodEnd === "boolean") {
+    await setCancelAtPeriodEnd(actor, id, cancelAtPeriodEnd);
+    return json({ ok: true });
+  }
+  return json({ when: await changePlan(actor, id, String(planId ?? "")) });
 });
 
 // PATCH /api/platform/billing-settings

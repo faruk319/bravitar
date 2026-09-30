@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, isIsoDate, startOfWeek, todayIn, weekdayOf } from "./dates";
+import { addDays, formatDate, isIsoDate, nextMonthOn, startOfWeek, todayIn, weekdayOf } from "./dates";
 
 describe("calendar dates", () => {
   it("knows what day it is in the tenant's timezone, not the server's", () => {
@@ -14,6 +14,14 @@ describe("calendar dates", () => {
     expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
     expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
     expect(addDays("2026-03-08", 1)).toBe("2026-03-09"); // US DST starts
+  });
+
+  it("finds next month's bill date, on the month's last day when it's shorter", () => {
+    expect(nextMonthOn("2026-09-30", 30)).toBe("2026-10-30");
+    expect(nextMonthOn("2026-01-31", 31)).toBe("2026-02-28");
+    expect(nextMonthOn("2026-02-28", 31)).toBe("2026-03-31");
+    expect(nextMonthOn("2028-01-30", 30)).toBe("2028-02-29"); // leap year
+    expect(nextMonthOn("2026-12-15", 15)).toBe("2027-01-15");
   });
 
   it("weekdays and Monday-start weeks", () => {

@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
@@ -6,7 +6,7 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { branches } from "@/modules/tenancy/schema";
+import { branches, tenants } from "@/modules/tenancy/schema";
 import {
   type Activity,
   type ActivityPlan,
@@ -14,6 +14,9 @@ import {
   activityPlans,
   type ActivitySubscription,
   activitySubscriptions,
+  type BillingInvoice,
+  billingInvoiceSeries,
+  billingInvoices,
   billingSettings,
   type BillingSettings,
   planPriceHistory,
@@ -70,6 +73,15 @@ export async function insertSubscription(tx: PlatformTx, row: Omit<typeof activi
   return created;
 }
 
+export async function lockSubscription(tx: PlatformTx, id: string): Promise<ActivitySubscription | undefined> {
+  const [row] = await tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id)).for("update");
+  return row;
+}
+
+export async function updateSubscription(tx: PlatformTx, id: string, patch: Partial<ActivitySubscription>): Promise<void> {
+  await tx.update(activitySubscriptions).set(patch).where(eq(activitySubscriptions.id, id));
+}
+
 export type SubscriptionRow = ActivitySubscription & { activityName: string; branchName: string; plan: ActivityPlan; nextPlanName: string | null };
 
 const nextPlan = alias(activityPlans, "next_plan");
@@ -102,6 +114,87 @@ export async function liveActivityKeys(tx: Tx, branchId?: string): Promise<strin
 export async function subscriptionsPerPlan(tx: PlatformTx): Promise<Map<string, number>> {
   const rows = await tx.select({ planId: activitySubscriptions.planId, n: count() }).from(activitySubscriptions).where(ne(activitySubscriptions.status, "cancelled")).groupBy(activitySubscriptions.planId);
   return new Map(rows.map((r) => [r.planId, r.n]));
+}
+
+// ---- Bravitar's bills
+
+// Gapless because it runs in the bill's own transaction (a rollback gives the
+// number back); the row lock keeps it unique. BRV/2026-27/00001.
+export async function allocateInvoiceNumber(tx: PlatformTx, fy: string): Promise<string> {
+  await tx.insert(billingInvoiceSeries).values({ fy }).onConflictDoNothing();
+  const [row] = await tx
+    .update(billingInvoiceSeries)
+    .set({ nextValue: sql`${billingInvoiceSeries.nextValue} + 1` })
+    .where(eq(billingInvoiceSeries.fy, fy))
+    .returning({ assigned: sql<number>`${billingInvoiceSeries.nextValue} - 1` });
+  if (!row) throw new Error("allocateInvoiceNumber: series row missing");
+  return `BRV/${fy}/${String(row.assigned).padStart(5, "0")}`;
+}
+
+export async function insertInvoice(tx: PlatformTx, row: Omit<typeof billingInvoices.$inferInsert, "id">): Promise<BillingInvoice> {
+  const [created] = await tx
+    .insert(billingInvoices)
+    .values({ id: uuidv7(), ...row })
+    .returning();
+  if (!created) throw new Error("invoice insert returned no row");
+  return created;
+}
+
+// Newest first. In an academy's own context its policies narrow this to that academy.
+export async function listInvoices(tx: AnyTx, opts: { tenantIds?: string[]; limit?: number } = {}): Promise<BillingInvoice[]> {
+  return tx
+    .select()
+    .from(billingInvoices)
+    .where(opts.tenantIds ? inArray(billingInvoices.tenantId, opts.tenantIds) : undefined)
+    .orderBy(desc(billingInvoices.issuedOn), desc(billingInvoices.number))
+    .limit(opts.limit ?? 50);
+}
+
+// "Karate Starter · Kothrud Centre", as a bill describes it.
+export async function subscriptionLabel(tx: PlatformTx, s: Pick<ActivitySubscription, "activityKey" | "planId" | "branchId">): Promise<string> {
+  const [row] = await tx
+    .select({ activity: activities.name, plan: activityPlans.name, branch: branches.name })
+    .from(activities)
+    .innerJoin(activityPlans, eq(activityPlans.id, s.planId))
+    .innerJoin(branches, eq(branches.id, s.branchId))
+    .where(eq(activities.key, s.activityKey));
+  if (!row) throw new Error("subscriptionLabel: names missing");
+  return `${row.activity} ${row.plan} · ${row.branch}`;
+}
+
+export type DueSubscription = { id: string; timezone: string };
+
+const localToday = (now: Date) => sql`(${now.toISOString()}::timestamptz AT TIME ZONE ${tenants.timezone})::date`;
+const billed = (tenantIds?: string[]) => and(isNull(tenants.deletedAt), ne(tenants.status, "closed"), tenantIds ? inArray(activitySubscriptions.tenantId, tenantIds) : undefined);
+
+// Live subscriptions whose bill date has come in their academy's timezone.
+// Suspended academies are billed; closed and deleted ones aren't.
+export async function dueSubscriptions(tx: PlatformTx, now: Date, tenantIds?: string[]): Promise<DueSubscription[]> {
+  return tx
+    .select({ id: activitySubscriptions.id, timezone: tenants.timezone })
+    .from(activitySubscriptions)
+    .innerJoin(tenants, eq(tenants.id, activitySubscriptions.tenantId))
+    .where(and(billed(tenantIds), ne(activitySubscriptions.status, "cancelled"), lte(activitySubscriptions.periodEnd, localToday(now))))
+    .orderBy(asc(activitySubscriptions.periodEnd));
+}
+
+// Active subscriptions with an open bill past its due date.
+export async function overdueSubscriptions(tx: PlatformTx, now: Date, tenantIds?: string[]): Promise<DueSubscription[]> {
+  return tx
+    .selectDistinct({ id: activitySubscriptions.id, timezone: tenants.timezone })
+    .from(activitySubscriptions)
+    .innerJoin(tenants, eq(tenants.id, activitySubscriptions.tenantId))
+    .innerJoin(billingInvoices, and(eq(billingInvoices.subscriptionId, activitySubscriptions.id), eq(billingInvoices.status, "open")))
+    .where(and(billed(tenantIds), eq(activitySubscriptions.status, "active"), lt(billingInvoices.dueOn, localToday(now))));
+}
+
+export async function overdueNumbers(tx: PlatformTx, subscriptionId: string, today: string): Promise<string[]> {
+  const rows = await tx
+    .select({ number: billingInvoices.number })
+    .from(billingInvoices)
+    .where(and(eq(billingInvoices.subscriptionId, subscriptionId), eq(billingInvoices.status, "open"), lt(billingInvoices.dueOn, today)))
+    .orderBy(asc(billingInvoices.dueOn));
+  return rows.map((r) => r.number);
 }
 
 // ---- usage against a plan's limits

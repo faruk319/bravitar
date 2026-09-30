@@ -10,7 +10,8 @@ import { uuidv7 } from "@/lib/ids";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { sessionsAuth } from "@/modules/auth/schema";
-import { activityStudentCounts, liveSubscriptions, staffCounts, staffSeats, type SubscriptionRow, usageKey } from "@/modules/billing/repo";
+import { activityStudentCounts, listInvoices, liveSubscriptions, staffCounts, staffSeats, type SubscriptionRow, usageKey } from "@/modules/billing/repo";
+import type { BillingInvoice } from "@/modules/billing/schema";
 import { effectivePrice } from "@/modules/billing/service";
 import { INVITE_DAYS } from "@/modules/staff/service";
 import { PASSWORD_UNSET, staffInvites, staffUsers } from "@/modules/staff/schema";
@@ -84,7 +85,7 @@ export async function listAcademies(q?: string): Promise<Academy[]> {
   return platformRead((tx) => academiesWhere(tx, term ? or(ilike(tenants.name, `%${term}%`), ilike(tenants.slug, `%${term}%`)) : undefined));
 }
 
-export type AcademyDetail = Academy & { modules: EnabledModules; owner: { id: string; name: string; email: string; signedUp: boolean } | undefined };
+export type AcademyDetail = Academy & { modules: EnabledModules; owner: { id: string; name: string; email: string; signedUp: boolean } | undefined; invoices: BillingInvoice[] };
 
 export async function academyDetail(id: string): Promise<AcademyDetail> {
   return platformRead(async (tx) => {
@@ -95,7 +96,8 @@ export async function academyDetail(id: string): Promise<AcademyDetail> {
       .select({ id: staffUsers.id, name: staffUsers.fullName, email: staffUsers.email, hash: staffUsers.passwordHash })
       .from(staffUsers)
       .where(and(eq(staffUsers.tenantId, id), eq(staffUsers.isOwner, true), isNull(staffUsers.deletedAt)));
-    return { ...academy, modules: t.modules, owner: owner ? { id: owner.id, name: owner.name, email: owner.email, signedUp: owner.hash !== PASSWORD_UNSET } : undefined };
+    const invoices = await listInvoices(tx, { tenantIds: [id], limit: 24 });
+    return { ...academy, modules: t.modules, owner: owner ? { id: owner.id, name: owner.name, email: owner.email, signedUp: owner.hash !== PASSWORD_UNSET } : undefined, invoices };
   });
 }
 

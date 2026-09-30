@@ -43,6 +43,7 @@ export const PLATFORM_TABLES: Record<string, string> = {
   activities: "Bravitar's activity catalog and prices; app_runtime has SELECT only, the platform role edits it (migration 0026)",
   activity_plans: "each activity's plans, prices and limits; app_runtime has SELECT only, the platform role edits them (migration 0027)",
   plan_price_history: "past plan prices; app_runtime has no access (migrations 0026, 0027)",
+  billing_invoice_series: "Bravitar's bill numbers, one series for all academies; app_runtime has no access (migration 0028)",
   billing_settings: "one row of Bravitar's billing settings; app_runtime has SELECT only (migration 0026)",
   permissions: "global catalog synced from src/lib/auth/permissions.ts; app_runtime has SELECT only",
   otp_codes: "a phone's login codes, not an academy's; app_runtime has no access, only otp_issue and otp_check (migration 0020)",
@@ -54,4 +55,5 @@ export const PLATFORM_TABLES: Record<string, string> = {
 // through it and checks app_runtime can't write them, even its own rows.
 export const PLATFORM_WRITTEN: Record<string, string> = {
   activity_subscriptions: "what an academy pays Bravitar; activated, paused and priced by the platform (migration 0026)",
+  billing_invoices: "Bravitar's bills to an academy; issued by the platform, read by the academy (migration 0028)",
 };

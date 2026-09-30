@@ -369,6 +369,19 @@ export function PlanChangeForm({ subscriptionId, current, plans }: { subscriptio
   );
 }
 
+// Ends the activity when its month (or trial) runs out, with no more bills; or undoes that.
+export function CancelAtPeriodEnd({ subscriptionId, cancelling }: { subscriptionId: string; cancelling: boolean }) {
+  const s = useSave();
+  return (
+    <>
+      <Button type="button" variant="outline" size="lg" disabled={s.busy} onClick={() => void s.save(`/api/platform/subscriptions/${subscriptionId}`, "PATCH", { cancelAtPeriodEnd: !cancelling })}>
+        {cancelling ? "Keep it on" : "Cancel at period end"}
+      </Button>
+      <Feedback error={s.error} done={false} />
+    </>
+  );
+}
+
 export type SettingsData = { graceDays: number; trialDays: number; taxPercent: string; gstin: string; howToPay: string };
 
 // Grace before an unpaid activity pauses, the first activity's trial, tax, and

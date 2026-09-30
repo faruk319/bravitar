@@ -2,7 +2,8 @@ import { bigint, boolean, date, integer, pgSchema, smallint, text, timestamp, uu
 import { platformAdmins } from "@/modules/platform/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0026_activity_billing.sql and 0027_activity_plans.sql.
+// Mirrors migrations/0026_activity_billing.sql, 0027_activity_plans.sql and
+// 0028_billing_invoices.sql.
 // What an academy pays Bravitar, per activity per branch; shares no tables
 // with what academies charge students.
 const app = pgSchema("app");
@@ -78,7 +79,34 @@ export const activitySubscriptions = app.table("activity_subscriptions", {
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
 });
 
+// One series for all academies: BRV/2026-27/00001.
+export const billingInvoiceSeries = app.table("billing_invoice_series", {
+  fy: text("fy").primaryKey(),
+  nextValue: integer("next_value").notNull().default(1),
+});
+
+// One per activity in a branch per month; periodEnd is the next bill date.
+export const billingInvoices = app.table("billing_invoices", {
+  id: uuid("id").primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  subscriptionId: uuid("subscription_id").notNull().references(() => activitySubscriptions.id),
+  number: text("number").notNull(),
+  description: text("description").notNull(),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  subtotalPaise: bigint("subtotal_paise", { mode: "bigint" }).notNull(),
+  taxRateBp: integer("tax_rate_bp").notNull(),
+  taxPaise: bigint("tax_paise", { mode: "bigint" }).notNull(),
+  totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
+  gstin: text("gstin"),
+  status: text("status", { enum: ["open", "paid"] }).notNull().default("open"),
+  issuedOn: date("issued_on").notNull(),
+  dueOn: date("due_on").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Activity = typeof activities.$inferSelect;
 export type ActivityPlan = typeof activityPlans.$inferSelect;
 export type BillingSettings = typeof billingSettings.$inferSelect;
 export type ActivitySubscription = typeof activitySubscriptions.$inferSelect;
+export type BillingInvoice = typeof billingInvoices.$inferSelect;
