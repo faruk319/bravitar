@@ -1,6 +1,8 @@
 import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { withTenant } from "@/lib/db/with-tenant";
 import { slugFromHost } from "@/modules/auth/routes";
+import { listBranches } from "@/modules/tenancy/repo";
 import { BRANCH_COOKIE } from "./branch-cookie";
 import { SESSION_COOKIE } from "./cookie";
 import { type GuardianSession, getGuardianSessionFromToken, getPlatformSessionFromToken, getStaffSessionFromToken, type PlatformSession, type StaffSession } from "./session";
@@ -29,11 +31,14 @@ export async function requireStaffPage(): Promise<StaffSession> {
 }
 
 // The branches a list page should show: the switcher's choice if this staff
-// member may use it, otherwise everything they can see (empty = all).
+// member may use it, otherwise everything they can see (empty = all). A choice
+// that is no longer one of the academy's branches falls back, as the switcher does.
 export async function selectedBranchIds(session: StaffSession): Promise<string[]> {
   const chosen = (await cookies()).get(BRANCH_COOKIE)?.value;
-  if (chosen && chosen !== "all" && (!session.branchIds.length || session.branchIds.includes(chosen))) return [chosen];
-  return session.branchIds;
+  if (!chosen || chosen === "all") return session.branchIds;
+  if (session.branchIds.length) return session.branchIds.includes(chosen) ? [chosen] : session.branchIds;
+  const known = await withTenant(session.tenant.id, async (tx) => (await listBranches(tx)).some((b) => b.id === chosen));
+  return known ? [chosen] : session.branchIds;
 }
 
 // /platform lives on the main site only; an academy's address has none.
