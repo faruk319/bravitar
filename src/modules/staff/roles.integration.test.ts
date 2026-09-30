@@ -4,11 +4,10 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { getStaffSessionFromToken } from "@/lib/auth/session";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { login } from "@/modules/auth/service";
 import { dashboardData } from "@/modules/dashboard/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { listRoles, rolePermissionKeys, staffBranchIds } from "./repo";
 import {
@@ -41,7 +40,6 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
 const hire = (name: string, roleIds: string[]) => withTenant(T, (tx) => addStaff(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Roles ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

@@ -9,6 +9,7 @@ import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
 import { rulesFor } from "@/modules/batches/repo";
+import { startActivity } from "@/modules/billing/service";
 import { rulesOn } from "@/modules/batches/schedule";
 import { batches, programs } from "@/modules/batches/schema";
 import {
@@ -27,7 +28,6 @@ import {
   requireBatch,
   weekCalendar,
 } from "@/modules/batches/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { createBranch, createResource } from "@/modules/tenancy/repo";
@@ -60,12 +60,12 @@ const create = (input: Partial<NewBatchInput>, ctx = owner) =>
   withTenant(T, (tx) => createBatch(tx, ctx, { name: "Beginners B", programId: karate, slots: MWF("18:00", "19:00"), startDate: addDays(today, -30), ...input }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Batch Test ${stamp}`, slug: `bat-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = t.tenant.id;
   main = t.branch.id;
   owner = await ctxFor(t.owner.id);
   kothrud = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Kothrud" }))).id;
+  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, (tx) => startActivity(tx, { tenantId: T, branchId: kothrud, activityKey: "karate", today, trial: false })); // each branch has its own
   room = (await withTenant(T, (tx) => createResource(tx, { tenantId: T, branchId: main, name: "Main Hall", capacity: 40 }))).id;
   for (const r of await withTenant(T, listRoles)) roleIds[r.name] = r.id;
   karate = (await withTenant(T, (tx) => addProgram(tx, owner, { name: "Karate" }))).id;

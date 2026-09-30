@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
@@ -13,7 +13,6 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { paymentLinkFor } from "@/modules/payments/links";
 import { paymentLinks, payments, refunds } from "@/modules/payments/schema";
 import { cancelPayment, collectionSheet, familyAccount, recordPayment, refundPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
@@ -95,7 +94,6 @@ const invoiceOf = async (x: Academy, id: string) => (await withTenant(x.id, (tx)
 const events = (x: Academy) => withTenant(x.id, (tx) => tx.select().from(webhookEvents));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   await setUp(A);
   await setUp(B);
 });

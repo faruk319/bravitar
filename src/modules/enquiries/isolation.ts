@@ -22,7 +22,7 @@ export const enquiryFixtures: IsolationFixtures = {
   },
   trial_attendances: async (tx, tenantId) => {
     const { branch, e } = await enquiry(tx, tenantId);
-    const program = await createProgram(tx, { tenantId, name: `Program ${stamp()}` });
+    const program = await createProgram(tx, { tenantId, name: `Program ${stamp()}`, activityKey: "general" });
     const batch = await insertBatch(tx, { tenantId, branchId: branch.id, programId: program.id, name: "Iso", startDate: "2026-01-01" });
     const [session] = await tx
       .insert(sessions)

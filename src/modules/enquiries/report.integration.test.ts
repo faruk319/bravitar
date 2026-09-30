@@ -4,10 +4,9 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addProgram, createBatch } from "@/modules/batches/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -30,7 +29,6 @@ let today = "";
 let n = 0;
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Report ${stamp}`, slug: `report-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `report-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);

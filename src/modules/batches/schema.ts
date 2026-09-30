@@ -2,7 +2,7 @@ import { boolean, date, integer, pgSchema, smallint, text, time, timestamp, uuid
 import { staffUsers } from "@/modules/staff/schema";
 import { branches, resources, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0007_programs_batches.sql.
+// Mirrors migrations/0007_programs_batches.sql (programs.activity_key: 0026).
 const app = pgSchema("app");
 
 export const programs = app.table("programs", {
@@ -10,6 +10,7 @@ export const programs = app.table("programs", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   name: text("name").notNull(),
   description: text("description"),
+  activityKey: text("activity_key").notNull(), // app.activities; a batch's activity is its program's
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

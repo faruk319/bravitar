@@ -2,7 +2,7 @@ import { performance } from "node:perf_hooks";
 import { and, asc, inArray, lt, ne } from "drizzle-orm";
 import { sql as runtimeSql, type Tx } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
@@ -14,7 +14,6 @@ import { generateInvoices } from "@/modules/fees/invoicing";
 import { invoices } from "@/modules/fees/schema";
 import { createPlan, issueInvoices } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { staffBranchIds } from "@/modules/staff/repo";
@@ -141,9 +140,8 @@ async function createEnquiryMix(tx: Tx, ctx: StudentCtx, programId: string, toda
 
 async function main(): Promise<void> {
   if (!/@(localhost|127\.0\.0\.1)[:/]/.test(process.env.DATABASE_URL ?? "")) throw new Error("bench:dashboard runs against a local database only");
-  await withPlatformAdmin({ action: "bench.setup", actorType: "system" }, ensurePlatformPlans);
   const stamp = Date.now().toString(36);
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Bench ${stamp}`, slug: `bench-${stamp}`, verticalPreset: "karate", planCode: "pro", owner: { name: "Owner", email: `bench-${stamp}@example.test` } });
+  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Bench ${stamp}`, slug: `bench-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `bench-${stamp}@example.test` } });
   try {
     await build(t.tenant.id, t.owner.id);
     const owner = await withTenant(t.tenant.id, async (tx) => ({ ...(await loadAccessContext(tx, t.owner.id)), branchIds: await staffBranchIds(tx, t.owner.id) }));

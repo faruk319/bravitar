@@ -3,9 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles } from "@/modules/staff/repo";
 import type { StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
@@ -41,7 +40,6 @@ const ctxFor = async (staffId: string): Promise<StudentCtx> => {
 };
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const created = await createTenantWithDefaults(
     { actorType: "system" },
     { name: `Student Test ${stamp}`, slug: `stu-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } },

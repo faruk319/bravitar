@@ -5,13 +5,12 @@ import { json, withStaffRequest } from "@/lib/auth/route";
 import { hashToken, newToken } from "@/lib/auth/token";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { insertSession } from "@/modules/auth/repo";
 import { loginHandler, logoutHandler, meHandler, slugFromHost } from "@/modules/auth/routes";
 import { loginAttempts, sessionsAuth } from "@/modules/auth/schema";
 import { LOGIN_MAX_FAILURES, login, setPassword } from "@/modules/auth/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles } from "@/modules/staff/repo";
 import type { Role, StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, deactivateStaff, loadAccessContext, setRolePermissions, setStaffRoles } from "@/modules/staff/service";
@@ -39,7 +38,6 @@ const cookieOf = (res: Response) => {
 const feesRoute = withStaffRequest("fees:collect", async ({ session }) => json({ ok: session.actor.id }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const a = await createTenantWithDefaults({ actorType: "system" }, { name: `Auth A ${stamp}`, slug: slugA, verticalPreset: "karate", owner: { name: "Owner A", email } });
   const b = await createTenantWithDefaults({ actorType: "system" }, { name: `Auth B ${stamp}`, slug: slugB, owner: { name: "Owner B", email } });
   A = a.tenant.id;

@@ -3,9 +3,8 @@ import { SESSION_COOKIE } from "@/lib/auth/cookie";
 import { getGuardianSessionFromToken } from "@/lib/auth/session";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { updateGuardian } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
@@ -34,7 +33,6 @@ const lastCode = (phone: string) => got.filter((g) => g.phone === phone).at(-1)?
 const tokenOf = (url: string) => new URL(url).searchParams.get("t") ?? "";
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   for (const [key, phone] of [["a", P], ["b", P], ["c", Q]] as const) {
     const slug = `parent-${key}-${stamp}`;
     const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Parent ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `parent-${key}-${stamp}@example.test` } });

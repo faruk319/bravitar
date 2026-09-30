@@ -10,7 +10,6 @@ import { addDays, timeIn, todayIn, weekdayOf } from "@/lib/dates";
 import { closeRulesFrom, createHoliday, createProgram, insertBatch, insertRules } from "@/modules/batches/repo";
 import type { Slot } from "@/modules/batches/schedule";
 import { addHoliday, archiveBatch, changeSchedule, closeBatch, createBatch, removeHoliday, reopenBatch } from "@/modules/batches/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createBranch } from "@/modules/tenancy/repo";
@@ -32,7 +31,7 @@ async function tenant(key: string, timezone = IST): Promise<T> {
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Sessions ${key} ${stamp}`, slug: `ses-${key}-${stamp}`, timezone, owner: { name: "Owner", email: `ses-${key}-${stamp}@example.test` } });
   created.push(t.tenant.id);
   const [base, branchIds] = await withTenant(t.tenant.id, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);
-  const program = await withTenant(t.tenant.id, (tx) => createProgram(tx, { tenantId: t.tenant.id, name: "Karate" }));
+  const program = await withTenant(t.tenant.id, (tx) => createProgram(tx, { tenantId: t.tenant.id, name: "Karate", activityKey: "general" }));
   return { id: t.tenant.id, branch: t.branch.id, program: program.id, owner: { ...base, branchIds } };
 }
 
@@ -59,7 +58,6 @@ let ny: T;
 let live: T;
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   [ist, ny, live] = await Promise.all([tenant("ist"), tenant("ny", NY), tenant("live")]);
 });
 

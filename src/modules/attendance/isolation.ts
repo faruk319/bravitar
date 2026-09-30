@@ -10,7 +10,7 @@ const stamp = () => Math.random().toString(36).slice(2, 8);
 
 export const attendanceFixtures: IsolationFixtures = {
   attendance: async (tx, tenantId) => {
-    const program = await createProgram(tx, { tenantId, name: `Program ${stamp()}` });
+    const program = await createProgram(tx, { tenantId, name: `Program ${stamp()}`, activityKey: "general" });
     const branch = await createBranch(tx, { tenantId, name: `Branch ${stamp()}` });
     const batch = await insertBatch(tx, { tenantId, branchId: branch.id, programId: program.id, name: "Iso", startDate: "2026-01-01" });
     const [session] = await tx

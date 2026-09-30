@@ -4,12 +4,11 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays, formatDate } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { attendance } from "@/modules/attendance/schema";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { addProgram, createBatch } from "@/modules/batches/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -45,7 +44,6 @@ const mark = (sessionId: string, studentId: string, s: "present" | "absent", not
   withTenant(T, (tx) => saveAttendance(tx, teacher, sessionId, { marks: [{ studentId, status: s, ...(note ? { note } : {}) }] }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Trials ${stamp}`, slug: `trials-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `trials-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

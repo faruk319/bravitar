@@ -4,9 +4,8 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { guardiansOfStudent } from "@/modules/students/repo";
@@ -43,7 +42,6 @@ const queue = (guardian: Guardian, dedupeKey?: string, key: "absent" | "welcome"
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Log ${stamp}`, slug: `log-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `log-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

@@ -4,10 +4,9 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
@@ -37,7 +36,6 @@ const ctxFor = async (T: string, staffId: string): Promise<ScopedCtx> => {
 };
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const [a, b] = [await academy("a"), await academy("b")];
   [A, B] = [a.tenant.id, b.tenant.id];
   ownerA = await ctxFor(A, a.owner.id);

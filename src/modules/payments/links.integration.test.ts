@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
@@ -12,7 +12,6 @@ import { voidInvoice } from "@/modules/fees/service";
 import { fakeRazorpay } from "@/modules/integrations/fake-razorpay";
 import { connectRazorpay } from "@/modules/integrations/service";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
@@ -62,7 +61,6 @@ const link = (invoiceId: string, as: ScopedCtx = desk, tenant = T) => withTenant
 const linksOf = (invoiceId: string) => withTenant(T, (tx) => tx.select().from(paymentLinks).where(eq(paymentLinks.invoiceId, invoiceId)).orderBy(paymentLinks.createdAt));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await academy("t");
   T = t.tenant.id;
   main = t.branch.id;

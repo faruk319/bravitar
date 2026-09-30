@@ -4,7 +4,7 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
@@ -14,7 +14,6 @@ import { addProgram, createBatch, editBatch } from "@/modules/batches/service";
 import { enrollments } from "@/modules/enrollments/schema";
 import { enroll, leaveEnrollment, pauseEnrollment, setEnrollmentPlan, transferEnrollment } from "@/modules/enrollments/service";
 import { familyAccount, recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
@@ -69,7 +68,6 @@ const summary = async (invoiceId: string) => (await linesOn(invoiceId)).map((l) 
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Fees ${stamp}`, slug: `fees-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `fees-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

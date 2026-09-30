@@ -4,7 +4,7 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
@@ -15,7 +15,6 @@ import { enroll } from "@/modules/enrollments/service";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -58,7 +57,6 @@ const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: s
   withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Dash ${stamp}`, slug: `dash-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `dash-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branch = t.branch.id;

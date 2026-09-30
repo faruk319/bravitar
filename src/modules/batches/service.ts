@@ -5,11 +5,13 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, isIsoDate, startOfWeek } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { assertActivityOpen, assertBatchOpen } from "@/modules/billing/access";
+import { liveActivityKeys } from "@/modules/billing/repo";
 import { hasEnrollments, setMissingPlans } from "@/modules/enrollments/repo";
 import { getPlan } from "@/modules/fees/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { canUseBranch, pickBranch } from "@/modules/tenancy/branch-access";
-import { getBranch, listResources, tenantToday } from "@/modules/tenancy/repo";
+import { getBranch, getOwnTenant, listResources, tenantToday } from "@/modules/tenancy/repo";
 import {
   type BatchRow,
   closeRulesFrom,
@@ -45,18 +47,32 @@ async function findProgramByName(tx: Tx, name: string): Promise<Program | undefi
   return (await listPrograms(tx)).find((p) => p.name.trim().toLowerCase() === key);
 }
 
-export async function addProgram(tx: Tx, ctx: ScopedCtx, input: { name: string; description?: string }): Promise<Program> {
+// A program is one activity: the one asked for, else the only one the academy
+// (or the branch) has on; with none on, the academy's own type.
+async function programActivity(tx: Tx, given: string | undefined, branchId: string | undefined): Promise<string> {
+  const on = await liveActivityKeys(tx, given ? undefined : branchId);
+  if (given) {
+    if (!on.includes(given)) throw new BadRequestError("That activity isn't on");
+    return given;
+  }
+  if (on.length > 1) throw new BadRequestError("Pick the activity for this program");
+  return on[0] ?? (await getOwnTenant(tx))?.verticalPreset ?? "general";
+}
+
+// branchId only picks the activity when none is given: the one that branch has on.
+export async function addProgram(tx: Tx, ctx: ScopedCtx, input: { name: string; description?: string; activityKey?: string; branchId?: string }): Promise<Program> {
   assertCan(ctx, "programs:manage");
   const name = programName.parse(input.name);
   if (await findProgramByName(tx, name)) throw new ConflictError(`A program called "${name}" already exists`);
+  const activityKey = await programActivity(tx, input.activityKey, input.branchId);
   let program: Program;
   try {
-    program = await createProgram(tx, { tenantId: ctx.tenantId, name, ...(input.description ? { description: input.description.trim() } : {}) });
+    program = await createProgram(tx, { tenantId: ctx.tenantId, name, activityKey, ...(input.description ? { description: input.description.trim() } : {}) });
   } catch (e) {
     if (isUniqueViolation(e)) throw new ConflictError(`A program called "${name}" already exists`);
     throw e;
   }
-  await writeAudit(tx, { ...actor(ctx), action: "program.create", entityType: "program", entityId: program.id, after: { name } });
+  await writeAudit(tx, { ...actor(ctx), action: "program.create", entityType: "program", entityId: program.id, after: { name, activityKey } });
   return program;
 }
 
@@ -126,17 +142,17 @@ async function checkPlan(tx: Tx, id: string | null | undefined): Promise<void> {
   if (id && !(await getPlan(tx, id))?.isActive) throw new NotFoundError("Fee plan");
 }
 
-async function resolveProgram(tx: Tx, ctx: ScopedCtx, data: z.infer<typeof newBatchSchema>): Promise<string> {
+async function resolveProgram(tx: Tx, ctx: ScopedCtx, data: z.infer<typeof newBatchSchema>, branchId: string): Promise<Program> {
   if (data.programId) {
     const p = await getProgram(tx, data.programId);
     if (!p || !p.isActive) throw new NotFoundError("Program");
-    return p.id;
+    return p;
   }
   if (data.newProgramName) {
     // Typing an existing name reuses it, so the one-screen form never trips on duplicates.
     const existing = await findProgramByName(tx, data.newProgramName);
-    if (existing) return (existing.isActive ? existing : await editProgram(tx, ctx, existing.id, { isActive: true })).id;
-    return (await addProgram(tx, ctx, { name: data.newProgramName })).id;
+    if (existing) return existing.isActive ? existing : await editProgram(tx, ctx, existing.id, { isActive: true });
+    return addProgram(tx, ctx, { name: data.newProgramName, branchId });
   }
   throw new BadRequestError("Pick a program");
 }
@@ -147,14 +163,15 @@ export async function createBatch(tx: Tx, ctx: ScopedCtx, input: NewBatchInput):
   const slots = checkSlots(data.slots);
   const startDate = checkDate(data.startDate ?? (await tenantToday(tx)), "Start date");
   const branchId = await pickBranch(tx, ctx.branchIds, data.branchId);
-  const programId = await resolveProgram(tx, ctx, data);
+  const program = await resolveProgram(tx, ctx, data, branchId);
+  await assertActivityOpen(tx, ctx, branchId, program.activityKey);
   if (data.coachId) await checkCoach(tx, data.coachId, branchId);
   if (data.resourceId) await checkResource(tx, data.resourceId, branchId);
   await checkPlan(tx, data.defaultFeePlanId);
   const batch = await insertBatch(tx, {
     tenantId: ctx.tenantId,
     branchId,
-    programId,
+    programId: program.id,
     name: data.name,
     coachId: data.coachId ?? null,
     resourceId: data.resourceId ?? null,
@@ -188,11 +205,13 @@ export const batchPatchSchema = z.object({
 export async function editBatch(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof batchPatchSchema>): Promise<Batch> {
   assertCan(ctx, "batches:manage");
   const before = await requireBatch(tx, ctx, id);
+  await assertBatchOpen(tx, ctx, id);
   const { applyPlanToCurrent, ...data } = batchPatchSchema.parse(input);
   if (applyPlanToCurrent) assertCan(ctx, "enrollments:manage");
   if (data.programId) {
     const p = await getProgram(tx, data.programId);
     if (!p || !p.isActive) throw new NotFoundError("Program");
+    await assertActivityOpen(tx, ctx, before.branchId, p.activityKey);
   }
   if (data.coachId) await checkCoach(tx, data.coachId, before.branchId);
   if (data.resourceId) await checkResource(tx, data.resourceId, before.branchId);
@@ -210,6 +229,7 @@ export async function changeSchedule(tx: Tx, ctx: ScopedCtx, id: string, input: 
   assertCan(ctx, "batches:manage");
   const batch = await requireBatch(tx, ctx, id);
   if (batch.status === "ended") throw new ConflictError("This batch is closed. Reopen it to change the timing.");
+  await assertBatchOpen(tx, ctx, id);
   const slots = checkSlots(z.array(slotInput).max(7).parse(input.slots));
   const today = await tenantToday(tx);
   const rules = await rulesFor(tx, [id]);
@@ -245,6 +265,7 @@ export async function reopenBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<B
   assertCan(ctx, "batches:manage");
   const batch = await requireBatch(tx, ctx, id);
   if (batch.status !== "ended") throw new ConflictError("This batch isn't closed");
+  await assertBatchOpen(tx, ctx, id);
   const after = await updateBatch(tx, id, { status: "active", endDate: null });
   await reconcileSessions(tx, { batchIds: [id] });
   await writeAudit(tx, { ...actor(ctx), action: "batch.reopen", entityType: "batch", entityId: id, before: { endDate: batch.endDate } });

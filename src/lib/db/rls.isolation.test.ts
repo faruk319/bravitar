@@ -4,14 +4,13 @@ import { assertDatabaseSafety } from "@/lib/db/assert-safe";
 import { db, sql as runtimeSql } from "@/lib/db/client";
 import { auditLog } from "@/lib/db/audit";
 import { readAppCatalog } from "@/lib/db/isolation/catalog";
-import { fixtures, PLATFORM_TABLES } from "@/lib/db/isolation/registry";
+import { fixtures, PLATFORM_TABLES, PLATFORM_WRITTEN } from "@/lib/db/isolation/registry";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { syncPermissions } from "@/modules/staff/repo";
-import { platformPlans } from "@/modules/platform/schema";
+import { activities } from "@/modules/billing/schema";
 import { createTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 
@@ -50,7 +49,6 @@ beforeAll(async () => {
   const stamp = Math.random().toString(36).slice(2, 8);
   slugA = `iso-a-${stamp}`;
   [A, B] = await withPlatformAdmin({ action: "test.isolation.setup", actorType: "system" }, async (tx) => {
-    await ensurePlatformPlans(tx);
     await syncPermissions(tx);
     const a = await createTenant(tx, { name: `Isolation A ${stamp}`, slug: slugA, verticalPreset: "karate" });
     const b = await createTenant(tx, { name: `Isolation B ${stamp}`, slug: `iso-b-${stamp}` });
@@ -142,9 +140,12 @@ describe("withTenant", () => {
 describe.each(tenantScoped)("isolation of app.$table", (t) => {
   const fixture = fixtures[t.table];
   if (!fixture) throw new Error(`no fixture for app.${t.table}`);
+  const platformWritten = t.table in PLATFORM_WRITTEN;
+  const seedFor = (tenantId: string) =>
+    platformWritten ? withPlatformAdmin({ action: "test.isolation.fixture", actorType: "system" }, (tx) => fixture(tx, tenantId)) : withTenant(tenantId, (tx) => fixture(tx, tenantId));
 
   beforeAll(async () => {
-    await withTenant(A, (tx) => fixture(tx, A));
+    await seedFor(A);
   });
 
   it("tenant A sees its own rows", async () => {
@@ -179,7 +180,7 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
   });
 
   it("20 interleaved transactions through the pool each see only their own tenant", async () => {
-    await withTenant(B, (tx) => fixture(tx, B));
+    await seedFor(B);
     const ids = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? A : B));
     const results = await Promise.all(
       ids.map((id) =>
@@ -193,6 +194,19 @@ describe.each(tenantScoped)("isolation of app.$table", (t) => {
     for (const r of results) {
       expect(r.foreign, `tenant ${r.id} saw foreign rows`).toBe(0);
       expect(r.own).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe.each(tenantScoped.filter((t) => t.table in PLATFORM_WRITTEN))("app.$table, written by the platform only", (t) => {
+  it("refuses every write from app_runtime, even to its own academy's rows", async () => {
+    const table = q.identifier(t.table);
+    for (const stmt of [
+      q`INSERT INTO app.${table} SELECT * FROM app.${table} WHERE false`,
+      q`UPDATE app.${table} SET tenant_id = tenant_id WHERE tenant_id = ${A}`,
+      q`DELETE FROM app.${table} WHERE tenant_id = ${A}`,
+    ]) {
+      await expect(withTenant(A, (tx) => tx.execute(stmt))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
     }
   });
 });
@@ -216,13 +230,12 @@ describe("append-only audit_log", () => {
   });
 });
 
-describe("platform_plans", () => {
-  it("is readable by tenants but not writable", async () => {
-    const plans = await withTenant(A, (tx) => tx.select({ code: platformPlans.code }).from(platformPlans));
-    expect(plans.map((p) => p.code)).toContain("starter");
-    await expect(withTenant(A, (tx) => tx.insert(platformPlans).values({ code: "free", name: "Free", pricePaise: 0n, billingCycle: "monthly" }))).rejects.toSatisfy(
-      (e) => sqlState(e) === RLS_VIOLATION,
-    );
+describe("activities", () => {
+  it("is readable by academies but not writable", async () => {
+    const rows = await withTenant(A, (tx) => tx.select({ key: activities.key }).from(activities));
+    expect(rows.map((r) => r.key)).toContain("karate");
+    await expect(withTenant(A, (tx) => tx.insert(activities).values({ key: "free", name: "Free", pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(withTenant(A, (tx) => tx.update(activities).set({ pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
   });
 });
 

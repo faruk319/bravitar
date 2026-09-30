@@ -4,9 +4,8 @@ import { getStaffSessionFromToken } from "@/lib/auth/session";
 import { auditLog } from "@/lib/db/audit";
 import { db, sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import type { CodeSender } from "./codes";
@@ -35,7 +34,6 @@ const codesTo = (phone: string) => got.filter((g) => g.phone === phone);
 const lastCode = (phone: string) => codesTo(phone).at(-1)?.code ?? "";
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   for (const [key, phone] of [["a", P], ["b", P], ["c", Q]] as const) {
     const slug = `reset-${key}-${stamp}`;
     const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Reset ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });

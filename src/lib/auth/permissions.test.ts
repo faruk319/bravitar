@@ -21,13 +21,15 @@ describe("preset roles (docs/03 §2)", () => {
     expect(PRESET_ROLES.Owner).toEqual({ isSystem: true, permissions: [] });
   });
 
-  it("Manager has everything except staff:manage, integrations:manage, fees:refund", () => {
+  it("Manager has everything except staff:manage, integrations:manage, fees:refund, billing:manage", () => {
     const m = PRESET_ROLES.Manager.permissions;
-    expect(m).toHaveLength(PERMISSION_KEYS.length - 3);
+    expect(m).toHaveLength(PERMISSION_KEYS.length - 4);
     expect(m).not.toContain("staff:manage");
     expect(m).not.toContain("integrations:manage");
     expect(m).not.toContain("fees:refund");
+    expect(m).not.toContain("billing:manage");
     expect(m).toContain("fees:collect");
+    expect(m).toContain("billing:view");
   });
 
   it("Teacher has exactly the four keys", () => {

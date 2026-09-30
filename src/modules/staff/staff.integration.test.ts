@@ -5,9 +5,8 @@ import { PERMISSION_KEYS, PRESET_ROLES } from "@/lib/auth/permissions";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { countActiveOwners, listRoles, rolePermissionKeys, staffRoleIds } from "@/modules/staff/repo";
 import type { Role, StaffUser } from "@/modules/staff/schema";
 import {
@@ -34,7 +33,6 @@ let dual: StaffUser;
 const ctxOf = (staffId: string) => withTenant(T, (tx) => loadAccessContext(tx, staffId));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const created = await createTenantWithDefaults(
     { actorType: "system" },
     { name: `Staff Test ${stamp}`, slug: `staff-${stamp}`, verticalPreset: "karate", owner: { name: "Owner One", email: `owner-${stamp}@example.test` } },
@@ -67,7 +65,7 @@ describe("tenant creation (docs/03 §1)", () => {
       frontDesk: (await rolePermissionKeys(tx, roles["Front Desk"]?.id ?? "")).length,
       ownerRoles: await staffRoleIds(tx, owner.id),
     }));
-    expect(counts).toMatchObject({ owner: 0, manager: PERMISSION_KEYS.length - 3, teacher: 4, frontDesk: 13 });
+    expect(counts).toMatchObject({ owner: 0, manager: PERMISSION_KEYS.length - 4, teacher: 4, frontDesk: 13 });
     expect(counts.ownerRoles).toEqual([roles.Owner?.id]);
   });
 });

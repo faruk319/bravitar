@@ -3,11 +3,10 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { dashboardData } from "@/modules/dashboard/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
@@ -37,7 +36,6 @@ const add = (ctx: ScopedCtx, name: string, phone: string, extra: object = {}) =>
 const timeline = async (id: string) => (await withTenant(T, (tx) => activitiesOf(tx, id))).map((a) => (a.toStatus ? `${a.kind}>${a.toStatus}` : a.kind)).reverse();
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Enq ${stamp}`, slug: `enq-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `enq-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

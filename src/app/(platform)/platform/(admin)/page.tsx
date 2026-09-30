@@ -5,12 +5,20 @@ import { Input } from "@/components/ui/input";
 import { requirePlatformPage } from "@/lib/auth/server";
 import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
-import { listAcademies } from "@/modules/platform/academies";
+import { type Academy, listAcademies } from "@/modules/platform/academies";
 
 const typeLabel = (t: string) => (t[0]?.toUpperCase() ?? "") + t.slice(1);
 
-// Every academy: its branches, each on its own plan (agreed 2026-09-26), and
-// the students against those plans (Prompt 21).
+// "Tuition, Dance · 1 on trial · 1 paused"
+function activitySummary(a: Academy): string {
+  const subs = a.branches.flatMap((b) => b.activities);
+  const count = (status: string) => subs.filter((s) => s.status === status).length;
+  const names = [...new Set(subs.map((s) => s.activityName))].join(", ") || "No activity on";
+  return [names, count("trial") ? `${count("trial")} on trial` : "", count("paused") ? `${count("paused")} paused` : ""].filter(Boolean).join(" · ");
+}
+
+// Every academy: its branches and their activities, each billed on its own
+// (agreed 2026-09-30), and its students and staff (Prompt 21).
 export default async function PlatformAcademies({ searchParams }: PageProps<"/platform">) {
   await requirePlatformPage();
   const q = (await searchParams).q;
@@ -33,7 +41,7 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
           <thead>
             <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-2 font-medium">Academy</th>
-              <th className="py-2 font-medium">Branches and plans</th>
+              <th className="py-2 font-medium">Branches and activities</th>
               <th className="py-2 font-medium">Students</th>
               <th className="py-2 font-medium">Staff</th>
               <th className="px-4 py-2 font-medium">Status</th>
@@ -52,12 +60,9 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
                 </td>
                 <td className="py-2">
                   {a.branches.length} {a.branches.length === 1 ? "branch" : "branches"} · {formatPaise(a.monthlyPaise)}/month
-                  <span className="block text-caption text-muted-foreground">{a.branches.map((b) => b.plan?.name ?? "No plan").join(", ")}</span>
+                  <span className="block text-caption text-muted-foreground">{activitySummary(a)}</span>
                 </td>
-                <td className={cn("py-2 tabular-nums", a.over && "text-danger-600")}>
-                  {a.branches.reduce((n, b) => n + b.students, 0)}
-                  {a.over ? " · over" : ""}
-                </td>
+                <td className="py-2 tabular-nums">{a.branches.reduce((n, b) => n + b.students, 0)}</td>
                 <td className="py-2 tabular-nums">{a.staff}</td>
                 <td className={cn("px-4 py-2", a.status === "active" ? "text-success-600" : "text-danger-600")}>{a.status === "active" ? "● Active" : "⏸ Suspended"}</td>
               </tr>

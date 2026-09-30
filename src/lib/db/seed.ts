@@ -8,8 +8,8 @@ import { addDays, todayIn } from "@/lib/dates";
 import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
+import { startActivity } from "@/modules/billing/service";
 import { createPlatformAdmin } from "@/modules/platform/auth";
-import { createBranchSubscription, ensurePlatformPlans } from "@/modules/platform/repo";
 import { platformAdmins } from "@/modules/platform/schema";
 import { createBranch, createResource, findTenantBySlug } from "@/modules/tenancy/repo";
 import { setPassword } from "@/modules/auth/service";
@@ -35,8 +35,8 @@ const DEMO_PASSWORD = "Demo@1234";
 // Dev-only /platform admin (Prompt 21) and its authenticator setup key.
 const DEV_ADMIN = { email: "admin@bravitar.demo", fullName: "Bravitar Admin", password: "Demo@1234-platform", secret: "JBSWY3DPEHPK3PXP" };
 
-// Demo data for local development. Idempotent by natural key (plan code,
-// tenant slug): inserts what is missing, never updates what is there.
+// Demo data for local development. Idempotent by natural key (tenant slug):
+// inserts what is missing, never updates what is there.
 const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string })[] = [
   { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo", phone: "9800000001" }, coach: { name: "Ravi Patil", email: "coach@shivaji-karate.demo" } },
   { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
@@ -195,14 +195,13 @@ const DEMO_HOLIDAYS = [
   { date: "2026-12-25", name: "Christmas" },
 ];
 
-export type SeedResult = { plansCreated: string[]; tenantsCreated: string[]; tenantsPresent: string[] };
+export type SeedResult = { tenantsCreated: string[]; tenantsPresent: string[] };
 
 export async function seed(): Promise<SeedResult> {
-  const plansCreated = await withPlatformAdmin({ action: "seed.plans", actorType: "system" }, ensurePlatformPlans);
   const [admin] = await platformRead((tx) => tx.select({ id: platformAdmins.id }).from(platformAdmins).where(eq(platformAdmins.email, DEV_ADMIN.email)));
   if (!admin) await createPlatformAdmin(DEV_ADMIN, { secret: DEV_ADMIN.secret });
   console.log(`seed: /platform admin ${DEV_ADMIN.email} / ${DEV_ADMIN.password}, authenticator key ${DEV_ADMIN.secret} (dev only)`);
-  const result: SeedResult = { plansCreated, tenantsCreated: [], tenantsPresent: [] };
+  const result: SeedResult = { tenantsCreated: [], tenantsPresent: [] };
 
   for (const { resource, coach, extraBranch, ...input } of DEMO_TENANTS) {
     const existing = await platformRead((tx) => findTenantBySlug(tx, input.slug));
@@ -211,15 +210,20 @@ export async function seed(): Promise<SeedResult> {
       continue;
     }
     const { tenant, branch, owner } = await createTenantWithDefaults({ actorType: "system" }, input);
+    // A second branch pays for its activity on its own, with no trial (agreed 2026-09-30).
+    const second = extraBranch
+      ? await withPlatformAdmin({ action: "seed.branch", actorType: "system", tenantId: tenant.id }, async (tx) => {
+          const b = await createBranch(tx, { tenantId: tenant.id, name: extraBranch });
+          await startActivity(tx, { tenantId: tenant.id, branchId: b.id, activityKey: tenant.verticalPreset, today: todayIn(tenant.timezone), trial: false });
+          return b;
+        })
+      : undefined;
     // Through the tenant's own context, like the app would.
     let invite = "";
     await withTenant(tenant.id, async (tx) => {
       const ctx = await loadAccessContext(tx, owner.id);
       await setPassword(tx, ctx, owner.id, DEMO_PASSWORD);
       const room = await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
-      const second = extraBranch ? await createBranch(tx, { tenantId: tenant.id, name: extraBranch }) : undefined;
-      // Each branch pays on its own (agreed 2026-09-26); only the first had a trial.
-      if (second) await createBranchSubscription(tx, { tenantId: tenant.id, branchId: second.id, planCode: "starter", status: "active" });
       const roles = await listRoles(tx);
       const roleId = (name: string) => roles.filter((r) => r.name === name).map((r) => r.id); // demo data only
       const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: roleId("Teacher") });
@@ -285,7 +289,6 @@ export async function seed(): Promise<SeedResult> {
 async function main(): Promise<void> {
   try {
     const r = await seed();
-    console.log(`seed: plans created [${r.plansCreated.join(", ")}]`);
     console.log("seed: parents sign in with their phone, e.g. 98765 00001 (a parent at both academies); dev prints the code in the server log");
     console.log(`seed: tenants created [${r.tenantsCreated.join(", ")}], already present [${r.tenantsPresent.join(", ")}]`);
   } finally {

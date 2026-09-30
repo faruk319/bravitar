@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
@@ -13,7 +13,6 @@ import { generateInvoices } from "@/modules/fees/invoicing";
 import { invoices } from "@/modules/fees/schema";
 import { createPlan, issueInvoices } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
@@ -48,7 +47,6 @@ const tokenOf = (url: string, kind: "i" | "r") => url.match(new RegExp(`/${kind}
 const classOn = async (date: string) => (await withTenant(T, (tx) => tx.select().from(sessions).where(and(eq(sessions.batchId, batchId), eq(sessions.sessionDate, date)))))[0]?.id ?? "";
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Msg Academy ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `msg-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

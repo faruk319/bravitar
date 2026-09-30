@@ -5,7 +5,6 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { createStaffMember, deactivateStaff, loadAccessContext } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
@@ -35,7 +34,6 @@ const tokenOf = (url: string) => new URL(url).searchParams.get("t") ?? "";
 const redeem = (slug: string, token: string) => handoffHandler(new Request(`http://${slug}.localhost:3000/api/auth/handoff?t=${token}`, { headers: { host: `${slug}.localhost:3000` } }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   await academy("a", RIGHT);
   await academy("b", RIGHT);
   await academy("c", OTHER);

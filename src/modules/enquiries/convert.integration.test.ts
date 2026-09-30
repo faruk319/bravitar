@@ -4,12 +4,11 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { enrollments } from "@/modules/enrollments/schema";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -47,7 +46,6 @@ const enquiry = (name: string, phone = `98711${String(10_000 + ++n)}`) => withTe
 const convert = (ctx: ScopedCtx, id: string, input: object) => withTenant(T, (tx) => convertEnquiry(tx, ctx, id, { batchId: batch, consents: CONSENT, ...input }));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Convert ${stamp}`, slug: `convert-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `convert-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);

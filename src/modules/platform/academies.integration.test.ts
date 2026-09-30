@@ -1,17 +1,15 @@
-import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { getStaffSessionFromToken } from "@/lib/auth/session";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformRead, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { login } from "@/modules/auth/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
+import { getActivity } from "@/modules/billing/repo";
 import { acceptInvite, inviteInfo, loadAccessContext } from "@/modules/staff/service";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { findTenantBySlug } from "@/modules/tenancy/repo";
-import { academyDetail, createAcademy, editPlan, listAcademies, setAcademyStatus, setBranchPlan, setModules } from "./academies";
-import { platformPlans } from "./schema";
+import { academyDetail, createAcademy, listAcademies, setAcademyStatus, setModules } from "./academies";
 
 // Prompt 21: academies from /platform. A new one is usable with zero manual
 // SQL; suspending stops sign-in and ends sessions without deleting anything.
@@ -21,36 +19,27 @@ const ME = { actorType: "platform" as const };
 const SLUG = `made-${stamp}`;
 const OWNER = `owner-${stamp}@example.test`;
 const PASSWORD = "Owner-Horse-42";
-const PLAN = `test-${stamp}`;
 let tenantId = "";
-
-beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, async (tx) => {
-    await ensurePlatformPlans(tx);
-    await tx.insert(platformPlans).values({ code: PLAN, name: "Test plan", pricePaise: 50_000n, billingCycle: "monthly", maxStudents: 1 });
-  });
-});
 
 afterAll(async () => {
   if (tenantId) await deleteTenantsCompletely([tenantId]);
-  await platformDb.delete(platformPlans).where(eq(platformPlans.code, PLAN));
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
 });
 
 describe("a new academy", () => {
   it("comes with its owner's link to set a password, and the owner signs in", async () => {
-    const made = await createAcademy(ME, { name: `Made ${stamp}`, slug: SLUG, verticalPreset: "deeniyat", planCode: "starter", owner: { name: "Maulana Owner", email: OWNER } });
+    const made = await createAcademy(ME, { name: `Made ${stamp}`, slug: SLUG, verticalPreset: "deeniyat", owner: { name: "Maulana Owner", email: OWNER } });
     tenantId = made.id;
     const token = made.inviteUrl.split("/invite/")[1] ?? "";
     expect(made.inviteUrl).toMatch(new RegExp(`^http://${SLUG}\\.`));
     expect(await inviteInfo(token)).toMatchObject({ ok: true });
     await acceptInvite(token, PASSWORD);
     expect((await login({ slug: SLUG, email: OWNER, password: PASSWORD })).context.isOwner).toBe(true);
-    await expect(createAcademy(ME, { name: "Again", slug: SLUG, verticalPreset: "general", planCode: "starter", owner: { name: "X", email: `x-${stamp}@example.test` } })).rejects.toThrow("That address is taken");
+    await expect(createAcademy(ME, { name: "Again", slug: SLUG, verticalPreset: "general", owner: { name: "X", email: `x-${stamp}@example.test` } })).rejects.toThrow("That address is taken");
   });
 
-  it("is listed with its first branch on trial and the students against it: left ones don't count", async () => {
+  it("is listed with its type as the first branch's activity, on trial, and the students: left ones don't count", async () => {
     const owner = (await academyDetail(tenantId)).owner?.id ?? "";
     await withTenant(tenantId, async (tx) => {
       const ctx = { ...(await loadAccessContext(tx, owner)), branchIds: [] };
@@ -61,24 +50,17 @@ describe("a new academy", () => {
       await setStudentStatus(tx, ctx, paused.student.id, { status: "paused" });
       await setStudentStatus(tx, ctx, left.student.id, { status: "left", reason: "moved_away" });
     });
+    const deeniyat = await platformRead((tx) => getActivity(tx, "deeniyat"));
     const [row] = await listAcademies(SLUG);
-    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", staff: 1, monthlyPaise: 99_900n, over: false });
-    expect(row?.branches).toMatchObject([{ isDefault: true, students: 2, plan: { code: "starter" }, subscription: { status: "trial" } }]);
+    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", staff: 1, monthlyPaise: deeniyat?.pricePaise });
+    expect(row?.branches).toMatchObject([{ isDefault: true, students: 2, activities: [{ activityKey: "deeniyat", activityName: deeniyat?.name, status: "trial" }] }]);
   });
 });
 
 describe("changing an academy", () => {
-  it("each branch has its own plan; a paused one pays nothing; a plan's price and limit can be edited", async () => {
-    const branch = (await academyDetail(tenantId)).branches[0]?.id ?? "";
-    await setBranchPlan(ME, branch, { planCode: PLAN, status: "active" });
+  it("switches modules", async () => {
     await setModules(ME, tenantId, { students: true, enquiries: false, batches: true, attendance: true, fees: true, messaging: true, reports: true });
-    const a = await academyDetail(tenantId);
-    expect([a.branches[0]?.plan?.code, a.branches[0]?.subscription?.status, a.monthlyPaise, a.over, a.modules.enquiries]).toEqual([PLAN, "active", 50_000n, true, false]); // 2 students on a plan for 1
-    await editPlan(ME, PLAN, { name: "Test plan", price: "750", maxStudents: "", isActive: false });
-    expect((await academyDetail(tenantId)).branches[0]?.plan).toMatchObject({ pricePaise: 75_000n, maxStudents: null, isActive: false });
-    await setBranchPlan(ME, branch, { planCode: PLAN, status: "suspended" });
-    expect((await academyDetail(tenantId)).monthlyPaise).toBe(0n);
-    await setBranchPlan(ME, branch, { planCode: "starter", status: "active" });
+    expect((await academyDetail(tenantId)).modules.enquiries).toBe(false);
   });
 
   it("suspending ends sessions and refuses sign-in with the paused message; restoring lets them back", async () => {

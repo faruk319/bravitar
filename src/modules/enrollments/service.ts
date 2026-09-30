@@ -6,6 +6,7 @@ import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, isIsoDate } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { getBatch } from "@/modules/batches/repo";
+import { assertBatchOpen } from "@/modules/billing/access";
 import type { Batch } from "@/modules/batches/schema";
 import { type BatchView, listBatchViews } from "@/modules/batches/service";
 import { endCharges } from "@/modules/fees/invoicing";
@@ -22,6 +23,7 @@ async function openBatch(tx: Tx, ctx: ScopedCtx, id: string): Promise<Batch> {
   const b = await getBatch(tx, ctx.branchIds, id);
   if (!b) throw new NotFoundError("Batch");
   if (b.status === "ended") throw new ConflictError(`${b.name} is closed`);
+  await assertBatchOpen(tx, ctx, b.id);
   return b;
 }
 
@@ -71,6 +73,7 @@ export async function resumeEnrollment(tx: Tx, ctx: ScopedCtx, id: string): Prom
   assertCan(ctx, "enrollments:manage");
   const e = await requireOpen(tx, ctx, id);
   if (e.status !== "paused") throw new ConflictError("Not paused");
+  await assertBatchOpen(tx, ctx, e.batchId);
   const after = await updateEnrollment(tx, id, { status: "active", pausedOn: null });
   await writeAudit(tx, { ...actor(ctx), action: "enrollment.resume", entityType: "enrollment", entityId: id, before: { pausedOn: e.pausedOn } });
   return after;

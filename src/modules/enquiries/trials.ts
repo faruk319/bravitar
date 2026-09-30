@@ -8,6 +8,7 @@ import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from
 import { batchClasses, getClass } from "@/modules/attendance/repo";
 import type { Mark } from "@/modules/attendance/schema";
 import { listBatchViews } from "@/modules/batches/service";
+import { assertBatchOpen } from "@/modules/billing/access";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { type EnquiryStatus, OPEN_STATUSES } from "./lists";
 import { getEnquiry, getTrial, insertActivity, insertTrial, trialState, trialsOf, updateTrial } from "./repo";
@@ -61,6 +62,7 @@ export async function bookTrial(tx: Tx, ctx: ScopedCtx, enquiryId: string, input
   const e = await requireOpen(tx, ctx, enquiryId);
   const c = await getClass(tx, sessionId, { branchIds: ctx.branchIds });
   if (!c) throw new NotFoundError("Class");
+  await assertBatchOpen(tx, ctx, c.session.batchId);
   if (c.session.status === "cancelled") throw new ConflictError("That class is cancelled");
   if (c.session.sessionDate < (await tenantToday(tx))) throw new BadRequestError("Pick a class from today on");
   const trial = await insertTrial(tx, { tenantId: ctx.tenantId, enquiryId: e.id, sessionId, trialDate: c.session.sessionDate, createdBy: ctx.staffId }).catch((err: unknown) => {

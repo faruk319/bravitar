@@ -5,7 +5,7 @@ import { auditLog } from "@/lib/db/audit";
 import { SESSION_COOKIE } from "@/lib/auth/cookie";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { login, setPassword } from "@/modules/auth/service";
@@ -13,7 +13,6 @@ import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
@@ -46,7 +45,6 @@ const academy = async (key: string) => {
 };
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
 });
 
 afterAll(async () => {

@@ -9,7 +9,7 @@ import { type Batch, batches, batchSchedules, type Holiday, holidays, type Progr
 // branchIds empty = all branches (docs/01 branch scoping: explicit filter).
 const batchScope = (branchIds: string[]): SQL | undefined => (branchIds.length ? inArray(batches.branchId, branchIds) : undefined);
 
-export async function createProgram(tx: Tx, input: { tenantId: string; name: string; description?: string }): Promise<Program> {
+export async function createProgram(tx: Tx, input: { tenantId: string; name: string; activityKey: string; description?: string }): Promise<Program> {
   const [row] = await tx.insert(programs).values({ id: uuidv7(), ...input }).returning();
   if (!row) throw new Error("program insert returned no row");
   return row;

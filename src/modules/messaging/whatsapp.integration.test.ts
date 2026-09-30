@@ -5,12 +5,11 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { fakeWhatsapp } from "@/modules/integrations/fake-whatsapp";
 import { tenantIntegrations, webhookEvents } from "@/modules/integrations/schema";
 import { connectWhatsapp, testWhatsapp, whatsappStatus } from "@/modules/integrations/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { guardiansOfStudent } from "@/modules/students/repo";
@@ -75,7 +74,6 @@ const tell = (statuses: object[]) => {
 };
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   await setUp(A);
   await setUp(B);
   const roles = Object.fromEntries((await withTenant(A.id, listRoles)).map((r) => [r.name, r.id]));

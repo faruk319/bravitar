@@ -6,6 +6,7 @@ import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, monthEnd, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { getBatch } from "@/modules/batches/repo";
+import { assertBatchOpen } from "@/modules/billing/access";
 import { onRoster } from "@/modules/enrollments/repo";
 import { trialsForSession } from "@/modules/enquiries/repo";
 import { markTrials } from "@/modules/enquiries/trials";
@@ -106,6 +107,7 @@ export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: 
   const now = opts.now ?? new Date();
   const data = saveSchema.parse(input);
   const c = await requireClass(tx, ctx, id);
+  await assertBatchOpen(tx, ctx, c.session.batchId);
   const lock = lockOf(ctx, c, todayIn(await timeZone(tx), now), now);
   if (lock === "cancelled") throw new ConflictError(`This class was cancelled${c.session.cancelReason ? ` (${c.session.cancelReason})` : ""}`);
   if (lock === "future") throw new BadRequestError(`This class is on ${formatDate(c.session.sessionDate)}. Mark it on the day.`);

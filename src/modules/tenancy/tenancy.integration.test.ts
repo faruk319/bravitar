@@ -2,12 +2,13 @@ import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { auditLog } from "@/lib/db/audit";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformDb, platformRead, platformSql } from "@/lib/db/platform";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
+import { addDays, todayIn } from "@/lib/dates";
 import { resolveLabels } from "@/lib/tenant/labels";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
-import { ensurePlatformPlans, ownBranchPlans } from "@/modules/platform/repo";
+import { getActivity, getBillingSettings, liveSubscriptions } from "@/modules/billing/repo";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { branches, tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
@@ -23,30 +24,27 @@ afterAll(async () => {
 });
 
 describe("createTenantWithDefaults", () => {
-  it("creates tenant, default branch, trial subscription and an audit row in one go", async () => {
-    await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
-    const before = Date.now();
+  it("creates tenant, default branch, its activity on trial and an audit row in one go", async () => {
     const { tenant, branch, subscription, owner } = await createTenantWithDefaults({ actorType: "system" }, { name: "Integration Karate", slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
     created.push(tenant.id);
     expect(owner).toMatchObject({ tenantId: tenant.id, isOwner: true, isActive: true, passwordHash: "!" });
 
     expect(tenant.slug).toBe(slug);
     expect(branch).toMatchObject({ tenantId: tenant.id, isDefault: true, name: "Main branch" });
-    expect(subscription).toMatchObject({ tenantId: tenant.id, planCode: "starter", status: "trial" });
-    const trialMs = (subscription.trialEndsAt?.getTime() ?? 0) - before;
-    expect(trialMs).toBeGreaterThan(29 * 86_400_000);
-    expect(trialMs).toBeLessThan(31 * 86_400_000);
+    const { karate, trialDays } = await platformRead(async (tx) => ({ karate: await getActivity(tx, "karate"), trialDays: (await getBillingSettings(tx)).trialDays }));
+    const today = todayIn(tenant.timezone);
+    expect(subscription).toMatchObject({ tenantId: tenant.id, branchId: branch.id, activityKey: "karate", status: "trial", pricePaise: karate?.pricePaise, periodStart: today, periodEnd: addDays(today, trialDays) });
 
     // Visible from inside the tenant's own context, including its creation audit row.
     const seen = await withTenant(tenant.id, async (tx) => ({
       tenant: await getOwnTenant(tx),
       branches: await listBranches(tx),
-      plans: await ownBranchPlans(tx),
+      activities: await liveSubscriptions(tx),
       audit: await tx.select({ action: auditLog.action, actorType: auditLog.actorType, entityId: auditLog.entityId }).from(auditLog),
     }));
     expect(seen.tenant?.id).toBe(tenant.id);
     expect(seen.branches.map((b) => b.id)).toEqual([branch.id]);
-    expect(seen.plans.map((p) => [p.branchId, p.subscription?.id, p.plan?.code])).toEqual([[branch.id, subscription.id, "starter"]]); // the first branch's trial
+    expect(seen.activities.map((s) => [s.id, s.branchName, s.activityName])).toEqual([[subscription.id, "Main branch", karate?.name]]);
     expect(seen.audit).toEqual([{ action: "tenant.create", actorType: "system", entityId: tenant.id }]);
   });
 

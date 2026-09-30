@@ -4,12 +4,11 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { closeRulesFrom, createProgram, insertBatch, insertRules } from "@/modules/batches/repo";
 import { enrollments } from "@/modules/enrollments/schema";
 import { enroll, pauseEnrollment } from "@/modules/enrollments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { setSessionStatus } from "@/modules/sessions/repo";
 import { sessions } from "@/modules/sessions/schema";
@@ -57,12 +56,11 @@ const save = (ctx: ScopedCtx, sessionId: string, marks: { studentId: string; sta
 const rows = (sessionId: string) => withTenant(T, (tx) => tx.select().from(attendance).where(eq(attendance.sessionId, sessionId)));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Attendance ${stamp}`, slug: `att-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `att-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branch = t.branch.id;
   owner = await ctxFor(t.owner.id);
-  program = (await withTenant(T, (tx) => createProgram(tx, { tenantId: T, name: "Karate" }))).id;
+  program = (await withTenant(T, (tx) => createProgram(tx, { tenantId: T, name: "Karate", activityKey: "karate" }))).id;
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
   const staff = async (name: string, role: string) =>
     ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds: [roles[role] ?? ""] }))).id);

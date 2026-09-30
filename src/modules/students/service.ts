@@ -9,7 +9,6 @@ import { isMinor } from "@/lib/students/age";
 import { endForStudent, hasEnrollments, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
 import { endCharges } from "@/modules/fees/invoicing";
 import { pickBranch } from "@/modules/tenancy/branch-access";
-import { assertStudentRoom } from "@/modules/platform/limits";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
 import {
@@ -101,7 +100,6 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
 
   const contactPhone = data.guardian?.phone ?? data.adultPhone ?? "";
   const branchId = await pickBranch(tx, ctx.branchIds, data.branchId);
-  await assertStudentRoom(tx, branchId);
 
   // Household and guardian: reuse the family when the phone is known.
   let household: Household;
@@ -232,7 +230,6 @@ export async function setStudentStatus(tx: Tx, ctx: StudentCtx, id: string, inpu
   const s = await requireStudent(tx, ctx, id);
   const data = statusChangeSchema.parse(input);
   if (!TRANSITIONS[s.status].includes(data.status)) throw new BadRequestError(`Can't go from ${s.status} to ${data.status}`);
-  if (s.status === "left") await assertStudentRoom(tx, s.branchId); // counts again
   const today = await tenantToday(tx);
   const patch: Partial<typeof s> = { status: data.status };
   if (data.status === "left") {

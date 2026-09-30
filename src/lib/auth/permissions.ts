@@ -15,6 +15,8 @@ export const PERMISSIONS = {
   "settings:manage": { module: "core", description: "Edit academy profile, branches and labels" },
   "integrations:manage": { module: "core", description: "Connect Razorpay and WhatsApp" },
   "audit:read": { module: "core", description: "View the academy audit log" },
+  "billing:view": { module: "core", description: "See Bravitar's bills for this academy" },
+  "billing:manage": { module: "core", description: "Turn activities on or off in a branch" },
 
   "students:read": { module: "students", description: "See students in assigned batches and branches" },
   "students:read_all": { module: "students", description: "See every student regardless of coach assignment" },
@@ -69,7 +71,7 @@ export function permissionsFor(module: Module): PermissionKey[] {
 export const PRESET_ROLE_NAMES = ["Owner", "Manager", "Teacher", "Front Desk"] as const;
 export type PresetRoleName = (typeof PRESET_ROLE_NAMES)[number];
 
-const MANAGER_EXCLUDED: PermissionKey[] = ["staff:manage", "integrations:manage", "fees:refund"];
+const MANAGER_EXCLUDED: PermissionKey[] = ["staff:manage", "integrations:manage", "fees:refund", "billing:manage"];
 
 export const PRESET_ROLES: Record<PresetRoleName, { isSystem: boolean; permissions: PermissionKey[] }> = {
   Owner: { isSystem: true, permissions: [] },

@@ -5,9 +5,8 @@ import { parseCsv, toCsv } from "@/lib/csv";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { buildErrorRows, suggestMapping } from "@/modules/students/import-fields";
@@ -63,10 +62,9 @@ const MAPPING = { firstName: 0, lastName: 1, guardianName: 2, guardianPhone: 3, 
 const EXPECTED = { rows: 16, studentsCreated: 10, householdsCreated: 6, linkedToExisting: 1, skipped: 2, errors: [6, 7, 10, 17], warnings: [8, 9, 14, 15, 16] };
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const created = await createTenantWithDefaults(
     { actorType: "system" },
-    { name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", planCode: "pro", owner: { name: "Owner", email: `owner-${stamp}@example.test` } }, // no student limit for the 500-row run
+    { name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } },
   );
   T = created.tenant.id;
   mainBranch = created.branch.id;

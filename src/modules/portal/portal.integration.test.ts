@@ -4,7 +4,7 @@ import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { attendance } from "@/modules/attendance/schema";
@@ -14,7 +14,6 @@ import { enroll } from "@/modules/enrollments/service";
 import { insertInvoice, insertLines, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -48,7 +47,6 @@ const ownerOf = async (tenantId: string, staffId: string): Promise<ScopedCtx> =>
 const academy = (name: string) => createTenantWithDefaults({ actorType: "system" }, { name: `${name} ${stamp}`, slug: `${name.toLowerCase()}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `${name.toLowerCase()}-${stamp}@example.test` } });
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await academy("Portal");
   T = t.tenant.id;
   owner = await ownerOf(T, t.owner.id);

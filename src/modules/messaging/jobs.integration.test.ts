@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
-import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
+import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { formatPaise } from "@/lib/money/format";
@@ -16,7 +16,6 @@ import { createPlan, issueInvoices } from "@/modules/fees/service";
 import { fakeWhatsapp } from "@/modules/integrations/fake-whatsapp";
 import { connectWhatsapp } from "@/modules/integrations/service";
 import { cancelPayment, recordGatewayPayment, recordPayment } from "@/modules/payments/service";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -56,7 +55,6 @@ const mark = (date: string, at: Date, marks: [keyof typeof kids, "present" | "ab
 const absentOn = async (date: string) => (await log()).filter((m) => m.dedupeKey?.startsWith("absent|") && m.dedupeKey.endsWith(date));
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Jobs ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `jobs-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branchId = t.branch.id;

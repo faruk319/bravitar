@@ -7,8 +7,8 @@ import { financialYear } from "@/lib/money/fy";
 import { ensureSeries } from "@/modules/numbering/repo";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { phoneSchema } from "@/lib/phone";
-import { createBranchSubscription } from "@/modules/platform/repo";
-import type { BranchSubscription } from "@/modules/platform/schema";
+import type { ActivitySubscription } from "@/modules/billing/schema";
+import { startActivity } from "@/modules/billing/service";
 import { createStaff, replaceStaffRoles, syncPermissions } from "@/modules/staff/repo";
 import { PASSWORD_UNSET, type StaffUser } from "@/modules/staff/schema";
 import { createPresetRoles } from "@/modules/staff/service";
@@ -17,16 +17,14 @@ import { createBranch, createTenant } from "./repo";
 import { type Branch, type EnabledModules, type Tenant, tenants } from "./schema";
 
 // docs/03 §1: creating a tenant creates everything it needs in one transaction:
-// tenant, default branch, subscription, permission catalog, the four preset
-// roles and the owner. Number series arrive with the money slice.
+// tenant, default branch, its first activity on trial, permission catalog, the
+// four preset roles, the owner and the number series.
 export const newTenantSchema = z.object({
   name: z.string().trim().min(2).max(120),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/, "lowercase letters, digits and hyphens"),
   verticalPreset: z.enum(VERTICAL_PRESETS).default("general"),
   timezone: z.string().default("Asia/Kolkata").refine(isTimeZone, "Unknown timezone"),
   branchName: z.string().trim().min(1).max(120).default("Main branch"),
-  planCode: z.string().default("starter"),
-  trialDays: z.number().int().min(0).max(365).default(30),
   owner: z.object({
     name: z.string().trim().min(1).max(120),
     email: z.email().trim().toLowerCase(),
@@ -42,22 +40,22 @@ export function codePrefixFor(name: string): string {
   return p.length >= 2 ? p : (p + "ST").slice(0, 2);
 }
 
-export type CreatedTenant = { tenant: Tenant; branch: Branch; subscription: BranchSubscription; owner: StaffUser };
+export type CreatedTenant = { tenant: Tenant; branch: Branch; subscription: ActivitySubscription; owner: StaffUser };
 
 export async function createTenantWithDefaults(
   actor: Pick<AuditEntry, "actorType" | "actorId" | "impersonatedBy">,
   input: NewTenantInput,
 ): Promise<CreatedTenant> {
   const data = newTenantSchema.parse(input);
-  const trialEndsAt = new Date(Date.now() + data.trialDays * 86_400_000);
-  return withPlatformAdmin({ ...actor, action: "tenant.create", entityType: "tenant", after: { slug: data.slug, plan: data.planCode } }, async (tx, audit) => {
+  return withPlatformAdmin({ ...actor, action: "tenant.create", entityType: "tenant", after: { slug: data.slug, activity: data.verticalPreset } }, async (tx, audit) => {
     const tenant = await createTenant(tx, { name: data.name, slug: data.slug, verticalPreset: data.verticalPreset, timezone: data.timezone, codePrefix: codePrefixFor(data.name) });
     audit.tenantId = tenant.id;
     audit.entityId = tenant.id;
     const branch = await createBranch(tx, { tenantId: tenant.id, name: data.branchName, isDefault: true });
-    await ensureSeries(tx, tenant.id, financialYear(todayIn(tenant.timezone), tenant.fyStartMonth));
-    // Only the first branch gets the trial (agreed 2026-09-26).
-    const subscription = await createBranchSubscription(tx, { tenantId: tenant.id, branchId: branch.id, planCode: data.planCode, status: "trial", trialEndsAt });
+    const today = todayIn(tenant.timezone);
+    await ensureSeries(tx, tenant.id, financialYear(today, tenant.fyStartMonth));
+    // The academy's type is its first activity, the only one with a trial (agreed 2026-09-30).
+    const subscription = await startActivity(tx, { tenantId: tenant.id, branchId: branch.id, activityKey: data.verticalPreset, today, trial: true });
     await syncPermissions(tx);
     const roles = await createPresetRoles(tx, tenant.id);
     // No password yet: the invite / set-password flow (auth slice) sets it.

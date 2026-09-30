@@ -6,7 +6,6 @@ import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { todayIn } from "@/lib/dates";
 import { financialYear } from "@/lib/money/fy";
-import { ensurePlatformPlans } from "@/modules/platform/repo";
 import { tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { runOpenYear } from "./job";
@@ -24,7 +23,6 @@ const series = (T: string) => withTenant(T, (tx) => tx.select().from(numberSerie
 let T = "";
 
 beforeAll(async () => {
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, ensurePlatformPlans);
   T = await tenant("a");
 });
 
