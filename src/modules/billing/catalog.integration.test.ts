@@ -38,7 +38,7 @@ const start = (name: string) =>
   });
 const defaults = async () =>
   (await platformRead((tx) => tx.select({ id: activityPlans.id }).from(activityPlans).where(and(eq(activityPlans.activityKey, KEY), eq(activityPlans.isDefault, true))))).map((r) => r.id);
-const second = (price: string, isOffered: boolean) => ({ name: "Second", price, maxStudents: "", maxStaff: "", isOffered, reason: "Test" });
+const second = (price: string, isOffered: boolean) => ({ name: "Second", price, maxStudents: "", maxStaff: "", billingInterval: "month" as const, isOffered, reason: "Test" });
 
 beforeAll(async () => {
   await addTestActivities([{ key: KEY, name: "Test catalog" }]);

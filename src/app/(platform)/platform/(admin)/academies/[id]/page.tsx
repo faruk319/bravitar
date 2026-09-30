@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
+import { perCycle, planLabel, subscriptionState, totalsText } from "@/components/platform/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
@@ -14,13 +15,6 @@ import { allPlans, effectivePrice } from "@/modules/billing/service";
 import { academyDetail, type BranchActivity } from "@/modules/platform/academies";
 
 const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_", " ");
-
-function stateOf(s: BranchActivity): string {
-  const when = formatDate(s.periodEnd);
-  if (s.cancelAtPeriodEnd) return `${s.status === "paused" ? "Paused · ends" : "Ends"} ${when}`;
-  if (s.status === "trial") return `Trial until ${when}`;
-  return s.status === "paused" ? "Paused" : `Next bill ${when}`;
-}
 
 // More students than the plan allows (its limit was lowered): nobody is removed.
 const over = (s: BranchActivity) => s.plan.maxStudents !== null && s.students > s.plan.maxStudents;
@@ -35,7 +29,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
     throw e;
   });
   const today = todayIn(a.timezone);
-  const plans = (await allPlans()).map((p) => ({ value: p.id, activityKey: p.activityKey, label: `${p.name} · ${formatPaise(p.pricePaise)}${p.isOffered ? "" : " (not offered)"}` }));
+  const plans = (await allPlans()).map((p) => ({ value: p.id, activityKey: p.activityKey, label: planLabel(p) }));
   return (
     <>
       <Link href="/platform" className="text-label text-accent-600 hover:underline">
@@ -64,7 +58,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
           )}
         </Card>
         <Card>
-          <CardHeader title={`Branches · ${formatPaise(a.monthlyPaise)}/month`} />
+          <CardHeader title={`Branches · ${totalsText(a.totals)}`} />
           <p className={a.staffLimit !== null && a.staff > a.staffLimit ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
             {a.staffLimit === null ? `${a.staff} staff · no limit` : `${a.staff} of ${a.staffLimit} staff`}
           </p>
@@ -83,10 +77,10 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                           <ActivityIcon name={s.activityIcon} className="mr-1.5 inline size-4 align-[-2px] text-accent-600" />
                           {s.activityName} · {s.plan.name}{" "}
                           <span className={s.status === "paused" || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
-                            · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {stateOf(s)}
+                            · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {subscriptionState(s)}
                           </span>
                         </span>
-                        <span className="tabular-nums">{formatPaise(effectivePrice(s, today))}/month</span>
+                        <span className="tabular-nums">{perCycle(effectivePrice(s, today), s.billingInterval)}</span>
                       </p>
                       {s.nextPlanName ? <p className="text-caption text-muted-foreground">Moves to {s.nextPlanName} on {formatDate(s.periodEnd)}</p> : null}
                       <div className="flex flex-wrap items-center gap-2">

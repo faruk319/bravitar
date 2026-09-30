@@ -11,7 +11,7 @@ import { tenantOrigin } from "@/lib/tenant/origin";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { sessionsAuth } from "@/modules/auth/schema";
 import { activityStudentCounts, listInvoices, liveSubscriptions, staffCounts, staffSeats, type SubscriptionRow, usageKey } from "@/modules/billing/repo";
-import type { BillingInvoice } from "@/modules/billing/schema";
+import type { BillingInterval, BillingInvoice } from "@/modules/billing/schema";
 import { effectivePrice } from "@/modules/billing/service";
 import { INVITE_DAYS } from "@/modules/staff/service";
 import { PASSWORD_UNSET, staffInvites, staffUsers } from "@/modules/staff/schema";
@@ -41,7 +41,7 @@ export type Academy = {
   branches: AcademyBranch[];
   staff: number;
   staffLimit: number | null; // its plans' seats plus one owner; null = no limit
-  monthlyPaise: bigint;
+  totals: Record<BillingInterval, bigint>; // what it pays per month and per year
 };
 
 async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Promise<Academy[]> {
@@ -62,7 +62,8 @@ async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Pr
         students: students.get(b.id) ?? 0,
         activities: subs.filter((s) => s.branchId === b.id).map((s) => ({ ...s, students: inActivity.get(usageKey(b.id, s.activityKey)) ?? 0 })),
       }));
-    const monthlyPaise = own.flatMap((b) => b.activities).reduce((sum, s) => (PAYING.has(s.status) ? sum + effectivePrice(s, today) : sum), 0n);
+    const totals: Record<BillingInterval, bigint> = { month: 0n, year: 0n };
+    for (const s of own.flatMap((b) => b.activities)) if (PAYING.has(s.status)) totals[s.billingInterval] += effectivePrice(s, today);
     const seat = seats.get(t.id);
     return {
       id: t.id,
@@ -75,7 +76,7 @@ async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Pr
       branches: own,
       staff: staff.get(t.id) ?? 0,
       staffLimit: seat === null ? null : (seat ?? 0) + 1,
-      monthlyPaise,
+      totals,
     };
   });
 }

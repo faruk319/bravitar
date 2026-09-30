@@ -1,0 +1,26 @@
+import { formatDate } from "@/lib/dates";
+import { formatPaise } from "@/lib/money/format";
+import { type ActivityPlan, type ActivitySubscription, BILLING_INTERVALS, type BillingInterval } from "@/modules/billing/schema";
+
+// How /platform words Bravitar's prices and subscriptions.
+
+// "₹300/month", "₹3,000/year".
+export const perCycle = (paise: bigint, interval: BillingInterval): string => `${formatPaise(paise)}/${interval}`;
+
+// "₹600/month + ₹5,000/year": the cycles in use, or "₹0/month".
+export function totalsText(totals: Record<BillingInterval, bigint>): string {
+  const parts = BILLING_INTERVALS.filter((i) => totals[i] > 0n).map((i) => perCycle(totals[i], i));
+  return parts.length ? parts.join(" + ") : perCycle(0n, "month");
+}
+
+// For plan pickers: "Starter · ₹300/month (not offered)".
+export const planLabel = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billingInterval" | "isOffered">): string =>
+  `${p.name} · ${perCycle(p.pricePaise, p.billingInterval)}${p.isOffered ? "" : " (not offered)"}`;
+
+export function subscriptionState(s: Pick<ActivitySubscription, "status" | "periodEnd" | "cancelAtPeriodEnd">): string {
+  const when = formatDate(s.periodEnd);
+  if (s.status === "cancelled") return `Ended ${when}`;
+  if (s.cancelAtPeriodEnd) return `${s.status === "paused" ? "Paused · ends" : "Ends"} ${when}`;
+  if (s.status === "trial") return `Trial until ${when}`;
+  return s.status === "paused" ? "Paused" : `Next bill ${when}`;
+}

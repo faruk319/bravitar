@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { requirePlatformPage } from "@/lib/auth/server";
-import { formatPaise } from "@/lib/money/format";
+import { totalsText } from "@/components/platform/billing-text";
 import { cn } from "@/lib/utils";
 import { type Academy, listAcademies } from "@/modules/platform/academies";
 
@@ -59,7 +59,7 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
                   </span>
                 </td>
                 <td className="py-2">
-                  {a.branches.length} {a.branches.length === 1 ? "branch" : "branches"} · {formatPaise(a.monthlyPaise)}/month
+                  {a.branches.length} {a.branches.length === 1 ? "branch" : "branches"} · {totalsText(a.totals)}
                   <span className="block text-caption text-muted-foreground">{activitySummary(a)}</span>
                 </td>
                 <td className="py-2 tabular-nums">{a.branches.reduce((n, b) => n + b.students, 0)}</td>

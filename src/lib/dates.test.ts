@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, isIsoDate, nextMonthOn, startOfWeek, todayIn, weekdayOf } from "./dates";
+import { addDays, formatDate, isIsoDate, monthsLaterOn, startOfWeek, todayIn, weekdayOf } from "./dates";
 
 describe("calendar dates", () => {
   it("knows what day it is in the tenant's timezone, not the server's", () => {
@@ -16,12 +16,15 @@ describe("calendar dates", () => {
     expect(addDays("2026-03-08", 1)).toBe("2026-03-09"); // US DST starts
   });
 
-  it("finds next month's bill date, on the month's last day when it's shorter", () => {
-    expect(nextMonthOn("2026-09-30", 30)).toBe("2026-10-30");
-    expect(nextMonthOn("2026-01-31", 31)).toBe("2026-02-28");
-    expect(nextMonthOn("2026-02-28", 31)).toBe("2026-03-31");
-    expect(nextMonthOn("2028-01-30", 30)).toBe("2028-02-29"); // leap year
-    expect(nextMonthOn("2026-12-15", 15)).toBe("2027-01-15");
+  it("finds the next bill date, on the month's last day when it's shorter", () => {
+    expect(monthsLaterOn("2026-09-30", 1, 30)).toBe("2026-10-30");
+    expect(monthsLaterOn("2026-01-31", 1, 31)).toBe("2026-02-28");
+    expect(monthsLaterOn("2026-02-28", 1, 31)).toBe("2026-03-31");
+    expect(monthsLaterOn("2028-01-30", 1, 30)).toBe("2028-02-29"); // leap year
+    expect(monthsLaterOn("2026-12-15", 1, 15)).toBe("2027-01-15");
+    expect(monthsLaterOn("2026-09-30", 12, 30)).toBe("2027-09-30"); // yearly
+    expect(monthsLaterOn("2028-02-29", 12, 29)).toBe("2029-02-28");
+    expect(monthsLaterOn("2031-02-28", 12, 29)).toBe("2032-02-29"); // back on the 29th in a leap year
   });
 
   it("weekdays and Monday-start weeks", () => {

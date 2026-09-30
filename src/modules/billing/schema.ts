@@ -3,12 +3,16 @@ import { platformAdmins } from "@/modules/platform/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
 // Mirrors migrations/0026_activity_billing.sql, 0027_activity_plans.sql,
-// 0028_billing_invoices.sql and 0029_module_catalog.sql.
+// 0028_billing_invoices.sql, 0029_module_catalog.sql and 0030_billing_cycles.sql.
 // What an academy pays Bravitar, per activity per branch; shares no tables
 // with what academies charge students.
 const app = pgSchema("app");
 
 export const ACTIVITY_STATUSES = ["active", "coming_soon", "retired"] as const;
+
+// Billed every month or every year; a subscription keeps the one it started on.
+export const BILLING_INTERVALS = ["month", "year"] as const;
+export type BillingInterval = (typeof BILLING_INTERVALS)[number];
 
 export const activities = app.table("activities", {
   key: text("key").primaryKey(),
@@ -30,7 +34,7 @@ export const activityPlans = app.table("activity_plans", {
   pricePaise: bigint("price_paise", { mode: "bigint" }).notNull(),
   maxStudents: integer("max_students"),
   maxStaff: integer("max_staff"),
-  billingInterval: text("billing_interval", { enum: ["month"] }).notNull().default("month"),
+  billingInterval: text("billing_interval", { enum: BILLING_INTERVALS }).notNull().default("month"),
   isOffered: boolean("is_offered").notNull().default(true),
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -58,6 +62,7 @@ export const billingSettings = app.table("billing_settings", {
 });
 
 export const SUBSCRIPTION_STATUSES = ["trial", "active", "paused", "cancelled"] as const;
+export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 // periodEnd is the next bill date (the trial's end while on trial). A
 // downgrade waits in nextPlanId until then.
@@ -70,6 +75,7 @@ export const activitySubscriptions = app.table("activity_subscriptions", {
   nextPlanId: uuid("next_plan_id"),
   status: text("status", { enum: SUBSCRIPTION_STATUSES }).notNull(),
   pricePaise: bigint("price_paise", { mode: "bigint" }).notNull(),
+  billingInterval: text("billing_interval", { enum: BILLING_INTERVALS }).notNull(),
   overridePaise: bigint("override_paise", { mode: "bigint" }),
   overrideUntil: date("override_until"),
   overrideReason: text("override_reason"),

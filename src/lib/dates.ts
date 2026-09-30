@@ -28,12 +28,13 @@ export function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// The given day of the next month, or its last day when shorter:
-// ("2026-01-31", 31) -> "2026-02-28", then ("2026-02-28", 31) -> "2026-03-31".
-export function nextMonthOn(iso: string, day: number): string {
+// The given day, some months on, or that month's last day when it's shorter:
+// ("2026-01-31", 1, 31) -> "2026-02-28", then ("2026-02-28", 1, 31) -> "2026-03-31".
+export function monthsLaterOn(iso: string, months: number, day: number): string {
   const [y = 0, m = 1] = iso.split("-").map(Number);
-  const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(y, m, Math.min(day, last))).toISOString().slice(0, 10);
+  const month = m - 1 + months;
+  const last = new Date(Date.UTC(y, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, month, Math.min(day, last))).toISOString().slice(0, 10);
 }
 
 // "2026-02" -> "2026-02-28"

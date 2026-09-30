@@ -51,6 +51,7 @@ export default async function ModulesPage() {
                       id: p.id,
                       name: p.name,
                       price: rupeesText(p.pricePaise),
+                      billingInterval: p.billingInterval,
                       maxStudents: limitText(p.maxStudents),
                       maxStaff: limitText(p.maxStaff),
                       isOffered: p.isOffered,

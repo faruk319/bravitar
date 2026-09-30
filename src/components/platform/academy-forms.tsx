@@ -267,11 +267,18 @@ export function ActivityRow({ a, statuses, icons }: { a: ActivityRowData; status
   );
 }
 
-export type PlanValues = { name: string; price: string; maxStudents: string; maxStaff: string; isOffered: boolean };
+export type PlanValues = { name: string; price: string; billingInterval: string; maxStudents: string; maxStaff: string; isOffered: boolean };
 export type PlanRowData = PlanValues & { id: string; isDefault: boolean; used: string; changes: string[] };
 
-const PLAN_GRID = "grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_7rem_7rem_7rem_1fr_7rem]";
-const planBody = (f: FormData) => ({ name: f.get("name"), price: f.get("price"), maxStudents: f.get("maxStudents"), maxStaff: f.get("maxStaff"), isOffered: f.get("isOffered") === "on" });
+const PLAN_GRID = "grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_7rem_6rem_6rem_7rem_1fr_7rem]";
+const planBody = (f: FormData) => ({
+  name: f.get("name"),
+  price: f.get("price"),
+  billingInterval: f.get("billingInterval"),
+  maxStudents: f.get("maxStudents"),
+  maxStaff: f.get("maxStaff"),
+  isOffered: f.get("isOffered") === "on",
+});
 
 function PlanFields({ prefix, v }: { prefix: string; v: PlanValues }) {
   const id = (f: string) => `${prefix}-${f}`;
@@ -280,8 +287,14 @@ function PlanFields({ prefix, v }: { prefix: string; v: PlanValues }) {
       <Field label="Plan" id={id("name")}>
         <Input id={id("name")} name="name" defaultValue={v.name} />
       </Field>
-      <Field label="₹/month" id={id("price")}>
+      <Field label="Price ₹" id={id("price")}>
         <Input id={id("price")} name="price" inputMode="decimal" defaultValue={v.price} />
+      </Field>
+      <Field label="Every" id={id("cycle")}>
+        <select id={id("cycle")} name="billingInterval" defaultValue={v.billingInterval} className={selectClass}>
+          <option value="month">Month</option>
+          <option value="year">Year</option>
+        </select>
       </Field>
       <Field label="Students" id={id("students")}>
         <Input id={id("students")} name="maxStudents" inputMode="numeric" placeholder="No limit" defaultValue={v.maxStudents} />
@@ -296,8 +309,8 @@ function PlanFields({ prefix, v }: { prefix: string; v: PlanValues }) {
   );
 }
 
-// A plan's new price is for activities started from now on; new limits apply
-// to everyone on it. Not offered: owners can't pick it, you still can.
+// A plan's new price or cycle is for activities started from now on; new
+// limits apply to everyone on it. Not offered: owners can't pick it, you still can.
 export function PlanRow({ p }: { p: PlanRowData }) {
   const s = useSave();
   const [initial] = useState(p);
@@ -352,7 +365,7 @@ export function AddPlanRow({ activityKey }: { activityKey: string }) {
         if (await s.save(`/api/platform/activities/${activityKey}/plans`, "POST", planBody(new FormData(e.currentTarget)))) setRound((r) => r + 1);
       }}
     >
-      <PlanFields prefix={`${activityKey}-new`} v={{ name: "", price: "", maxStudents: "", maxStaff: "", isOffered: true }} />
+      <PlanFields prefix={`${activityKey}-new`} v={{ name: "", price: "", billingInterval: "month", maxStudents: "", maxStaff: "", isOffered: true }} />
       <span />
       <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
         Add plan

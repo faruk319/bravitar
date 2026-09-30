@@ -20,6 +20,7 @@ import {
   billingSettings,
   type BillingSettings,
   planPriceHistory,
+  type SubscriptionStatus,
 } from "./schema";
 
 type AnyTx = Tx | PlatformTx;
@@ -108,6 +109,31 @@ export async function liveSubscriptions(tx: AnyTx, opts: { tenantIds?: string[] 
     .where(and(ne(activitySubscriptions.status, "cancelled"), opts.tenantIds ? inArray(activitySubscriptions.tenantId, opts.tenantIds) : undefined))
     .orderBy(asc(branches.createdAt), asc(activities.name));
   return rows.map((r) => ({ ...r.s, activityName: r.activityName, activityIcon: r.activityIcon, branchName: r.branchName, plan: r.plan, nextPlanName: r.nextPlanName }));
+}
+
+export type ListedSubscription = ActivitySubscription & { academyName: string; timezone: string; branchName: string; activityName: string; activityIcon: string; planName: string };
+
+// Every academy's branch modules, for /platform/subscriptions: live ones
+// unless a status is asked for.
+export type SubscriptionFilters = { status?: SubscriptionStatus | undefined; activityKey?: string | undefined };
+
+export async function subscriptionList(tx: PlatformTx, f: SubscriptionFilters = {}): Promise<ListedSubscription[]> {
+  const rows = await tx
+    .select({ s: activitySubscriptions, academyName: tenants.name, timezone: tenants.timezone, branchName: branches.name, activityName: activities.name, activityIcon: activities.icon, planName: activityPlans.name })
+    .from(activitySubscriptions)
+    .innerJoin(tenants, eq(tenants.id, activitySubscriptions.tenantId))
+    .innerJoin(branches, eq(branches.id, activitySubscriptions.branchId))
+    .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
+    .innerJoin(activityPlans, eq(activityPlans.id, activitySubscriptions.planId))
+    .where(
+      and(
+        isNull(tenants.deletedAt),
+        f.status ? eq(activitySubscriptions.status, f.status) : ne(activitySubscriptions.status, "cancelled"),
+        f.activityKey ? eq(activitySubscriptions.activityKey, f.activityKey) : undefined,
+      ),
+    )
+    .orderBy(asc(tenants.name), asc(branches.createdAt), asc(activities.name));
+  return rows.map(({ s, ...names }) => ({ ...s, ...names }));
 }
 
 // The activities an academy has on, in any branch or in one.

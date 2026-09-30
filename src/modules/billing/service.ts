@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { type AuditEntry, writeAudit } from "@/lib/db/audit";
 import { type PlatformTx, platformRead, withPlatformAdmin } from "@/lib/db/platform";
-import { addDays, nextMonthOn } from "@/lib/dates";
+import { addDays, monthsLaterOn } from "@/lib/dates";
 import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { ACTIVITY_ICONS } from "@/lib/activities";
 import { uuidv7 } from "@/lib/ids";
@@ -18,6 +18,7 @@ import {
   getPlan,
   insertInvoice,
   insertSubscription,
+  type ListedSubscription,
   listActivities,
   listPlans,
   liveSubscriptions,
@@ -27,6 +28,8 @@ import {
   recentPriceChanges,
   staffCounts,
   subscriptionLabel,
+  type SubscriptionFilters,
+  subscriptionList,
   subscriptionsPerPlan,
   updateSubscription,
   usageKey,
@@ -38,6 +41,8 @@ import {
   type ActivityPlan,
   activityPlans,
   type ActivitySubscription,
+  BILLING_INTERVALS,
+  type BillingInterval,
   billingSettings,
   type BillingSettings,
   planPriceHistory,
@@ -73,6 +78,7 @@ export async function startActivity(tx: PlatformTx, input: StartInput): Promise<
     planId: plan.id,
     status: input.trial ? "trial" : "active",
     pricePaise: plan.pricePaise,
+    billingInterval: plan.billingInterval,
     anchorDay: Number(periodEnd.slice(8)),
     periodStart: input.today,
     periodEnd,
@@ -83,8 +89,10 @@ export async function startActivity(tx: PlatformTx, input: StartInput): Promise<
   return input.trial ? created : (await renew(tx, created, input.today)).subscription;
 }
 
-// ---- bills (agreed 2026-09-30): monthly in advance on the anchor day, one
-// per activity in a branch; a ₹0 month has no bill.
+// ---- bills (agreed 2026-09-30): in advance on the anchor day, monthly or
+// yearly, one per activity in a branch; a ₹0 period has no bill.
+
+const CYCLE_MONTHS: Record<BillingInterval, number> = { month: 1, year: 12 };
 
 export type Renewal = { subscription: ActivitySubscription; invoices: string[]; droppedPlanId: string | null };
 
@@ -102,19 +110,19 @@ export async function renew(tx: PlatformTx, s: ActivitySubscription, today: stri
     }
     if (cur.nextPlanId) {
       const plan = await getPlan(tx, cur.nextPlanId);
-      if (plan && (await fits(tx, cur, plan))) cur = { ...cur, planId: plan.id, pricePaise: plan.pricePaise };
+      if (plan && (await fits(tx, cur, plan))) cur = { ...cur, planId: plan.id, pricePaise: plan.pricePaise, billingInterval: plan.billingInterval };
       else droppedPlanId = cur.nextPlanId;
       cur = { ...cur, nextPlanId: null };
     }
     const start = cur.periodEnd;
-    const end = nextMonthOn(start, cur.anchorDay);
+    const end = monthsLaterOn(start, CYCLE_MONTHS[cur.billingInterval], cur.anchorDay);
     const amount = effectivePrice(cur, start);
     if (amount > 0n) invoices.push(await issueInvoice(tx, cur, start, end, amount, today));
     cur = { ...cur, status: cur.status === "trial" ? "active" : cur.status, periodStart: start, periodEnd: end };
   }
   if (cur !== s) {
-    const { status, planId, pricePaise, nextPlanId, periodStart, periodEnd, cancelledAt } = cur;
-    await updateSubscription(tx, s.id, { status, planId, pricePaise, nextPlanId, periodStart, periodEnd, cancelledAt });
+    const { status, planId, pricePaise, billingInterval, nextPlanId, periodStart, periodEnd, cancelledAt } = cur;
+    await updateSubscription(tx, s.id, { status, planId, pricePaise, billingInterval, nextPlanId, periodStart, periodEnd, cancelledAt });
   }
   return { subscription: cur, invoices, droppedPlanId };
 }
@@ -219,9 +227,10 @@ async function assertFits(tx: PlatformTx, s: ActivitySubscription, plan: Activit
 
 export type PlanChange = "now" | "at_period_end" | "unchanged";
 
-// Same price or more: now, billed from the next bill. Less: waits for the end
-// of the paid month, if usage fits. Choosing the current plan cancels a
-// waiting downgrade. Owners pick offered plans; the platform any.
+// Same cycle and the same price or more: now, billed from the next bill. Less,
+// or another cycle: waits for the end of the paid period, if usage fits.
+// Choosing the current plan cancels a waiting change. Owners pick offered
+// plans; the platform any.
 export async function changePlan(actor: Actor, subscriptionId: string, planId: string): Promise<PlanChange> {
   return withPlatformAdmin({ ...actor, action: "subscription.plan.change", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
     const s = await lockSubscription(tx, subscriptionId);
@@ -237,7 +246,7 @@ export async function changePlan(actor: Actor, subscriptionId: string, planId: s
       result = "unchanged";
     } else if (!plan.isOffered && actor.actorType === "staff") {
       throw new ConflictError(`${plan.name} isn't on offer`);
-    } else if (plan.pricePaise >= s.pricePaise) {
+    } else if (plan.billingInterval === s.billingInterval && plan.pricePaise >= s.pricePaise) {
       await set({ planId: plan.id, pricePaise: plan.pricePaise, nextPlanId: null });
       result = "now";
     } else {
@@ -284,13 +293,15 @@ export const planSchema = z.object({
   price: z.string().trim().transform((v, ctx) => parseRupees(v) ?? (ctx.addIssue({ code: "custom", message: "Enter the price in rupees" }), z.NEVER)),
   maxStudents: limit,
   maxStaff: limit,
+  billingInterval: z.enum(BILLING_INTERVALS),
   isOffered: z.boolean(),
   reason: optionalText(200),
 });
 
-const planAudit = (p: Pick<ActivityPlan, "name" | "pricePaise" | "maxStudents" | "maxStaff" | "isOffered">) => ({
+const planAudit = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billingInterval" | "maxStudents" | "maxStaff" | "isOffered">) => ({
   name: p.name,
   price: String(p.pricePaise),
+  billingInterval: p.billingInterval,
   maxStudents: p.maxStudents,
   maxStaff: p.maxStaff,
   isOffered: p.isOffered,
@@ -303,7 +314,7 @@ const nameTaken = (name: string) => (e: unknown) => {
 
 export async function addPlan(actor: Actor, activityKey: string, input: z.input<typeof planSchema>): Promise<ActivityPlan> {
   const d = planSchema.parse(input);
-  const values = { name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
+  const values = { name: d.name, pricePaise: d.price, billingInterval: d.billingInterval, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
   return withPlatformAdmin({ ...actor, action: "activity_plan.create", entityType: "activity_plan", after: { activityKey, ...planAudit(values) } }, async (tx, audit) => {
     if (!(await getActivity(tx, activityKey))) throw new NotFoundError("Activity");
     const [plan] = await tx
@@ -317,11 +328,11 @@ export async function addPlan(actor: Actor, activityKey: string, input: z.input<
   });
 }
 
-// A new price is for activities started from now on (every change is kept);
-// new limits apply to everyone on the plan.
+// A new price or cycle is for activities started from now on (every price
+// change is kept); new limits apply to everyone on the plan.
 export async function editPlan(actor: Actor, planId: string, input: z.input<typeof planSchema>): Promise<void> {
   const d = planSchema.parse(input);
-  const values = { name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
+  const values = { name: d.name, pricePaise: d.price, billingInterval: d.billingInterval, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
   await withPlatformAdmin({ ...actor, action: "activity_plan.edit", entityType: "activity_plan", entityId: planId, after: planAudit(values) }, async (tx, audit) => {
     const [before] = await tx.select().from(activityPlans).where(eq(activityPlans.id, planId)).for("update");
     if (!before) throw new NotFoundError("Plan");
@@ -382,6 +393,10 @@ export async function editBillingSettings(actor: Actor, input: z.input<typeof se
     audit.before = Object.fromEntries(Object.keys(d).map((k) => [k, s[k as keyof typeof d]]));
     await tx.update(billingSettings).set({ ...d, updatedAt: new Date() }).where(eq(billingSettings.id, true));
   });
+}
+
+export async function allSubscriptions(f: SubscriptionFilters): Promise<{ rows: ListedSubscription[]; modules: Activity[] }> {
+  return platformRead(async (tx) => ({ rows: await subscriptionList(tx, f), modules: await listActivities(tx) }));
 }
 
 // For pickers: each module's default first, then the others on offer, then

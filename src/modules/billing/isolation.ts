@@ -11,7 +11,7 @@ async function subscription(tx: Tx, tenantId: string): Promise<string> {
   const id = uuidv7();
   await tx
     .insert(activitySubscriptions)
-    .values({ id, tenantId, branchId: branch.id, activityKey: "general", planId: plan?.id ?? "", status: "active", pricePaise: 0n, anchorDay: 1, periodStart: "2026-10-01", periodEnd: "2026-10-01" });
+    .values({ id, tenantId, branchId: branch.id, activityKey: "general", planId: plan?.id ?? "", status: "active", pricePaise: 0n, billingInterval: "month", anchorDay: 1, periodStart: "2026-10-01", periodEnd: "2026-10-01" });
   return id;
 }
 

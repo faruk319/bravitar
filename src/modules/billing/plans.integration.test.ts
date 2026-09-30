@@ -143,7 +143,7 @@ describe("changing plan", () => {
 
 describe("a plan's price and limits", () => {
   it("a new price is for new subscriptions only, and each change is kept", async () => {
-    await editPlan(ME, plan.small, { name: "Small", price: "350", maxStudents: "2", maxStaff: "1", isOffered: true, reason: "New year" });
+    await editPlan(ME, plan.small, { name: "Small", price: "350", maxStudents: "2", maxStaff: "1", billingInterval: "month", isOffered: true, reason: "New year" });
     const third = await start(A, await branch(A, "Third"), KEY); // the default plan
     expect(third).toMatchObject({ planId: plan.small, pricePaise: 35_000n });
     expect((await subOf(A, second))?.pricePaise).toBe(30_000n);
@@ -153,7 +153,7 @@ describe("a plan's price and limits", () => {
   });
 
   it("new limits apply to everyone on the plan", async () => {
-    await editPlan(ME, plan.small, { name: "Small", price: "350", maxStudents: "1", maxStaff: "1", isOffered: true });
+    await editPlan(ME, plan.small, { name: "Small", price: "350", maxStudents: "1", maxStaff: "1", billingInterval: "month", isOffered: true });
     expect((await subOf(A, second))?.plan.maxStudents).toBe(1);
     await expect(join(owner, 0, batch.other)).rejects.toThrow("Test activity Small at Second allows 1 student. Upgrade the plan in Billing.");
   });

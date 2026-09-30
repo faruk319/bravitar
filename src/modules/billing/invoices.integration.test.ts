@@ -7,7 +7,7 @@ import { addTestActivities, removeTestActivities, testAcademy } from "@/lib/db/i
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { addDays, nextMonthOn } from "@/lib/dates";
+import { addDays, monthsLaterOn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { percent } from "@/lib/money/paise";
 import { addProgram, createBatch } from "@/modules/batches/service";
@@ -209,7 +209,7 @@ describe("a trial", () => {
   it("ends in its first bill at the plan's price; one cancelled at its end has none", async () => {
     const end = trial.main.periodEnd;
     await run(end, T);
-    expect(await sub(trial.main.id)).toMatchObject({ status: "active", periodStart: end, periodEnd: nextMonthOn(end, trial.main.anchorDay) });
+    expect(await sub(trial.main.id)).toMatchObject({ status: "active", periodStart: end, periodEnd: monthsLaterOn(end, 1, trial.main.anchorDay) });
     expect(await billsOf(trial.main.id)).toMatchObject([{ periodStart: end, subtotalPaise: 40_000n, issuedOn: end }]);
     expect(await sub(trial.cancelled.id)).toMatchObject({ status: "cancelled" });
     expect(await billsOf(trial.cancelled.id)).toEqual([]);
