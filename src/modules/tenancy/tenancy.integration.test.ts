@@ -8,7 +8,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
 import { resolveLabels } from "@/lib/tenant/labels";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
-import { getActivity, getBillingSettings, liveSubscriptions } from "@/modules/billing/repo";
+import { getActivity, getBillingSettings, listPlans, liveSubscriptions } from "@/modules/billing/repo";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { branches, tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
@@ -31,9 +31,13 @@ describe("createTenantWithDefaults", () => {
 
     expect(tenant.slug).toBe(slug);
     expect(branch).toMatchObject({ tenantId: tenant.id, isDefault: true, name: "Main branch" });
-    const { karate, trialDays } = await platformRead(async (tx) => ({ karate: await getActivity(tx, "karate"), trialDays: (await getBillingSettings(tx)).trialDays }));
+    const { karate, plan, trialDays } = await platformRead(async (tx) => ({
+      karate: await getActivity(tx, "karate"),
+      plan: (await listPlans(tx, "karate")).find((p) => p.isOffered), // the cheapest on offer
+      trialDays: (await getBillingSettings(tx)).trialDays,
+    }));
     const today = todayIn(tenant.timezone);
-    expect(subscription).toMatchObject({ tenantId: tenant.id, branchId: branch.id, activityKey: "karate", status: "trial", pricePaise: karate?.pricePaise, periodStart: today, periodEnd: addDays(today, trialDays) });
+    expect(subscription).toMatchObject({ tenantId: tenant.id, branchId: branch.id, activityKey: "karate", planId: plan?.id, status: "trial", pricePaise: plan?.pricePaise, periodStart: today, periodEnd: addDays(today, trialDays) });
 
     // Visible from inside the tenant's own context, including its creation audit row.
     const seen = await withTenant(tenant.id, async (tx) => ({

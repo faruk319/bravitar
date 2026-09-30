@@ -3,7 +3,7 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
-import { editActivity, editBillingSettings } from "@/modules/billing/service";
+import { addPlan, changePlan, editActivity, editBillingSettings, editPlan } from "@/modules/billing/service";
 import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
@@ -50,10 +50,25 @@ export const academyHandler = withPlatformRequest(async (req, actor) => {
 // POST /api/platform/academies/<id>/invite: a new link for the owner.
 export const ownerInviteHandler = withPlatformRequest(async (req, actor) => json({ inviteUrl: await ownerInvite(actor, pathSegment(req, 3)) }));
 
-// PATCH /api/platform/activities/<key>: name, price, status.
+// PATCH /api/platform/activities/<key>: name, description, status.
 export const activityHandler = withPlatformRequest(async (req, actor) => {
   await editActivity(actor, pathSegment(req, 3), await readJson(req));
   return json({ ok: true });
+});
+
+// POST /api/platform/activities/<key>/plans
+export const addPlanHandler = withPlatformRequest(async (req, actor) => json({ id: (await addPlan(actor, pathSegment(req, 3), await readJson(req))).id }, { status: 201 }));
+
+// PATCH /api/platform/plans/<id>: name, price, limits, offered.
+export const planHandler = withPlatformRequest(async (req, actor) => {
+  await editPlan(actor, pathSegment(req, 3), await readJson(req));
+  return json({ ok: true });
+});
+
+// PATCH /api/platform/subscriptions/<id> { planId }: now or at the month's end.
+export const subscriptionHandler = withPlatformRequest(async (req, actor) => {
+  const { planId } = (await readJson(req)) as { planId?: unknown };
+  return json({ when: await changePlan(actor, pathSegment(req, 3), String(planId ?? "")) });
 });
 
 // PATCH /api/platform/billing-settings

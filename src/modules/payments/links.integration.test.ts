@@ -15,7 +15,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { reconcileLinks, runPaymentsReconcile } from "./job";
 import { paymentLinkFor } from "./links";
 import { paymentLinks, payments } from "./schema";
@@ -37,7 +37,7 @@ let ownerU: ScopedCtx;
 let phone = 0;
 
 const academy = async (key: string) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Links ${key} ${stamp}`, slug: `lnk-${key}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `lnk-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Links ${key} ${stamp}`, slug: `lnk-${key}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `lnk-${key}-${stamp}@example.test` } });
   made.push(t.tenant.id);
   return t;
 };

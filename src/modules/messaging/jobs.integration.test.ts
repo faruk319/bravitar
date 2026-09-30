@@ -22,7 +22,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { runMessagesRemind, runMessagesSend, sendDue } from "./job";
 import { sharedInvoice } from "./public";
 import { type MessageLog, messageLog } from "./schema";
@@ -55,7 +55,7 @@ const mark = (date: string, at: Date, marks: [keyof typeof kids, "present" | "ab
 const absentOn = async (date: string) => (await log()).filter((m) => m.dedupeKey?.startsWith("absent|") && m.dedupeKey.endsWith(date));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Jobs ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `jobs-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Jobs ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `jobs-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branchId = t.branch.id;
   const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);

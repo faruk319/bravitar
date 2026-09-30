@@ -10,13 +10,13 @@ import { uuidv7 } from "@/lib/ids";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { sessionsAuth } from "@/modules/auth/schema";
-import { liveSubscriptions, type SubscriptionRow } from "@/modules/billing/repo";
+import { activityStudentCounts, liveSubscriptions, staffCounts, staffSeats, type SubscriptionRow, usageKey } from "@/modules/billing/repo";
 import { effectivePrice } from "@/modules/billing/service";
 import { INVITE_DAYS } from "@/modules/staff/service";
 import { PASSWORD_UNSET, staffInvites, staffUsers } from "@/modules/staff/schema";
 import { branches, type EnabledModules, tenants } from "@/modules/tenancy/schema";
 import { createTenantWithDefaults, setTenantModules } from "@/modules/tenancy/service";
-import { staffByTenant, studentsByBranch } from "./usage";
+import { studentsByBranch } from "./usage";
 
 // The /platform area's academies (Prompt 21). Every write goes through
 // withPlatformAdmin, and the ones about an academy land in its audit log too.
@@ -26,7 +26,9 @@ type Actor = Pick<AuditEntry, "actorType" | "actorId">;
 // Paused and cancelled activities pay nothing; a trial is priced as it will be.
 const PAYING = new Set(["trial", "active"]);
 
-export type AcademyBranch = { id: string; name: string; isDefault: boolean; students: number; activities: SubscriptionRow[] };
+// students: in this activity's batches at this branch, against the plan's limit.
+export type BranchActivity = SubscriptionRow & { students: number };
+export type AcademyBranch = { id: string; name: string; isDefault: boolean; students: number; activities: BranchActivity[] };
 export type Academy = {
   id: string;
   name: string;
@@ -37,6 +39,7 @@ export type Academy = {
   createdAt: Date;
   branches: AcademyBranch[];
   staff: number;
+  staffLimit: number | null; // its plans' seats plus one owner; null = no limit
   monthlyPaise: bigint;
 };
 
@@ -45,12 +48,34 @@ async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Pr
   const ids = rows.map((t) => t.id);
   if (!ids.length) return [];
   const branchRows = await tx.select().from(branches).where(and(inArray(branches.tenantId, ids), isNull(branches.deletedAt))).orderBy(asc(branches.createdAt));
-  const [subs, students, staff] = [await liveSubscriptions(tx, { tenantIds: ids }), await studentsByBranch(tx, ids), await staffByTenant(tx, ids)];
+  const subs = await liveSubscriptions(tx, { tenantIds: ids });
+  const [students, inActivity, staff, seats] = [await studentsByBranch(tx, ids), await activityStudentCounts(tx, { tenantIds: ids }), await staffCounts(tx, ids), await staffSeats(tx, { tenantIds: ids })];
   return rows.map((t) => {
     const today = todayIn(t.timezone);
-    const own = branchRows.filter((b) => b.tenantId === t.id).map((b) => ({ id: b.id, name: b.name, isDefault: b.isDefault, students: students.get(b.id) ?? 0, activities: subs.filter((s) => s.branchId === b.id) }));
+    const own = branchRows
+      .filter((b) => b.tenantId === t.id)
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        isDefault: b.isDefault,
+        students: students.get(b.id) ?? 0,
+        activities: subs.filter((s) => s.branchId === b.id).map((s) => ({ ...s, students: inActivity.get(usageKey(b.id, s.activityKey)) ?? 0 })),
+      }));
     const monthlyPaise = own.flatMap((b) => b.activities).reduce((sum, s) => (PAYING.has(s.status) ? sum + effectivePrice(s, today) : sum), 0n);
-    return { id: t.id, name: t.name, slug: t.slug, type: t.verticalPreset, status: t.status, timezone: t.timezone, createdAt: t.createdAt, branches: own, staff: staff.get(t.id) ?? 0, monthlyPaise };
+    const seat = seats.get(t.id);
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      type: t.verticalPreset,
+      status: t.status,
+      timezone: t.timezone,
+      createdAt: t.createdAt,
+      branches: own,
+      staff: staff.get(t.id) ?? 0,
+      staffLimit: seat === null ? null : (seat ?? 0) + 1,
+      monthlyPaise,
+    };
   });
 }
 
@@ -93,13 +118,16 @@ export const newAcademySchema = z.object({
   name: z.string().trim().min(2).max(120),
   slug: z.string().trim().toLowerCase(),
   verticalPreset: z.enum(VERTICAL_PRESETS),
+  planId: z.uuid().optional(),
   owner: z.object({ name: z.string().trim().min(1).max(120), email: z.email().trim().toLowerCase(), phone: z.string().trim().optional() }),
 });
 
-// The academy with its first branch, roles and owner, and the owner's link.
+// The academy with its first branch (on trial, on the chosen plan), roles and
+// owner, and the owner's link.
 export async function createAcademy(actor: Actor, input: z.input<typeof newAcademySchema>): Promise<{ id: string; inviteUrl: string }> {
   const d = newAcademySchema.parse(input);
-  const created = await createTenantWithDefaults(actor, { name: d.name, slug: d.slug, verticalPreset: d.verticalPreset, owner: { name: d.owner.name, email: d.owner.email, ...(d.owner.phone ? { phone: d.owner.phone } : {}) } }).catch((e: unknown) => {
+  const owner = { name: d.owner.name, email: d.owner.email, ...(d.owner.phone ? { phone: d.owner.phone } : {}) };
+  const created = await createTenantWithDefaults(actor, { name: d.name, slug: d.slug, verticalPreset: d.verticalPreset, ...(d.planId ? { planId: d.planId } : {}), owner }).catch((e: unknown) => {
     if (isUniqueViolation(e)) throw new ConflictError("That address is taken");
     throw e;
   });

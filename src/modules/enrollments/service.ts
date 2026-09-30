@@ -6,7 +6,7 @@ import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, isIsoDate } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { getBatch } from "@/modules/batches/repo";
-import { assertBatchOpen } from "@/modules/billing/access";
+import { assertBatchOpen, assertStudentRoom } from "@/modules/billing/access";
 import type { Batch } from "@/modules/batches/schema";
 import { type BatchView, listBatchViews } from "@/modules/batches/service";
 import { endCharges } from "@/modules/fees/invoicing";
@@ -38,6 +38,7 @@ async function requireOpen(tx: Tx, ctx: ScopedCtx, id: string): Promise<Enrollme
 async function join(tx: Tx, ctx: ScopedCtx, studentId: string, batch: Batch, start: string): Promise<Enrollment> {
   if (start < batch.startDate) throw new BadRequestError(`${batch.name} starts on ${formatDate(batch.startDate)}`);
   if (await findOverlap(tx, studentId, batch.id, start)) throw new ConflictError(`Already in ${batch.name}`);
+  await assertStudentRoom(tx, ctx, batch.id, studentId);
   const plan = batch.defaultFeePlanId ? await getPlan(tx, batch.defaultFeePlanId) : undefined;
   try {
     return await insertEnrollment(tx, { tenantId: ctx.tenantId, studentId, batchId: batch.id, startDate: start, feePlanId: plan?.isActive ? plan.id : null });

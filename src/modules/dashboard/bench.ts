@@ -19,7 +19,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent, type StudentCtx } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { type Dashboard, dashboardData } from "./service";
 
 // pnpm bench:dashboard (docs/06 Prompt 19): the dashboard under 2 s with 2,000
@@ -141,7 +141,7 @@ async function createEnquiryMix(tx: Tx, ctx: StudentCtx, programId: string, toda
 async function main(): Promise<void> {
   if (!/@(localhost|127\.0\.0\.1)[:/]/.test(process.env.DATABASE_URL ?? "")) throw new Error("bench:dashboard runs against a local database only");
   const stamp = Date.now().toString(36);
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Bench ${stamp}`, slug: `bench-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `bench-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Bench ${stamp}`, slug: `bench-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `bench-${stamp}@example.test` } });
   try {
     await build(t.tenant.id, t.owner.id);
     const owner = await withTenant(t.tenant.id, async (tx) => ({ ...(await loadAccessContext(tx, t.owner.id)), branchIds: await staffBranchIds(tx, t.owner.id) }));

@@ -11,7 +11,7 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { activitiesOf } from "./repo";
 import { createEnquiry, editEnquiry, enquiryBoard, logActivity, markLost, myFollowUps, phoneMatches, reopenEnquiry } from "./service";
 
@@ -36,7 +36,7 @@ const add = (ctx: ScopedCtx, name: string, phone: string, extra: object = {}) =>
 const timeline = async (id: string) => (await withTenant(T, (tx) => activitiesOf(tx, id))).map((a) => (a.toStatus ? `${a.kind}>${a.toStatus}` : a.kind)).reverse();
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Enq ${stamp}`, slug: `enq-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `enq-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Enq ${stamp}`, slug: `enq-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `enq-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

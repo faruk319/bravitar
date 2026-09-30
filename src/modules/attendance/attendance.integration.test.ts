@@ -15,7 +15,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendance, type Mark } from "./schema";
 import { classRoster, monthGrid, saveAttendance, studentAttendance, todaysClasses } from "./service";
 
@@ -56,7 +56,7 @@ const save = (ctx: ScopedCtx, sessionId: string, marks: { studentId: string; sta
 const rows = (sessionId: string) => withTenant(T, (tx) => tx.select().from(attendance).where(eq(attendance.sessionId, sessionId)));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Attendance ${stamp}`, slug: `att-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `att-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Attendance ${stamp}`, slug: `att-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `att-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branch = t.branch.id;
   owner = await ctxFor(t.owner.id);

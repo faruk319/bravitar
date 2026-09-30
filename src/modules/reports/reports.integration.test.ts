@@ -22,7 +22,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendanceRows, collectionRows, enquiryRows } from "./csv";
 import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collectionRegister, outstandingDues } from "./service";
 
@@ -55,7 +55,7 @@ const pay = (householdId: string, rupees: number, method: "cash" | "upi" = "cash
   withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: at, amountPaise: String(rupees * 100), method }));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Reports ${stamp}`, slug: `reports-${stamp}`, owner: { name: "Owner", email: `reports-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Reports ${stamp}`, slug: `reports-${stamp}`, owner: { name: "Owner", email: `reports-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branch = t.branch.id;
   owner = await ctxFor(t.owner.id);

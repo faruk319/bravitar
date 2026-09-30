@@ -22,7 +22,7 @@ import {
   studentOverview,
 } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
@@ -40,10 +40,7 @@ const ctxFor = async (staffId: string): Promise<StudentCtx> => {
 };
 
 beforeAll(async () => {
-  const created = await createTenantWithDefaults(
-    { actorType: "system" },
-    { name: `Student Test ${stamp}`, slug: `stu-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } },
-  );
+  const created = await testAcademy({ name: `Student Test ${stamp}`, slug: `stu-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = created.tenant.id;
   owner = created.owner;
   mainBranch = created.branch.id;

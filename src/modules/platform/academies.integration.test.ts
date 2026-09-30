@@ -5,7 +5,7 @@ import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformRead, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { login } from "@/modules/auth/service";
-import { getActivity } from "@/modules/billing/repo";
+import { getActivity, listPlans } from "@/modules/billing/repo";
 import { acceptInvite, inviteInfo, loadAccessContext } from "@/modules/staff/service";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { findTenantBySlug } from "@/modules/tenancy/repo";
@@ -50,10 +50,10 @@ describe("a new academy", () => {
       await setStudentStatus(tx, ctx, paused.student.id, { status: "paused" });
       await setStudentStatus(tx, ctx, left.student.id, { status: "left", reason: "moved_away" });
     });
-    const deeniyat = await platformRead((tx) => getActivity(tx, "deeniyat"));
+    const { deeniyat, plan } = await platformRead(async (tx) => ({ deeniyat: await getActivity(tx, "deeniyat"), plan: (await listPlans(tx, "deeniyat")).find((p) => p.isOffered) }));
     const [row] = await listAcademies(SLUG);
-    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", staff: 1, monthlyPaise: deeniyat?.pricePaise });
-    expect(row?.branches).toMatchObject([{ isDefault: true, students: 2, activities: [{ activityKey: "deeniyat", activityName: deeniyat?.name, status: "trial" }] }]);
+    expect(row).toMatchObject({ slug: SLUG, type: "deeniyat", status: "active", staff: 1, staffLimit: plan?.maxStaff === null ? null : (plan?.maxStaff ?? 0) + 1, monthlyPaise: plan?.pricePaise });
+    expect(row?.branches).toMatchObject([{ isDefault: true, students: 2, activities: [{ activityKey: "deeniyat", activityName: deeniyat?.name, planId: plan?.id, status: "trial", students: 0 }] }]);
   });
 });
 

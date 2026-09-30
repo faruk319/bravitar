@@ -4,9 +4,36 @@ import type { AuditEntry } from "@/lib/db/audit";
 import { type PlatformTx, platformRead, withPlatformAdmin } from "@/lib/db/platform";
 import { addDays } from "@/lib/dates";
 import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { uuidv7 } from "@/lib/ids";
 import { parseRupees } from "@/lib/money/paise";
-import { branchesPerActivity, getActivity, getBillingSettings, insertSubscription, listActivities, type PriceChange, recentPriceChanges } from "./repo";
-import { ACTIVITY_STATUSES, type Activity, activities, activityPriceHistory, type ActivitySubscription, billingSettings, type BillingSettings } from "./schema";
+import { students } from "./access";
+import {
+  activityStudentCounts,
+  getActivity,
+  getBillingSettings,
+  getPlan,
+  insertSubscription,
+  listActivities,
+  listPlans,
+  liveSubscriptions,
+  type PriceChange,
+  recentPriceChanges,
+  staffCounts,
+  subscriptionsPerPlan,
+  usageKey,
+} from "./repo";
+import {
+  ACTIVITY_STATUSES,
+  type Activity,
+  activities,
+  type ActivityPlan,
+  activityPlans,
+  type ActivitySubscription,
+  activitySubscriptions,
+  billingSettings,
+  type BillingSettings,
+  planPriceHistory,
+} from "./schema";
 
 // Bravitar's own billing (agreed 2026-09-30). Every write goes through the
 // platform role; academies only read their rows.
@@ -14,32 +41,83 @@ import { ACTIVITY_STATUSES, type Activity, activities, activityPriceHistory, typ
 type Actor = Pick<AuditEntry, "actorType" | "actorId">;
 
 // What the next bill charges: the override while it lasts, else the price
-// agreed when the activity started.
+// agreed when the activity started or last moved up a plan.
 export function effectivePrice(s: Pick<ActivitySubscription, "pricePaise" | "overridePaise" | "overrideUntil">, on: string): bigint {
   return s.overridePaise !== null && (s.overrideUntil === null || on <= s.overrideUntil) ? s.overridePaise : s.pricePaise;
 }
 
-export type StartInput = { tenantId: string; branchId: string; activityKey: string; today: string; trial: boolean };
+export type StartInput = { tenantId: string; branchId: string; activityKey: string; planId?: string | undefined; today: string; trial: boolean };
 
-// At today's catalog price. Only an academy's first activity in its first
-// branch gets the trial; the rest are billed from the day they start.
+// On the given plan, else the cheapest one on offer, at its price today. Only
+// an academy's first activity in its first branch gets the trial.
 export async function startActivity(tx: PlatformTx, input: StartInput): Promise<ActivitySubscription> {
   const activity = await getActivity(tx, input.activityKey);
   if (!activity) throw new NotFoundError("Activity");
   if (activity.status !== "active") throw new ConflictError(`${activity.name} isn't available yet`);
+  const plan = input.planId ? await getPlan(tx, input.planId) : (await listPlans(tx, activity.key)).find((p) => p.isOffered);
+  if (!plan || plan.activityKey !== activity.key) throw input.planId ? new NotFoundError("Plan") : new ConflictError(`${activity.name} has no plan on offer`);
   const periodEnd = input.trial ? addDays(input.today, (await getBillingSettings(tx)).trialDays) : input.today;
   return insertSubscription(tx, {
     tenantId: input.tenantId,
     branchId: input.branchId,
     activityKey: activity.key,
+    planId: plan.id,
     status: input.trial ? "trial" : "active",
-    pricePaise: activity.pricePaise,
+    pricePaise: plan.pricePaise,
     anchorDay: Number(periodEnd.slice(8)),
     periodStart: input.today,
     periodEnd,
   }).catch((e: unknown) => {
     if (isUniqueViolation(e)) throw new ConflictError(`${activity.name} is already on in this branch`);
     throw e;
+  });
+}
+
+// Would this subscription's usage fit the plan's limits?
+async function assertFits(tx: PlatformTx, s: ActivitySubscription, plan: ActivityPlan): Promise<void> {
+  if (plan.maxStudents !== null) {
+    const n = (await activityStudentCounts(tx, { tenantIds: [s.tenantId], branchId: s.branchId, activityKey: s.activityKey })).get(usageKey(s.branchId, s.activityKey)) ?? 0;
+    if (n > plan.maxStudents) throw new ConflictError(`${students(n)} in it here; ${plan.name} allows ${plan.maxStudents}.`);
+  }
+  if (plan.maxStaff !== null) {
+    const others = (await liveSubscriptions(tx, { tenantIds: [s.tenantId] })).filter((x) => x.id !== s.id).map((x) => x.plan.maxStaff);
+    if (others.includes(null)) return; // another plan has no staff limit
+    const allowed = others.reduce<number>((sum, m) => sum + (m ?? 0), plan.maxStaff) + 1; // plus one owner
+    const staff = (await staffCounts(tx, [s.tenantId])).get(s.tenantId) ?? 0;
+    if (staff > allowed) throw new ConflictError(`The academy has ${staff} staff; with ${plan.name} its plans allow ${allowed}.`);
+  }
+}
+
+export type PlanChange = "now" | "at_period_end" | "unchanged";
+
+// Same price or more: now, billed from the next bill. Less: waits for the end
+// of the paid month, if usage fits. Choosing the current plan cancels a
+// waiting downgrade. Owners pick offered plans; the platform any.
+export async function changePlan(actor: Actor, subscriptionId: string, planId: string): Promise<PlanChange> {
+  return withPlatformAdmin({ ...actor, action: "subscription.plan.change", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
+    const [s] = await tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, subscriptionId)).for("update");
+    if (!s || s.status === "cancelled") throw new NotFoundError("Subscription");
+    audit.tenantId = s.tenantId;
+    audit.before = { planId: s.planId, pricePaise: String(s.pricePaise), nextPlanId: s.nextPlanId };
+    const plan = await getPlan(tx, planId);
+    if (!plan || plan.activityKey !== s.activityKey) throw new NotFoundError("Plan");
+    const set = (patch: Partial<ActivitySubscription>) => tx.update(activitySubscriptions).set(patch).where(eq(activitySubscriptions.id, s.id));
+    let result: PlanChange;
+    if (plan.id === s.planId) {
+      await set({ nextPlanId: null });
+      result = "unchanged";
+    } else if (!plan.isOffered && actor.actorType === "staff") {
+      throw new ConflictError(`${plan.name} isn't on offer`);
+    } else if (plan.pricePaise >= s.pricePaise) {
+      await set({ planId: plan.id, pricePaise: plan.pricePaise, nextPlanId: null });
+      result = "now";
+    } else {
+      await assertFits(tx, s, plan);
+      await set({ nextPlanId: plan.id });
+      result = "at_period_end";
+    }
+    audit.after = { planId: plan.id, when: result };
+    return result;
   });
 }
 
@@ -56,23 +134,76 @@ const optionalText = (max: number) =>
 export const activityEditSchema = z.object({
   name: z.string().trim().min(2).max(60),
   description: optionalText(200),
-  price: z.string().trim().transform((v, ctx) => parseRupees(v) ?? (ctx.addIssue({ code: "custom", message: "Enter the price in rupees" }), z.NEVER)),
   status: z.enum(ACTIVITY_STATUSES),
+});
+
+export async function editActivity(actor: Actor, key: string, input: z.input<typeof activityEditSchema>): Promise<void> {
+  const d = activityEditSchema.parse(input);
+  await withPlatformAdmin({ ...actor, action: "activity.edit", entityType: "activity", after: { key, ...d } }, async (tx, audit) => {
+    const [before] = await tx.select().from(activities).where(eq(activities.key, key));
+    if (!before) throw new NotFoundError("Activity");
+    audit.before = { key, name: before.name, description: before.description, status: before.status };
+    await tx.update(activities).set({ ...d, updatedAt: new Date() }).where(eq(activities.key, key));
+  });
+}
+
+const limit = z.union([z.literal(""), z.coerce.number().int().min(0).max(1_000_000)]).transform((v) => (v === "" ? null : v)); // blank = no limit
+
+export const planSchema = z.object({
+  name: z.string().trim().min(2, "Give the plan a name").max(40),
+  price: z.string().trim().transform((v, ctx) => parseRupees(v) ?? (ctx.addIssue({ code: "custom", message: "Enter the price in rupees" }), z.NEVER)),
+  maxStudents: limit,
+  maxStaff: limit,
+  isOffered: z.boolean(),
   reason: optionalText(200),
 });
 
-// A new price is for activities started from now on; running ones keep the
-// price they started at. Every change is kept.
-export async function editActivity(actor: Actor, key: string, input: z.input<typeof activityEditSchema>): Promise<void> {
-  const d = activityEditSchema.parse(input);
-  await withPlatformAdmin({ ...actor, action: "activity.edit", entityType: "activity", after: { key, name: d.name, price: String(d.price), status: d.status } }, async (tx, audit) => {
-    const [before] = await tx.select().from(activities).where(eq(activities.key, key)).for("update");
-    if (!before) throw new NotFoundError("Activity");
-    audit.before = { key, name: before.name, price: String(before.pricePaise), status: before.status };
+const planAudit = (p: Pick<ActivityPlan, "name" | "pricePaise" | "maxStudents" | "maxStaff" | "isOffered">) => ({
+  name: p.name,
+  price: String(p.pricePaise),
+  maxStudents: p.maxStudents,
+  maxStaff: p.maxStaff,
+  isOffered: p.isOffered,
+});
+
+const nameTaken = (name: string) => (e: unknown) => {
+  if (isUniqueViolation(e)) throw new ConflictError(`There is already a plan called ${name}`);
+  throw e;
+};
+
+export async function addPlan(actor: Actor, activityKey: string, input: z.input<typeof planSchema>): Promise<ActivityPlan> {
+  const d = planSchema.parse(input);
+  const values = { name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
+  return withPlatformAdmin({ ...actor, action: "activity_plan.create", entityType: "activity_plan", after: { activityKey, ...planAudit(values) } }, async (tx, audit) => {
+    if (!(await getActivity(tx, activityKey))) throw new NotFoundError("Activity");
+    const [plan] = await tx
+      .insert(activityPlans)
+      .values({ id: uuidv7(), activityKey, ...values })
+      .returning()
+      .catch(nameTaken(d.name));
+    if (!plan) throw new Error("plan insert returned no row");
+    audit.entityId = plan.id;
+    return plan;
+  });
+}
+
+// A new price is for activities started from now on (every change is kept);
+// new limits apply to everyone on the plan.
+export async function editPlan(actor: Actor, planId: string, input: z.input<typeof planSchema>): Promise<void> {
+  const d = planSchema.parse(input);
+  const values = { name: d.name, pricePaise: d.price, maxStudents: d.maxStudents, maxStaff: d.maxStaff, isOffered: d.isOffered };
+  await withPlatformAdmin({ ...actor, action: "activity_plan.edit", entityType: "activity_plan", entityId: planId, after: planAudit(values) }, async (tx, audit) => {
+    const [before] = await tx.select().from(activityPlans).where(eq(activityPlans.id, planId)).for("update");
+    if (!before) throw new NotFoundError("Plan");
+    audit.before = planAudit(before);
     if (before.pricePaise !== d.price) {
-      await tx.insert(activityPriceHistory).values({ activityKey: key, oldPaise: before.pricePaise, newPaise: d.price, reason: d.reason, changedBy: actor.actorType === "platform" ? (actor.actorId ?? null) : null });
+      await tx.insert(planPriceHistory).values({ planId, oldPaise: before.pricePaise, newPaise: d.price, reason: d.reason, changedBy: actor.actorType === "platform" ? (actor.actorId ?? null) : null });
     }
-    await tx.update(activities).set({ name: d.name, description: d.description, pricePaise: d.price, status: d.status, updatedAt: new Date() }).where(eq(activities.key, key));
+    await tx
+      .update(activityPlans)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(activityPlans.id, planId))
+      .catch(nameTaken(d.name));
   });
 }
 
@@ -108,11 +239,19 @@ export async function editBillingSettings(actor: Actor, input: z.input<typeof se
   });
 }
 
-export type CatalogActivity = Activity & { branches: number; changes: PriceChange[] };
+// Offered first, each cheapest first: for pickers.
+export async function allPlans(): Promise<ActivityPlan[]> {
+  const plans = await platformRead((tx) => listPlans(tx));
+  return [...plans.filter((p) => p.isOffered), ...plans.filter((p) => !p.isOffered)];
+}
+
+export type CatalogPlan = ActivityPlan & { branches: number; changes: PriceChange[] };
+export type CatalogActivity = Activity & { plans: CatalogPlan[] };
 
 export async function activityCatalog(): Promise<{ activities: CatalogActivity[]; settings: BillingSettings }> {
   return platformRead(async (tx) => {
-    const [list, used, changes] = [await listActivities(tx), await branchesPerActivity(tx), await recentPriceChanges(tx)];
-    return { activities: list.map((a) => ({ ...a, branches: used.get(a.key) ?? 0, changes: changes.filter((c) => c.activityKey === a.key) })), settings: await getBillingSettings(tx) };
+    const [list, plans, used, changes] = [await listActivities(tx), await listPlans(tx), await subscriptionsPerPlan(tx), await recentPriceChanges(tx)];
+    const withUse = plans.map((p) => ({ ...p, branches: used.get(p.id) ?? 0, changes: changes.filter((c) => c.planId === p.id) }));
+    return { activities: list.map((a) => ({ ...a, plans: withUse.filter((p) => p.activityKey === a.key) })), settings: await getBillingSettings(tx) };
   });
 }

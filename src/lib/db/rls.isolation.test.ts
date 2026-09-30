@@ -10,7 +10,7 @@ import { platformDb, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { resolveTenantBySlug } from "@/lib/tenant/resolve";
 import { withTenant } from "@/lib/db/with-tenant";
 import { syncPermissions } from "@/modules/staff/repo";
-import { activities } from "@/modules/billing/schema";
+import { activities, activityPlans } from "@/modules/billing/schema";
 import { createTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 
@@ -230,12 +230,14 @@ describe("append-only audit_log", () => {
   });
 });
 
-describe("activities", () => {
-  it("is readable by academies but not writable", async () => {
+describe("activities and their plans", () => {
+  it("are readable by academies but not writable", async () => {
     const rows = await withTenant(A, (tx) => tx.select({ key: activities.key }).from(activities));
     expect(rows.map((r) => r.key)).toContain("karate");
-    await expect(withTenant(A, (tx) => tx.insert(activities).values({ key: "free", name: "Free", pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
-    await expect(withTenant(A, (tx) => tx.update(activities).set({ pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    expect((await withTenant(A, (tx) => tx.select({ id: activityPlans.id }).from(activityPlans))).length).toBeGreaterThan(0);
+    await expect(withTenant(A, (tx) => tx.insert(activities).values({ key: "free", name: "Free" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(withTenant(A, (tx) => tx.update(activities).set({ name: "Changed" }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
+    await expect(withTenant(A, (tx) => tx.update(activityPlans).set({ pricePaise: 0n }))).rejects.toSatisfy((e) => sqlState(e) === RLS_VIOLATION);
   });
 });
 

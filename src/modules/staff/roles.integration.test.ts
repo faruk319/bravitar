@@ -8,7 +8,7 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { login } from "@/modules/auth/service";
 import { dashboardData } from "@/modules/dashboard/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { listRoles, rolePermissionKeys, staffBranchIds } from "./repo";
 import {
   acceptInvite,
@@ -40,7 +40,7 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
 const hire = (name: string, roleIds: string[]) => withTenant(T, (tx) => addStaff(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds }));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Roles ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Roles ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   for (const r of await withTenant(T, listRoles)) role[r.name] = r.id;

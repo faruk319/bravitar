@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AccessForm, ModulesForm, OwnerInvite } from "@/components/platform/academy-forms";
+import { AccessForm, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
@@ -8,20 +8,22 @@ import { formatDate, todayIn } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
 import { tenantOrigin } from "@/lib/tenant/origin";
-import type { SubscriptionRow } from "@/modules/billing/repo";
-import { effectivePrice } from "@/modules/billing/service";
-import { academyDetail } from "@/modules/platform/academies";
+import { allPlans, effectivePrice } from "@/modules/billing/service";
+import { academyDetail, type BranchActivity } from "@/modules/platform/academies";
 
 const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_", " ");
 
-function stateOf(s: SubscriptionRow): string {
+function stateOf(s: BranchActivity): string {
   if (s.status === "trial") return `Trial until ${formatDate(s.periodEnd)}`;
   if (s.status === "paused") return "Paused";
   return s.cancelAtPeriodEnd ? `Ends ${formatDate(s.periodEnd)}` : `Next bill ${formatDate(s.periodEnd)}`;
 }
 
-// One academy: owner, each branch's activities (agreed 2026-09-30), modules,
-// and access (Prompt 21).
+// More students than the plan allows (its limit was lowered): nobody is removed.
+const over = (s: BranchActivity) => s.plan.maxStudents !== null && s.students > s.plan.maxStudents;
+
+// One academy: owner, each branch's activities on their plans (agreed
+// 2026-09-30), modules, and access (Prompt 21).
 export default async function AcademyPage({ params }: PageProps<"/platform/academies/[id]">) {
   await requirePlatformPage();
   const { id } = await params;
@@ -30,6 +32,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
     throw e;
   });
   const today = todayIn(a.timezone);
+  const plans = (await allPlans()).map((p) => ({ value: p.id, activityKey: p.activityKey, label: `${p.name} · ${formatPaise(p.pricePaise)}${p.isOffered ? "" : " (not offered)"}` }));
   return (
     <>
       <Link href="/platform" className="text-label text-accent-600 hover:underline">
@@ -59,26 +62,32 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
         </Card>
         <Card>
           <CardHeader title={`Branches · ${formatPaise(a.monthlyPaise)}/month`} />
+          <p className={a.staffLimit !== null && a.staff > a.staffLimit ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+            {a.staffLimit === null ? `${a.staff} staff · no limit` : `${a.staff} of ${a.staffLimit} staff`}
+          </p>
           <ul className="divide-y divide-neutral-100">
             {a.branches.map((b) => (
               <li key={b.id} className="py-3">
                 <p className="text-body font-medium text-neutral-900">
                   {b.name}
-                  <span className="text-caption text-muted-foreground">
-                    {b.isDefault ? " · first branch" : ""} · {b.students} students
-                  </span>
+                  {b.isDefault ? <span className="text-caption text-muted-foreground"> · first branch</span> : null}
                 </p>
                 {b.activities.length ? (
-                  <ul className="mt-1 flex flex-col gap-1">
-                    {b.activities.map((s) => (
-                      <li key={s.id} className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
+                  b.activities.map((s) => (
+                    <div key={s.id} className="mt-2 flex flex-col gap-1">
+                      <p className="flex flex-wrap items-baseline justify-between gap-x-3 text-body">
                         <span>
-                          {s.activityName} <span className={s.status === "paused" ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>· {stateOf(s)}</span>
+                          {s.activityName} · {s.plan.name}{" "}
+                          <span className={s.status === "paused" || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+                            · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {stateOf(s)}
+                          </span>
                         </span>
                         <span className="tabular-nums">{formatPaise(effectivePrice(s, today))}/month</span>
-                      </li>
-                    ))}
-                  </ul>
+                      </p>
+                      {s.nextPlanName ? <p className="text-caption text-muted-foreground">Moves to {s.nextPlanName} on {formatDate(s.periodEnd)}</p> : null}
+                      <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
+                    </div>
+                  ))
                 ) : (
                   <p className="mt-1 text-caption text-muted-foreground">No activity on</p>
                 )}

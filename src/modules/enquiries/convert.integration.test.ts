@@ -18,7 +18,7 @@ import { guardiansOfStudent } from "@/modules/students/repo";
 import { students } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { convertEnquiry, suggestedBatch } from "./convert";
 import { activitiesOf, getEnquiry, trialsOf } from "./repo";
 import { createEnquiry, markLost } from "./service";
@@ -46,7 +46,7 @@ const enquiry = (name: string, phone = `98711${String(10_000 + ++n)}`) => withTe
 const convert = (ctx: ScopedCtx, id: string, input: object) => withTenant(T, (tx) => convertEnquiry(tx, ctx, id, { batchId: batch, consents: CONSENT, ...input }));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Convert ${stamp}`, slug: `convert-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `convert-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Convert ${stamp}`, slug: `convert-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `convert-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

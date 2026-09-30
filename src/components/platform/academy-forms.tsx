@@ -52,9 +52,13 @@ const slugOf = (name: string) =>
     .replace(/^-|-$/g, "")
     .slice(0, 40);
 
-export function NewAcademyForm({ types, domain }: { types: Option[]; domain: string }) {
+export type PlanOption = Option & { activityKey: string };
+
+// plans: offered ones first, cheapest first; the first of the type's is the default.
+export function NewAcademyForm({ types, plans, domain }: { types: Option[]; plans: PlanOption[]; domain: string }) {
   const [slug, setSlug] = useState("");
   const [touched, setTouched] = useState(false);
+  const [type, setType] = useState("general");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [made, setMade] = useState<{ id: string; inviteUrl: string }>();
@@ -67,7 +71,8 @@ export function NewAcademyForm({ types, domain }: { types: Option[]; domain: str
     const r = await request<{ id: string; inviteUrl: string }>("/api/platform/academies", "POST", {
       name: f.get("name"),
       slug,
-      verticalPreset: f.get("type"),
+      verticalPreset: type,
+      ...(f.get("plan") ? { planId: f.get("plan") } : {}),
       owner: { name: f.get("ownerName"), email: f.get("ownerEmail"), ...(f.get("ownerPhone") ? { phone: f.get("ownerPhone") } : {}) },
     });
     setBusy(false);
@@ -96,7 +101,7 @@ export function NewAcademyForm({ types, domain }: { types: Option[]; domain: str
         <span className="text-caption text-muted-foreground">{slug || "name"}.{domain}</span>
       </Field>
       <Field label="Type" id="type">
-        <select id="type" name="type" className={selectClass} defaultValue="general">
+        <select id="type" value={type} onChange={(e) => setType(e.target.value)} className={selectClass}>
           {types.map((t) => (
             <option key={t.value} value={t.value}>
               {t.label}
@@ -104,6 +109,17 @@ export function NewAcademyForm({ types, domain }: { types: Option[]; domain: str
           ))}
         </select>
         <span className="text-caption text-muted-foreground">Also its first activity, on trial</span>
+      </Field>
+      <Field label="Plan" id="plan">
+        <select key={type} id="plan" name="plan" className={selectClass}>
+          {plans
+            .filter((p) => p.activityKey === type)
+            .map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+        </select>
       </Field>
       <Field label="Owner's name" id="ownerName">
         <Input id="ownerName" name="ownerName" required />
@@ -199,31 +215,27 @@ export function AccessForm({ academyId, suspended }: { academyId: string; suspen
   );
 }
 
-export type ActivityRowData = { key: string; name: string; description: string; price: string; status: string; used: string; changes: string[] };
+export type ActivityRowData = { key: string; name: string; description: string; status: string };
 
-// One activity in the catalog. A new price is for activities started from now on.
+// One activity in the catalog: its name and whether academies can have it.
 export function ActivityRow({ a, statuses }: { a: ActivityRowData; statuses: Option[] }) {
   const s = useSave();
   const [initial] = useState(a); // after a save the fields already hold what was saved
-  const [reason, setReason] = useState("");
   const id = (f: string) => `${a.key}-${f}`;
   return (
     <form
-      className="grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_1.4fr_7rem_9rem_1fr_auto]"
-      onSubmit={async (e) => {
+      className="grid grid-cols-2 items-end gap-2 pb-3 md:grid-cols-[1fr_2fr_9rem_auto]"
+      onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        if (await s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), price: f.get("price"), status: f.get("status"), reason })) setReason("");
+        void s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), status: f.get("status") });
       }}
     >
-      <Field label={`Name · ${a.used}`} id={id("name")}>
+      <Field label="Activity" id={id("name")}>
         <Input id={id("name")} name="name" defaultValue={initial.name} />
       </Field>
       <Field label="Description" id={id("description")}>
         <Input id={id("description")} name="description" defaultValue={initial.description} />
-      </Field>
-      <Field label="₹/month" id={id("price")}>
-        <Input id={id("price")} name="price" inputMode="decimal" defaultValue={initial.price} />
       </Field>
       <Field label="Status" id={id("status")}>
         <select id={id("status")} name="status" defaultValue={initial.status} className={selectClass}>
@@ -234,18 +246,125 @@ export function ActivityRow({ a, statuses }: { a: ActivityRowData; statuses: Opt
           ))}
         </select>
       </Field>
-      <Field label="Reason for a new price" id={id("reason")}>
-        <Input id={id("reason")} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
+        Save
+      </Button>
+      {s.error || s.done ? (
+        <div className="col-span-full">
+          <Feedback error={s.error} done={s.done} />
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+export type PlanValues = { name: string; price: string; maxStudents: string; maxStaff: string; isOffered: boolean };
+export type PlanRowData = PlanValues & { id: string; used: string; changes: string[] };
+
+const PLAN_GRID = "grid grid-cols-2 items-end gap-2 py-3 md:grid-cols-[1fr_7rem_7rem_7rem_7rem_1fr_7rem]";
+const planBody = (f: FormData) => ({ name: f.get("name"), price: f.get("price"), maxStudents: f.get("maxStudents"), maxStaff: f.get("maxStaff"), isOffered: f.get("isOffered") === "on" });
+
+function PlanFields({ prefix, v }: { prefix: string; v: PlanValues }) {
+  const id = (f: string) => `${prefix}-${f}`;
+  return (
+    <>
+      <Field label="Plan" id={id("name")}>
+        <Input id={id("name")} name="name" defaultValue={v.name} />
+      </Field>
+      <Field label="₹/month" id={id("price")}>
+        <Input id={id("price")} name="price" inputMode="decimal" defaultValue={v.price} />
+      </Field>
+      <Field label="Students" id={id("students")}>
+        <Input id={id("students")} name="maxStudents" inputMode="numeric" placeholder="No limit" defaultValue={v.maxStudents} />
+      </Field>
+      <Field label="Staff" id={id("staff")}>
+        <Input id={id("staff")} name="maxStaff" inputMode="numeric" placeholder="No limit" defaultValue={v.maxStaff} />
+      </Field>
+      <label className="flex min-h-12 items-center gap-2 text-body">
+        <input type="checkbox" name="isOffered" defaultChecked={v.isOffered} className="size-5 accent-accent-600" /> Offered
+      </label>
+    </>
+  );
+}
+
+// A plan's new price is for activities started from now on; new limits apply
+// to everyone on it. Not offered: owners can't pick it, you still can.
+export function PlanRow({ p }: { p: PlanRowData }) {
+  const s = useSave();
+  const [initial] = useState(p);
+  const [reason, setReason] = useState("");
+  return (
+    <form
+      className={PLAN_GRID}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (await s.save(`/api/platform/plans/${p.id}`, "PATCH", { ...planBody(new FormData(e.currentTarget)), reason })) setReason("");
+      }}
+    >
+      <PlanFields prefix={p.id} v={initial} />
+      <Field label="Reason for a new price" id={`${p.id}-reason`}>
+        <Input id={`${p.id}-reason`} value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
       <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
         Save
       </Button>
-      {s.error || s.done || a.changes.length ? (
-        <div className="col-span-full flex flex-wrap items-baseline gap-x-3">
-          <Feedback error={s.error} done={s.done} />
-          {a.changes.length ? <p className="text-caption text-muted-foreground">{a.changes.join(" · ")}</p> : null}
+      <div className="col-span-full flex flex-wrap items-baseline gap-x-3">
+        <p className="text-caption text-muted-foreground">{p.used}</p>
+        <Feedback error={s.error} done={s.done} />
+        {p.changes.length ? <p className="text-caption text-muted-foreground">{p.changes.join(" · ")}</p> : null}
+      </div>
+    </form>
+  );
+}
+
+export function AddPlanRow({ activityKey }: { activityKey: string }) {
+  const s = useSave();
+  const [round, setRound] = useState(0); // an empty row again after each add
+  return (
+    <form
+      key={round}
+      className={PLAN_GRID}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (await s.save(`/api/platform/activities/${activityKey}/plans`, "POST", planBody(new FormData(e.currentTarget)))) setRound((r) => r + 1);
+      }}
+    >
+      <PlanFields prefix={`${activityKey}-new`} v={{ name: "", price: "", maxStudents: "", maxStaff: "", isOffered: true }} />
+      <span />
+      <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
+        Add plan
+      </Button>
+      {s.error ? (
+        <div className="col-span-full">
+          <Feedback error={s.error} done={false} />
         </div>
       ) : null}
+    </form>
+  );
+}
+
+// An academy's activity moves plan: up now, down at the end of the paid month.
+export function PlanChangeForm({ subscriptionId, current, plans }: { subscriptionId: string; current: string; plans: Option[] }) {
+  const s = useSave();
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void s.save(`/api/platform/subscriptions/${subscriptionId}`, "PATCH", { planId: new FormData(e.currentTarget).get("plan") });
+      }}
+    >
+      <select name="plan" aria-label="Plan" defaultValue={current} className={selectClass}>
+        {plans.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Button type="submit" variant="outline" size="lg" disabled={s.busy}>
+        Change plan
+      </Button>
+      <Feedback error={s.error} done={s.done} />
     </form>
   );
 }

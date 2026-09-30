@@ -7,7 +7,7 @@ import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import type { CodeSender } from "./codes";
 import { requestReset, resetPassword } from "./reset";
 import { login, setOwnPhone, setPassword } from "./service";
@@ -36,7 +36,7 @@ const lastCode = (phone: string) => codesTo(phone).at(-1)?.code ?? "";
 beforeAll(async () => {
   for (const [key, phone] of [["a", P], ["b", P], ["c", Q]] as const) {
     const slug = `reset-${key}-${stamp}`;
-    const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Reset ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });
+    const t = await testAcademy({ name: `Reset ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });
     const staffId = await withTenant(t.tenant.id, async (tx) => {
       const ctx = await loadAccessContext(tx, t.owner.id);
       const s = await createStaffMember(tx, ctx, { email: EMAIL, fullName: "Neha Desk", phone });

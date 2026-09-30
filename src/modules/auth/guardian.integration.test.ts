@@ -8,7 +8,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { loadAccessContext } from "@/modules/staff/service";
 import { updateGuardian } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import type { CodeSender } from "./codes";
 import { otherAcademies, requestPortalCode, switchAcademy, verifyPortalCode } from "./guardian";
 import { logoutHandler } from "./routes";
@@ -35,7 +35,7 @@ const tokenOf = (url: string) => new URL(url).searchParams.get("t") ?? "";
 beforeAll(async () => {
   for (const [key, phone] of [["a", P], ["b", P], ["c", Q]] as const) {
     const slug = `parent-${key}-${stamp}`;
-    const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Parent ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `parent-${key}-${stamp}@example.test` } });
+    const t = await testAcademy({ name: `Parent ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `parent-${key}-${stamp}@example.test` } });
     const created = await withTenant(t.tenant.id, async (tx) => createStudent(tx, { ...(await loadAccessContext(tx, t.owner.id)), branchIds: [] }, { fullName: `Child ${key}`, guardian: { fullName: "Rekha Joshi", phone, relation: "mother" }, consents: { dataProcessing: true } }));
     made[key] = { id: t.tenant.id, slug, name: t.tenant.name, guardianId: created.guardian.id };
   }

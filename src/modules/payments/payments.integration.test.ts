@@ -17,7 +17,7 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
 import { cancelPayment, collectedToday, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
@@ -39,7 +39,7 @@ const fails = (code: string) => (e: unknown) => sqlState(e) === code;
 
 const made: string[] = [];
 const academy = async (key: string) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Payments ${key} ${stamp}`, slug: `pay-${key}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `pay-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Payments ${key} ${stamp}`, slug: `pay-${key}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `pay-${key}-${stamp}@example.test` } });
   made.push(t.tenant.id);
   return t;
 };

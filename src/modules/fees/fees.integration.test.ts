@@ -17,7 +17,7 @@ import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { addMonths } from "./billing";
 import { generateInvoices } from "./invoicing";
 import { runInvoicesGenerate } from "./job";
@@ -68,7 +68,7 @@ const summary = async (invoiceId: string) => (await linesOn(invoiceId)).map((l) 
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Fees ${stamp}`, slug: `fees-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `fees-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Fees ${stamp}`, slug: `fees-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `fees-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

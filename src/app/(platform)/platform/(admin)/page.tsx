@@ -63,7 +63,10 @@ export default async function PlatformAcademies({ searchParams }: PageProps<"/pl
                   <span className="block text-caption text-muted-foreground">{activitySummary(a)}</span>
                 </td>
                 <td className="py-2 tabular-nums">{a.branches.reduce((n, b) => n + b.students, 0)}</td>
-                <td className="py-2 tabular-nums">{a.staff}</td>
+                <td className={cn("py-2 tabular-nums", a.staffLimit !== null && a.staff > a.staffLimit && "text-danger-600")}>
+                  {a.staff}
+                  {a.staffLimit === null ? "" : ` / ${a.staffLimit}`}
+                </td>
                 <td className={cn("px-4 py-2", a.status === "active" ? "text-success-600" : "text-danger-600")}>{a.status === "active" ? "● Active" : "⏸ Suspended"}</td>
               </tr>
             ))}

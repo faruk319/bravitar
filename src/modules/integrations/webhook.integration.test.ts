@@ -16,7 +16,7 @@ import { cancelPayment, collectionSheet, familyAccount, recordPayment, refundPay
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { fakeRazorpay } from "./fake-razorpay";
 import { razorpayWebhookRoute } from "./routes";
 import { webhookEvents } from "./schema";
@@ -37,7 +37,7 @@ let evt = 0;
 let pay = 0;
 
 const setUp = async (x: Academy) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Webhook ${x.slug}`, slug: x.slug, owner: { name: "Owner", email: `${x.slug}@example.test` } });
+  const t = await testAcademy({ name: `Webhook ${x.slug}`, slug: x.slug, owner: { name: "Owner", email: `${x.slug}@example.test` } });
   made.push(t.tenant.id);
   x.id = t.tenant.id;
   x.branch = t.branch.id;
@@ -217,7 +217,7 @@ describe("the Razorpay webhook", () => {
 
   it("an unknown academy, one without Razorpay, and a signed non-event are refused", async () => {
     expect((await deliver(`nobody-${stamp}`, captured("pay_x", 100), A.secret)).status).toBe(404);
-    const c = await createTenantWithDefaults({ actorType: "system" }, { name: `Webhook C ${stamp}`, slug: `whk-c-${stamp}`, owner: { name: "Owner", email: `whk-c-${stamp}@example.test` } });
+    const c = await testAcademy({ name: `Webhook C ${stamp}`, slug: `whk-c-${stamp}`, owner: { name: "Owner", email: `whk-c-${stamp}@example.test` } });
     made.push(c.tenant.id);
     expect((await deliver(`whk-c-${stamp}`, captured("pay_x", 100), A.secret)).status).toBe(404);
     expect((await deliver(A.slug, { hello: "world" }, A.secret)).status).toBe(400);

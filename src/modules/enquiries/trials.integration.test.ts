@@ -15,7 +15,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { activitiesOf, getEnquiry, trialsOf } from "./repo";
 import { createEnquiry, markLost } from "./service";
 import { bookTrial, cancelTrial, trialChoices } from "./trials";
@@ -44,7 +44,7 @@ const mark = (sessionId: string, studentId: string, s: "present" | "absent", not
   withTenant(T, (tx) => saveAttendance(tx, teacher, sessionId, { marks: [{ studentId, status: s, ...(note ? { note } : {}) }] }));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Trials ${stamp}`, slug: `trials-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `trials-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Trials ${stamp}`, slug: `trials-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `trials-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

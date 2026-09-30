@@ -41,7 +41,8 @@ export const fixtures: IsolationFixtures = {
 export const PLATFORM_TABLES: Record<string, string> = {
   tenants: "the tenant itself; app_runtime is limited to its own row by policy tenant_self",
   activities: "Bravitar's activity catalog and prices; app_runtime has SELECT only, the platform role edits it (migration 0026)",
-  activity_price_history: "past catalog prices; app_runtime has no access (migration 0026)",
+  activity_plans: "each activity's plans, prices and limits; app_runtime has SELECT only, the platform role edits them (migration 0027)",
+  plan_price_history: "past plan prices; app_runtime has no access (migrations 0026, 0027)",
   billing_settings: "one row of Bravitar's billing settings; app_runtime has SELECT only (migration 0026)",
   permissions: "global catalog synced from src/lib/auth/permissions.ts; app_runtime has SELECT only",
   otp_codes: "a phone's login codes, not an academy's; app_runtime has no access, only otp_issue and otp_check (migration 0020)",

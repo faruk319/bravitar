@@ -25,6 +25,7 @@ export const newTenantSchema = z.object({
   verticalPreset: z.enum(VERTICAL_PRESETS).default("general"),
   timezone: z.string().default("Asia/Kolkata").refine(isTimeZone, "Unknown timezone"),
   branchName: z.string().trim().min(1).max(120).default("Main branch"),
+  planId: z.uuid().optional(), // the first activity's plan; the cheapest on offer if left out
   owner: z.object({
     name: z.string().trim().min(1).max(120),
     email: z.email().trim().toLowerCase(),
@@ -55,7 +56,7 @@ export async function createTenantWithDefaults(
     const today = todayIn(tenant.timezone);
     await ensureSeries(tx, tenant.id, financialYear(today, tenant.fyStartMonth));
     // The academy's type is its first activity, the only one with a trial (agreed 2026-09-30).
-    const subscription = await startActivity(tx, { tenantId: tenant.id, branchId: branch.id, activityKey: data.verticalPreset, today, trial: true });
+    const subscription = await startActivity(tx, { tenantId: tenant.id, branchId: branch.id, activityKey: data.verticalPreset, planId: data.planId, today, trial: true });
     await syncPermissions(tx);
     const roles = await createPresetRoles(tx, tenant.id);
     // No password yet: the invite / set-password flow (auth slice) sets it.

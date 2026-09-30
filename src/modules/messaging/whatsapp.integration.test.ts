@@ -15,7 +15,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { guardiansOfStudent } from "@/modules/students/repo";
 import type { Guardian } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { adapterFor } from "./adapter";
 import { whatsappVerifyRoute, whatsappWebhookRoute } from "./routes";
 import { type MessageLog, messageLog } from "./schema";
@@ -39,7 +39,7 @@ const ctxFor = async (tenantId: string, staffId: string): Promise<ScopedCtx> => 
   return { ...base, branchIds };
 };
 const setUp = async (x: Academy) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `WA ${x.slug}`, slug: x.slug, verticalPreset: "karate", owner: { name: "Owner", email: `${x.slug}@example.test` } });
+  const t = await testAcademy({ name: `WA ${x.slug}`, slug: x.slug, verticalPreset: "karate", owner: { name: "Owner", email: `${x.slug}@example.test` } });
   x.id = t.tenant.id;
   x.owner = await ctxFor(x.id, t.owner.id);
 };

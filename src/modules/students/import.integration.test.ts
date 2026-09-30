@@ -15,7 +15,7 @@ import { findGuardianByPhone, guardiansOfHousehold, searchStudents, studentsOfHo
 import { consents, guardians, households, studentCodeSeries, students } from "@/modules/students/schema";
 import { createStudent, type StudentCtx } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
@@ -62,10 +62,7 @@ const MAPPING = { firstName: 0, lastName: 1, guardianName: 2, guardianPhone: 3, 
 const EXPECTED = { rows: 16, studentsCreated: 10, householdsCreated: 6, linkedToExisting: 1, skipped: 2, errors: [6, 7, 10, 17], warnings: [8, 9, 14, 15, 16] };
 
 beforeAll(async () => {
-  const created = await createTenantWithDefaults(
-    { actorType: "system" },
-    { name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } },
-  );
+  const created = await testAcademy({ name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = created.tenant.id;
   mainBranch = created.branch.id;
   ownerCtx = await ctxFor(created.owner.id);

@@ -23,7 +23,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { dashboardData } from "./service";
 
 // docs/06 Prompt 19: Today, Money, At risk and Pipeline, each number from
@@ -57,7 +57,7 @@ const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: s
   withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Dash ${stamp}`, slug: `dash-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `dash-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Dash ${stamp}`, slug: `dash-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `dash-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   branch = t.branch.id;
   owner = await ctxFor(t.owner.id);

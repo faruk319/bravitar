@@ -21,7 +21,7 @@ import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice } from "@/modules/messaging/public";
 import { childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt } from "./service";
 
@@ -44,7 +44,7 @@ const ownerOf = async (tenantId: string, staffId: string): Promise<ScopedCtx> =>
   const [base, branchIds] = await withTenant(tenantId, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
   return { ...base, branchIds };
 };
-const academy = (name: string) => createTenantWithDefaults({ actorType: "system" }, { name: `${name} ${stamp}`, slug: `${name.toLowerCase()}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `${name.toLowerCase()}-${stamp}@example.test` } });
+const academy = (name: string) => testAcademy({ name: `${name} ${stamp}`, slug: `${name.toLowerCase()}-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `${name.toLowerCase()}-${stamp}@example.test` } });
 
 beforeAll(async () => {
   const t = await academy("Portal");

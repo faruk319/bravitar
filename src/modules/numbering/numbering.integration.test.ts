@@ -7,7 +7,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { todayIn } from "@/lib/dates";
 import { financialYear } from "@/lib/money/fy";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { runOpenYear } from "./job";
 import { allocateNumber } from "./repo";
 import { numberSeries } from "./schema";
@@ -15,7 +15,7 @@ import { numberSeries } from "./schema";
 const stamp = Math.random().toString(36).slice(2, 8);
 const made: string[] = [];
 const tenant = async (key: string) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Numbers ${key} ${stamp}`, slug: `num-${key}-${stamp}`, owner: { name: "Owner", email: `num-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Numbers ${key} ${stamp}`, slug: `num-${key}-${stamp}`, owner: { name: "Owner", email: `num-${key}-${stamp}@example.test` } });
   made.push(t.tenant.id);
   return t.tenant.id;
 };

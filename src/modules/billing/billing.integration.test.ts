@@ -1,8 +1,8 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
-import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -20,11 +20,10 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { pausedActivities } from "./access";
 import { getActivity, getBillingSettings, liveSubscriptions } from "./repo";
-import { activities, activityPriceHistory, activitySubscriptions } from "./schema";
-import { editActivity, editBillingSettings, startActivity } from "./service";
+import { activityPlans, activitySubscriptions } from "./schema";
+import { editBillingSettings, startActivity } from "./service";
 
 // Bravitar's own billing, step 1 (agreed 2026-09-30): each activity in each
 // branch stands alone. A paused one is read-only there and nowhere else;
@@ -32,7 +31,6 @@ import { editActivity, editBillingSettings, startActivity } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const ME = { actorType: "platform" as const };
-const TEST_ACTIVITY = `test-${stamp}`;
 let A = "";
 let B = "";
 let main = "";
@@ -46,6 +44,7 @@ let danceEnrollment = "";
 let householdId = "";
 const batch = { mainKarate: "", karate: "", dance: "" };
 const student = { karate: "", dance: "" };
+const plans: string[] = [];
 
 const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
   const [base, branchIds] = await withTenant(A, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
@@ -60,18 +59,22 @@ const setStatus = (branchId: string, activityKey: string, status: "active" | "pa
       .set({ status })
       .where(and(eq(activitySubscriptions.branchId, branchId), eq(activitySubscriptions.activityKey, activityKey))),
   );
-const start = (tenantId: string, branchId: string, activityKey: string) =>
-  withPlatformAdmin({ action: "test.billing.start", actorType: "system" }, (tx) => startActivity(tx, { tenantId, branchId, activityKey, today, trial: false }));
+// Kothrud's activities on hidden plans with no limits: limits aren't tested here.
+const startOpen = async (branchId: string, activityKey: string) => {
+  const planId = uuidv7();
+  await platformDb.insert(activityPlans).values({ id: planId, activityKey, name: `Test ${planId}`, pricePaise: 0n, isOffered: false });
+  plans.push(planId);
+  return withPlatformAdmin({ action: "test.billing.start", actorType: "system" }, (tx) => startActivity(tx, { tenantId: A, branchId, activityKey, planId, today, trial: false }));
+};
 
 beforeAll(async () => {
-  const a = await createTenantWithDefaults({ actorType: "system" }, { name: `Billing ${stamp}`, slug: `bill-a-${stamp}`, verticalPreset: "karate", branchName: "Main Dojo", owner: { name: "Owner", email: `bill-a-${stamp}@example.test` } });
-  const b = await createTenantWithDefaults({ actorType: "system" }, { name: `Billing B ${stamp}`, slug: `bill-b-${stamp}`, verticalPreset: "tuition", owner: { name: "Owner B", email: `bill-b-${stamp}@example.test` } });
+  const a = await testAcademy({ name: `Billing ${stamp}`, slug: `bill-a-${stamp}`, verticalPreset: "karate", branchName: "Main Dojo", owner: { name: "Owner", email: `bill-a-${stamp}@example.test` } });
+  const b = await testAcademy({ name: `Billing B ${stamp}`, slug: `bill-b-${stamp}`, verticalPreset: "tuition", owner: { name: "Owner B", email: `bill-b-${stamp}@example.test` } });
   [A, B, main] = [a.tenant.id, b.tenant.id, a.branch.id];
   today = await withTenant(A, tenantToday);
   kothrud = (await withPlatformAdmin({ action: "test.billing.branch", actorType: "system" }, (tx) => createBranch(tx, { tenantId: A, name: "Kothrud Centre" }))).id;
-  await start(A, kothrud, "karate");
-  await start(A, kothrud, "dance");
-  await withPlatformAdmin({ action: "test.billing.activity", actorType: "system" }, (tx) => tx.insert(activities).values({ key: TEST_ACTIVITY, name: "Test activity", pricePaise: 30_000n }));
+  await startOpen(kothrud, "karate");
+  await startOpen(kothrud, "dance");
   danceName = (await platformRead((tx) => getActivity(tx, "dance")))?.name ?? "";
 
   owner = await ctxFor(a.owner.id);
@@ -96,8 +99,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await deleteTenantsCompletely([A, B]);
-  await platformDb.delete(activityPriceHistory).where(eq(activityPriceHistory.activityKey, TEST_ACTIVITY));
-  await platformDb.delete(activities).where(eq(activities.key, TEST_ACTIVITY));
+  await platformDb.delete(activityPlans).where(inArray(activityPlans.id, plans));
   await runtimeSql.end({ timeout: 5 });
   await platformSql.end({ timeout: 5 });
 });
@@ -153,27 +155,6 @@ describe("a program is one activity", () => {
     const made = await withTenant(A, (tx) => createBatch(tx, owner, { name: "Kumite", newProgramName: "Kumite", branchId: main, slots: everyDay }));
     const program = (await withTenant(A, (tx) => programList(tx, owner))).find((p) => p.id === made.programId);
     expect(program?.activityKey).toBe("karate"); // the only one on at Main Dojo
-  });
-});
-
-describe("the catalog", () => {
-  it("a new price is for activities started from now on; running ones keep theirs, and the change is kept", async () => {
-    const before = await start(A, main, TEST_ACTIVITY);
-    await expect(start(A, main, TEST_ACTIVITY)).rejects.toThrow("Test activity is already on in this branch");
-    await editActivity(ME, TEST_ACTIVITY, { name: "Test activity", price: "350", status: "active", reason: "New year" });
-    const after = await start(A, kothrud, TEST_ACTIVITY);
-    expect([before.pricePaise, after.pricePaise]).toEqual([30_000n, 35_000n]);
-    expect((await withTenant(A, (tx) => liveSubscriptions(tx))).find((s) => s.id === before.id)?.pricePaise).toBe(30_000n);
-
-    const history = await platformRead((tx) => tx.select().from(activityPriceHistory).where(eq(activityPriceHistory.activityKey, TEST_ACTIVITY)));
-    expect(history).toMatchObject([{ oldPaise: 30_000n, newPaise: 35_000n, reason: "New year" }]);
-    const audit = await platformRead((tx) => tx.select({ before: auditLog.before, after: auditLog.after }).from(auditLog).where(and(eq(auditLog.action, "activity.edit"), sql`${auditLog.after}->>'key' = ${TEST_ACTIVITY}`)));
-    expect(audit).toMatchObject([{ before: { price: "30000" }, after: { price: "35000" } }]);
-  });
-
-  it("one that is coming soon can't be started", async () => {
-    await editActivity(ME, TEST_ACTIVITY, { name: "Test activity", price: "350", status: "coming_soon" });
-    await expect(start(B, (await withTenant(B, (tx) => liveSubscriptions(tx)))[0]?.branchId ?? "", TEST_ACTIVITY)).rejects.toThrow("Test activity isn't available yet");
   });
 });
 

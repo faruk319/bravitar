@@ -7,7 +7,7 @@ import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { createStaffMember, deactivateStaff, loadAccessContext } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { handoffHandler } from "./routes";
 import { login, redeemHandoff, setPassword, signIn } from "./service";
 
@@ -21,7 +21,7 @@ const made = {} as Record<"a" | "b" | "c" | "d" | "e", { id: string; slug: strin
 
 const academy = async (key: keyof typeof made, password: string) => {
   const slug = `sign-${key}-${stamp}`;
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Sign ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Sign ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });
   made[key] = { id: t.tenant.id, slug, name: t.tenant.name };
   return withTenant(t.tenant.id, async (tx) => {
     const ctx = await loadAccessContext(tx, t.owner.id);

@@ -20,7 +20,8 @@ import {
   setStaffRoles,
 } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults, setTenantModules } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
+import { setTenantModules } from "@/modules/tenancy/service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
@@ -33,10 +34,7 @@ let dual: StaffUser;
 const ctxOf = (staffId: string) => withTenant(T, (tx) => loadAccessContext(tx, staffId));
 
 beforeAll(async () => {
-  const created = await createTenantWithDefaults(
-    { actorType: "system" },
-    { name: `Staff Test ${stamp}`, slug: `staff-${stamp}`, verticalPreset: "karate", owner: { name: "Owner One", email: `owner-${stamp}@example.test` } },
-  );
+  const created = await testAcademy({ name: `Staff Test ${stamp}`, slug: `staff-${stamp}`, verticalPreset: "karate", owner: { name: "Owner One", email: `owner-${stamp}@example.test` } });
   T = created.tenant.id;
   owner = created.owner;
   roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r]));

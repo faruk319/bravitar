@@ -15,7 +15,8 @@ import { listRoles } from "@/modules/staff/repo";
 import type { Role, StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, deactivateStaff, loadAccessContext, setRolePermissions, setStaffRoles } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults, setTenantModules } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
+import { setTenantModules } from "@/modules/tenancy/service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const slugA = `auth-a-${stamp}`;
@@ -38,8 +39,8 @@ const cookieOf = (res: Response) => {
 const feesRoute = withStaffRequest("fees:collect", async ({ session }) => json({ ok: session.actor.id }));
 
 beforeAll(async () => {
-  const a = await createTenantWithDefaults({ actorType: "system" }, { name: `Auth A ${stamp}`, slug: slugA, verticalPreset: "karate", owner: { name: "Owner A", email } });
-  const b = await createTenantWithDefaults({ actorType: "system" }, { name: `Auth B ${stamp}`, slug: slugB, owner: { name: "Owner B", email } });
+  const a = await testAcademy({ name: `Auth A ${stamp}`, slug: slugA, verticalPreset: "karate", owner: { name: "Owner A", email } });
+  const b = await testAcademy({ name: `Auth B ${stamp}`, slug: slugB, owner: { name: "Owner B", email } });
   A = a.tenant.id;
   B = b.tenant.id;
   ownerA = a.owner;

@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { getEnv } from "@/lib/env";
+import { takeTestPlans } from "./academy";
 import { readAppCatalog } from "./catalog";
 
 // Test-only. audit_log is append-only for both app roles, so removing test
@@ -27,6 +28,8 @@ export async function deleteTenantsCompletely(tenantIds: string[]): Promise<void
     }
     if (pending.length) throw new Error(`teardown could not clear: ${pending.join(", ")}`);
     await owner`DELETE FROM app.tenants WHERE id IN ${owner(tenantIds)}`;
+    const planIds = await takeTestPlans();
+    if (planIds.length) await owner`DELETE FROM app.activity_plans p WHERE p.id IN ${owner(planIds)} AND NOT EXISTS (SELECT 1 FROM app.activity_subscriptions s WHERE p.id IN (s.plan_id, s.next_plan_id))`;
     // Platform-level rows written by test setup carry no tenant_id.
     await owner`DELETE FROM app.audit_log WHERE action LIKE 'test.%'`;
   } finally {

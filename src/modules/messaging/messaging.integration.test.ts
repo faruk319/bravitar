@@ -20,7 +20,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { getDefaultBranch } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice, sharedReceipt } from "./public";
 import { type ComposeRequest, composeMessage } from "./compose";
 
@@ -47,7 +47,7 @@ const tokenOf = (url: string, kind: "i" | "r") => url.match(new RegExp(`/${kind}
 const classOn = async (date: string) => (await withTenant(T, (tx) => tx.select().from(sessions).where(and(eq(sessions.batchId, batchId), eq(sessions.sessionDate, date)))))[0]?.id ?? "";
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Msg Academy ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `msg-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Msg Academy ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `msg-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

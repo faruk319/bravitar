@@ -13,7 +13,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { convertEnquiry } from "./convert";
 import type { Source } from "./lists";
 import { createEnquiry, enquiryReport, logActivity, markLost } from "./service";
@@ -29,7 +29,7 @@ let today = "";
 let n = 0;
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Report ${stamp}`, slug: `report-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `report-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Report ${stamp}`, slug: `report-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `report-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);
   owner = { ...base, branchIds };

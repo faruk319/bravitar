@@ -9,7 +9,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { fakeRazorpay } from "./fake-razorpay";
 import { tenantIntegrations } from "./schema";
 import { connectRazorpay, razorpayConnected, razorpayKeys, razorpayStatus, testRazorpay } from "./service";
@@ -26,7 +26,7 @@ let ownerB: ScopedCtx;
 let managerA: ScopedCtx;
 
 const academy = async (key: string) => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Razorpay ${key} ${stamp}`, slug: `rzp-${key}-${stamp}`, owner: { name: "Owner", email: `rzp-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Razorpay ${key} ${stamp}`, slug: `rzp-${key}-${stamp}`, owner: { name: "Owner", email: `rzp-${key}-${stamp}@example.test` } });
   made.push(t.tenant.id);
   return t;
 };

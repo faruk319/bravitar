@@ -31,7 +31,7 @@ import {
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { createBranch, createResource } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -60,7 +60,7 @@ const create = (input: Partial<NewBatchInput>, ctx = owner) =>
   withTenant(T, (tx) => createBatch(tx, ctx, { name: "Beginners B", programId: karate, slots: MWF("18:00", "19:00"), startDate: addDays(today, -30), ...input }));
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Batch Test ${stamp}`, slug: `bat-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Batch Test ${stamp}`, slug: `bat-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = t.tenant.id;
   main = t.branch.id;
   owner = await ctxFor(t.owner.id);

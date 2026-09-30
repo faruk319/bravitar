@@ -11,7 +11,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { guardiansOfStudent } from "@/modules/students/repo";
 import type { Guardian } from "@/modules/students/schema";
 import { createStudent, setGuardianWhatsapp } from "@/modules/students/service";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { messageLog } from "./schema";
 import { composeMessage } from "./compose";
 import { messageAction, messageLogView, messageTemplates, messagingSettings, queueMessage, saveMessagingSettings, saveTemplate } from "./service";
@@ -42,7 +42,7 @@ const queue = (guardian: Guardian, dedupeKey?: string, key: "absent" | "welcome"
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Log ${stamp}`, slug: `log-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `log-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Log ${stamp}`, slug: `log-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `log-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));

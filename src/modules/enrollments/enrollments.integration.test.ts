@@ -12,7 +12,7 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { archiveStudent, createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { rosterOf } from "./repo";
 import { enrollments } from "./schema";
 import { batchChoices, batchRoster, enroll, leaveEnrollment, pauseEnrollment, resumeEnrollment, studentBatches, transferEnrollment } from "./service";
@@ -41,7 +41,7 @@ const one = async (id: string) => (await withTenant(T, (tx) => tx.select().from(
 const actions = async (ids: string[]) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(inArray(auditLog.entityId, ids)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Enrol Test ${stamp}`, slug: `enr-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `enr-owner-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Enrol Test ${stamp}`, slug: `enr-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `enr-owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   kothrud = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Kothrud" }))).id;

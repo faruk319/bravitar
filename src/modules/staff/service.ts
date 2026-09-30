@@ -11,6 +11,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { AppError, BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { invalidateSessionsForRoleHolders, invalidateSessionsForStaff, revokeSessionsForStaff } from "@/modules/auth/repo";
+import { assertStaffRoom } from "@/modules/billing/access";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 import {
@@ -97,6 +98,7 @@ export type NewStaffInput = z.input<typeof staffInputSchema>;
 export async function createStaffMember(tx: Tx, ctx: AccessContext, input: NewStaffInput): Promise<StaffUser> {
   assertCan(ctx, "staff:manage");
   const data = staffInputSchema.parse(input);
+  await assertStaffRoom(tx, ctx);
   const staff = await createStaff(tx, {
     tenantId: ctx.tenantId,
     email: data.email,
@@ -261,7 +263,7 @@ export async function addStaff(tx: Tx, ctx: AccessContext, input: NewStaffInput,
 
 export async function reactivateStaff(tx: Tx, ctx: AccessContext, staffId: string): Promise<StaffUser> {
   assertCan(ctx, "staff:manage");
-  await requireStaff(tx, staffId);
+  if (!(await requireStaff(tx, staffId)).isActive) await assertStaffRoom(tx, ctx);
   const updated = await updateStaff(tx, staffId, { isActive: true });
   await writeAudit(tx, { ...actor(ctx), action: "staff.reactivate", entityType: "staff_user", entityId: staffId });
   return updated;

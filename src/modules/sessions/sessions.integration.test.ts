@@ -14,7 +14,7 @@ import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createBranch } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { runSessionsGenerate, SESSIONS_GENERATE, workSessionsGenerate } from "./job";
 import { HOLIDAY_REASON, reconcileSessions } from "./reconcile";
 import { setSessionStatus } from "./repo";
@@ -28,7 +28,7 @@ const created: string[] = [];
 type T = { id: string; branch: string; program: string; owner: ScopedCtx };
 
 async function tenant(key: string, timezone = IST): Promise<T> {
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Sessions ${key} ${stamp}`, slug: `ses-${key}-${stamp}`, timezone, owner: { name: "Owner", email: `ses-${key}-${stamp}@example.test` } });
+  const t = await testAcademy({ name: `Sessions ${key} ${stamp}`, slug: `ses-${key}-${stamp}`, timezone, owner: { name: "Owner", email: `ses-${key}-${stamp}@example.test` } });
   created.push(t.tenant.id);
   const [base, branchIds] = await withTenant(t.tenant.id, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);
   const program = await withTenant(t.tenant.id, (tx) => createProgram(tx, { tenantId: t.tenant.id, name: "Karate", activityKey: "general" }));
