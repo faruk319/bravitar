@@ -354,6 +354,25 @@ export async function listPayments(tx: AnyTx, opts: { tenantIds?: string[]; limi
   return rows.map(({ p, ...names }) => ({ ...p, ...names }));
 }
 
+export type BillPayment = { id: string; receivedOn: string; method: BillingPayment["method"]; reference: string | null; amountPaise: bigint; cancelledAt: Date | null };
+
+// What each payment put on one bill, oldest first.
+export async function paymentsForBill(tx: AnyTx, invoiceId: string): Promise<BillPayment[]> {
+  return tx
+    .select({
+      id: billingPayments.id,
+      receivedOn: billingPayments.receivedOn,
+      method: billingPayments.method,
+      reference: billingPayments.reference,
+      amountPaise: billingAllocations.amountPaise,
+      cancelledAt: billingPayments.cancelledAt,
+    })
+    .from(billingAllocations)
+    .innerJoin(billingPayments, eq(billingPayments.id, billingAllocations.paymentId))
+    .where(eq(billingAllocations.invoiceId, invoiceId))
+    .orderBy(asc(billingPayments.createdAt));
+}
+
 export type OwedBill = { id: string; tenantId: string; academyName: string; timezone: string; number: string; description: string; dueOn: string; balance: bigint };
 
 // Every academy's unpaid bills (or those of the given ones), the longest due first.

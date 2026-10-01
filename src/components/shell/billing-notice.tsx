@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LOCKED, type LockedActivity } from "@/modules/billing/access";
 
 // A paused module, or one waiting for payment, at the top of every page
@@ -12,6 +13,11 @@ export function BillingNotice({ items, seesBills }: { items: LockedActivity[]; s
           {p.activity} at {p.branch} {seesBills ? LOCKED[p.status] : "is unavailable. Please contact your academy administrator."}
         </p>
       ))}
+      {seesBills ? (
+        <Link href="/billing" className="font-medium underline">
+          Go to Billing
+        </Link>
+      ) : null}
     </div>
   );
 }

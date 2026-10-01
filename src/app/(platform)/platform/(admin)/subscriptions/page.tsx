@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ActivityIcon } from "@/components/activity-icon";
 import { selectClass } from "@/components/fees/plan-editor";
-import { perCycle, subscriptionState } from "@/components/platform/billing-text";
+import { perCycle, subscriptionState } from "@/components/billing-text";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { requirePlatformPage } from "@/lib/auth/server";

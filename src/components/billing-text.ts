@@ -2,7 +2,7 @@ import { formatDate } from "@/lib/dates";
 import { formatPaise } from "@/lib/money/format";
 import { type ActivityPlan, type ActivitySubscription, BILLING_INTERVALS, type BillingInterval, type BillingPayment } from "@/modules/billing/schema";
 
-// How /platform words Bravitar's prices and subscriptions.
+// How Bravitar's prices, bills and subscriptions are worded, on /platform and on the academy's Billing page.
 
 // "₹300/month", "₹3,000/year".
 export const perCycle = (paise: bigint, interval: BillingInterval): string => `${formatPaise(paise)}/${interval}`;

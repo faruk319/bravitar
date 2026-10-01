@@ -2,7 +2,7 @@ import { Banknote, TriangleAlert, Wallet } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ActivityIcon } from "@/components/activity-icon";
-import { METHOD_LABEL, perCycle, priceNote } from "@/components/platform/billing-text";
+import { METHOD_LABEL, perCycle, priceNote } from "@/components/billing-text";
 import { StatCard } from "@/components/stat-card";
 import { Card, CardHeader } from "@/components/ui/card";
 import { requirePlatformPage } from "@/lib/auth/server";

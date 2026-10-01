@@ -49,6 +49,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
       { href: "/messages", label: { text: "Messages" }, icon: "Send", permission: "messages:read" },
       { href: "/settings", label: { text: "Settings" }, icon: "Settings", permission: "settings:manage" },
+      { href: "/billing", label: { text: "Billing" }, icon: "CreditCard", permission: "billing:view" },
     ],
   },
 ];

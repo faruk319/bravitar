@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { requirePlatformPage } from "@/lib/auth/server";
-import { totalsText } from "@/components/platform/billing-text";
+import { totalsText } from "@/components/billing-text";
 import { cn } from "@/lib/utils";
 import { type Academy, listAcademies } from "@/modules/platform/academies";
 

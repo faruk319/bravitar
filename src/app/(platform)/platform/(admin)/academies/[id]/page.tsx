@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
-import { InvoiceStatus } from "@/components/fees/invoice-status";
+import { BillStatus } from "@/components/bill-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { PriceSheet, ReasonAction, RecordPayment, TrialDaysSheet } from "@/components/platform/billing-forms";
-import { METHOD_LABEL, perCycle, planLabel, priceNote, subscriptionState, totalsText } from "@/components/platform/billing-text";
+import { METHOD_LABEL, perCycle, planLabel, priceNote, subscriptionState, totalsText } from "@/components/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
@@ -144,17 +144,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
                     <span className="tabular-nums">{formatPaise(i.totalPaise)}</span>
-                    {i.status === "void" ? (
-                      <InvoiceStatus status="void" />
-                    ) : i.status === "paid" ? (
-                      <InvoiceStatus status="paid" />
-                    ) : today > i.dueOn ? (
-                      <InvoiceStatus status="issued" overdue />
-                    ) : i.paidPaise > 0n ? (
-                      <InvoiceStatus status="part_paid" />
-                    ) : (
-                      <span className="text-caption text-muted-foreground">Due {formatDayMonth(i.dueOn)}</span>
-                    )}
+                    <BillStatus bill={i} today={today} />
                     {i.status === "open" && i.paidPaise > 0n ? <span className="text-caption text-muted-foreground">{formatPaise(i.totalPaise - i.paidPaise)} left</span> : null}
                     {i.status === "open" && i.paidPaise === 0n ? (
                       <ReasonAction trigger="Void" title={`Void ${i.number}`} hint="It keeps its number and isn't owed." path={`/api/platform/billing-invoices/${i.id}/void`} submitLabel="Void bill" />

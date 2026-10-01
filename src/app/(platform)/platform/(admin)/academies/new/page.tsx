@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { NewAcademyForm } from "@/components/platform/academy-forms";
-import { planLabel } from "@/components/platform/billing-text";
+import { planLabel } from "@/components/billing-text";
 import { Card } from "@/components/ui/card";
 import { requirePlatformPage } from "@/lib/auth/server";
 import { getEnv } from "@/lib/env";
