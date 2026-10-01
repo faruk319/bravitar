@@ -4,7 +4,7 @@ import { ActivityIcon } from "@/components/activity-icon";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { PriceSheet, ReasonAction, RecordPayment, TrialDaysSheet } from "@/components/platform/billing-forms";
-import { METHOD_LABEL, perCycle, planLabel, subscriptionState, totalsText } from "@/components/platform/billing-text";
+import { METHOD_LABEL, perCycle, planLabel, priceNote, subscriptionState, totalsText } from "@/components/platform/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
@@ -21,13 +21,6 @@ const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_
 const over = (s: BranchActivity) => s.plan.maxStudents !== null && s.students > s.plan.maxStudents;
 const locked = (s: BranchActivity) => s.status === "paused" || s.status === "pending";
 const METHODS = Object.entries(METHOD_LABEL).map(([value, label]) => ({ value, label }));
-
-// Free use or a special price while it lasts: "Free until 31 Dec 2026 · Pilot".
-function priceNote(s: BranchActivity, today: string): string | null {
-  if (s.overridePaise === null || (s.overrideUntil !== null && today > s.overrideUntil)) return null;
-  const price = s.overridePaise === 0n ? "Free" : perCycle(s.overridePaise, s.billingInterval);
-  return `${price}${s.overrideUntil ? ` until ${formatDate(s.overrideUntil)}` : ""}${s.overrideReason ? ` · ${s.overrideReason}` : ""}`;
-}
 
 // What recording a payment does, in the sheet.
 function paymentHint(s: BranchActivity): string {

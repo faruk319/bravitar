@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, inArray, isNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, gte, inArray, isNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
@@ -124,7 +124,7 @@ export type ListedSubscription = ActivitySubscription & { academyName: string; t
 
 // Every academy's branch modules, for /platform/subscriptions: live ones
 // unless a status is asked for.
-export type SubscriptionFilters = { status?: SubscriptionStatus | undefined; activityKey?: string | undefined };
+export type SubscriptionFilters = { status?: SubscriptionStatus | undefined; activityKey?: string | undefined; tenantIds?: string[] | undefined };
 
 export async function subscriptionList(tx: PlatformTx, f: SubscriptionFilters = {}): Promise<ListedSubscription[]> {
   const rows = await tx
@@ -139,6 +139,7 @@ export async function subscriptionList(tx: PlatformTx, f: SubscriptionFilters = 
         isNull(tenants.deletedAt),
         f.status ? eq(activitySubscriptions.status, f.status) : ne(activitySubscriptions.status, "cancelled"),
         f.activityKey ? eq(activitySubscriptions.activityKey, f.activityKey) : undefined,
+        f.tenantIds ? inArray(activitySubscriptions.tenantId, f.tenantIds) : undefined,
       ),
     )
     .orderBy(asc(tenants.name), asc(branches.createdAt), asc(activities.name));
@@ -336,20 +337,51 @@ export async function allocate(tx: PlatformTx, row: { tenantId: string; paymentI
     .where(eq(billingInvoices.id, row.invoiceId));
 }
 
-export type ListedPayment = BillingPayment & { activityName: string; branchName: string };
+export type ListedPayment = BillingPayment & { academyName: string; activityName: string; branchName: string };
 
-// Newest first, with what they paid for.
-export async function listPayments(tx: AnyTx, opts: { tenantIds: string[]; limit?: number }): Promise<ListedPayment[]> {
+// Newest first, with who paid and for what; every academy's unless given.
+export async function listPayments(tx: AnyTx, opts: { tenantIds?: string[]; limit?: number } = {}): Promise<ListedPayment[]> {
   const rows = await tx
-    .select({ p: billingPayments, activityName: activities.name, branchName: branches.name })
+    .select({ p: billingPayments, academyName: tenants.name, activityName: activities.name, branchName: branches.name })
     .from(billingPayments)
+    .innerJoin(tenants, eq(tenants.id, billingPayments.tenantId))
     .innerJoin(activitySubscriptions, eq(activitySubscriptions.id, billingPayments.subscriptionId))
     .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
     .innerJoin(branches, eq(branches.id, activitySubscriptions.branchId))
-    .where(inArray(billingPayments.tenantId, opts.tenantIds))
+    .where(opts.tenantIds ? inArray(billingPayments.tenantId, opts.tenantIds) : undefined)
     .orderBy(desc(billingPayments.createdAt))
     .limit(opts.limit ?? 50);
-  return rows.map((r) => ({ ...r.p, activityName: r.activityName, branchName: r.branchName }));
+  return rows.map(({ p, ...names }) => ({ ...p, ...names }));
+}
+
+export type OwedBill = { id: string; tenantId: string; academyName: string; timezone: string; number: string; description: string; dueOn: string; balance: bigint };
+
+// Every academy's unpaid bills (or those of the given ones), the longest due first.
+export async function owedBills(tx: PlatformTx, tenantIds?: string[]): Promise<OwedBill[]> {
+  return tx
+    .select({
+      id: billingInvoices.id,
+      tenantId: billingInvoices.tenantId,
+      academyName: tenants.name,
+      timezone: tenants.timezone,
+      number: billingInvoices.number,
+      description: billingInvoices.description,
+      dueOn: billingInvoices.dueOn,
+      balance: sql<bigint>`${billingInvoices.totalPaise} - ${billingInvoices.paidPaise}`.mapWith(BigInt),
+    })
+    .from(billingInvoices)
+    .innerJoin(tenants, eq(tenants.id, billingInvoices.tenantId))
+    .where(and(eq(billingInvoices.status, "open"), isNull(tenants.deletedAt), tenantIds ? inArray(billingInvoices.tenantId, tenantIds) : undefined))
+    .orderBy(asc(billingInvoices.dueOn), asc(billingInvoices.number));
+}
+
+// What academies paid Bravitar from a date on; cancelled payments left out.
+export async function receivedSince(tx: PlatformTx, from: string, tenantIds?: string[]): Promise<bigint> {
+  const [row] = await tx
+    .select({ total: sql<bigint>`coalesce(sum(${billingPayments.amountPaise}), 0)`.mapWith(BigInt) })
+    .from(billingPayments)
+    .where(and(isNull(billingPayments.cancelledAt), gte(billingPayments.receivedOn, from), tenantIds ? inArray(billingPayments.tenantId, tenantIds) : undefined));
+  return row?.total ?? 0n;
 }
 
 // ---- usage against a plan's limits

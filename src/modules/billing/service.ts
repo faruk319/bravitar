@@ -2,12 +2,12 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { type AuditEntry, writeAudit } from "@/lib/db/audit";
 import { type PlatformTx, platformRead, withPlatformAdmin } from "@/lib/db/platform";
-import { addDays, isIsoDate, monthsLaterOn } from "@/lib/dates";
+import { addDays, isIsoDate, monthsLaterOn, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { ACTIVITY_ICONS } from "@/lib/activities";
 import { uuidv7 } from "@/lib/ids";
 import { financialYear } from "@/lib/money/fy";
-import { parseRupees, percent } from "@/lib/money/paise";
+import { parseRupees, percent, sum } from "@/lib/money/paise";
 import { students } from "./access";
 import {
   academyToday,
@@ -19,12 +19,17 @@ import {
   getPlan,
   insertInvoice,
   insertSubscription,
+  type ListedPayment,
   type ListedSubscription,
   listActivities,
+  listPayments,
   listPlans,
   liveSubscriptions,
   lockSubscription,
   overdueNumbers,
+  type OwedBill,
+  owedBills,
+  receivedSince,
   type PriceChange,
   recentPriceChanges,
   staffCounts,
@@ -498,6 +503,42 @@ export async function editBillingSettings(actor: Actor, input: z.input<typeof se
     const s = await getBillingSettings(tx);
     audit.before = Object.fromEntries(Object.keys(d).map((k) => [k, s[k as keyof typeof d]]));
     await tx.update(billingSettings).set({ ...d, updatedAt: new Date() }).where(eq(billingSettings.id, true));
+  });
+}
+
+export type BillingOverview = {
+  owed: (OwedBill & { overdue: boolean })[]; // oldest due first
+  overduePaise: bigint;
+  overdueCount: number;
+  owedPaise: bigint;
+  receivedPaise: bigint; // this month, on India time
+  waiting: ListedSubscription[];
+  endingTrials: ListedSubscription[]; // within 7 days
+  specialPrices: ListedSubscription[];
+  payments: ListedPayment[];
+};
+
+// /platform/billing (agreed 2026-10-01): what academies owe and what is
+// overdue, who waits for a first payment, trials ending within a week, special
+// prices still running, and the latest payments. Tests pass their academies.
+export async function billingOverview(opts: { now?: Date; tenantIds?: string[] } = {}): Promise<BillingOverview> {
+  const { now = new Date(), tenantIds } = opts;
+  return platformRead(async (tx) => {
+    const owed = (await owedBills(tx, tenantIds)).map((b) => ({ ...b, overdue: todayIn(b.timezone, now) > b.dueOn }));
+    const overdue = owed.filter((b) => b.overdue);
+    const live = await subscriptionList(tx, { tenantIds });
+    const local = (s: ListedSubscription) => todayIn(s.timezone, now);
+    return {
+      owed,
+      overduePaise: sum(overdue.map((b) => b.balance)),
+      overdueCount: overdue.length,
+      owedPaise: sum(owed.map((b) => b.balance)),
+      receivedPaise: await receivedSince(tx, `${todayIn("Asia/Kolkata", now).slice(0, 7)}-01`, tenantIds),
+      waiting: live.filter((s) => s.status === "pending"),
+      endingTrials: live.filter((s) => s.status === "trial" && s.periodEnd <= addDays(local(s), 7)).sort((x, y) => x.periodEnd.localeCompare(y.periodEnd)),
+      specialPrices: live.filter((s) => s.overridePaise !== null && (s.overrideUntil === null || s.overrideUntil >= local(s))),
+      payments: await listPayments(tx, { limit: 20, ...(tenantIds ? { tenantIds } : {}) }),
+    };
   });
 }
 
