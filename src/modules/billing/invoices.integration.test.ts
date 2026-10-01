@@ -7,7 +7,7 @@ import { addTestActivities, removeTestActivities, testAcademy } from "@/lib/db/i
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { addDays, monthsLaterOn } from "@/lib/dates";
+import { addDays } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { percent } from "@/lib/money/paise";
 import { addProgram, createBatch } from "@/modules/batches/service";
@@ -16,43 +16,49 @@ import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { runBillingRenew } from "./job";
+import { payToStart } from "./payments";
 import { getBillingSettings } from "./repo";
 import { type ActivitySubscription, activityPlans, activitySubscriptions, type BillingSettings, billingInvoices } from "./schema";
 import { changePlan, setCancelAtPeriodEnd, startActivity } from "./service";
 
-// Bravitar's bills (agreed 2026-09-30): monthly in advance, one per activity in
-// a branch, none for a ₹0 month. The story runs from 31 Jan 2026 on the job's
-// clock; the job only ever sees this file's academies.
+// Bravitar's bills (agreed 2026-09-30): in advance on the anchor day, one per
+// activity in a branch, none for a ₹0 month; the first is paid to start (pay
+// first). The story runs from 31 Jan 2026 on the job's clock; the job only
+// ever sees this file's academy.
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const ME = { actorType: "platform" as const };
 const KEY = `test-inv-${stamp}` as const;
 const D0 = "2026-01-31";
-const plan = { paid: "", cheap: "", zero: "", trial: "" };
+const plan = { paid: "", cheap: "", zero: "" };
 let subs: Record<"paid" | "zero" | "down" | "drop" | "cancel", ActivitySubscription>;
-let trial: Record<"main" | "cancelled", ActivitySubscription>;
 let A = "";
-let T = "";
 let settings: BillingSettings;
 
-const makePlan = async (activityKey: string, name: string, price: bigint, maxStudents: number | null = null) => {
+const makePlan = async (name: string, price: bigint, maxStudents: number | null = null) => {
   const id = uuidv7();
-  await platformDb.insert(activityPlans).values({ id, activityKey, name, pricePaise: price, maxStudents, isOffered: false });
+  await platformDb.insert(activityPlans).values({ id, activityKey: KEY, name, pricePaise: price, maxStudents, isOffered: false });
   return id;
 };
-const start = (name: string, planId: string) =>
-  withPlatformAdmin({ action: "test.invoices.start", actorType: "system" }, async (tx) => {
+const noon = (date: string) => new Date(`${date}T12:00:00+05:30`); // on India time
+const sub = async (id: string) => (await platformRead((tx) => tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id))))[0];
+// Started on D0, and paid first when it costs something.
+const start = async (name: string, planId: string) => {
+  const s = await withPlatformAdmin({ action: "test.invoices.start", actorType: "system" }, async (tx) => {
     const branch = await createBranch(tx, { tenantId: A, name: `${name} branch` });
     return startActivity(tx, { tenantId: A, branchId: branch.id, activityKey: KEY, planId, today: D0, trial: false });
   });
+  if (s.status === "pending") await payToStart(ME, s.id, { now: noon(D0) });
+  const started = await sub(s.id);
+  if (!started) throw new Error("subscription missing");
+  return started;
+};
 const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
   const [base, branchIds] = await withTenant(A, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
   return { ...base, branchIds };
 };
-const run = (date: string, tenantId = A) => runBillingRenew({ now: new Date(`${date}T12:00:00+05:30`), tenantIds: [tenantId] }); // on India time
-const sub = async (id: string) => (await platformRead((tx) => tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id))))[0];
+const run = (date: string) => runBillingRenew({ now: noon(date), tenantIds: [A] });
 const billsOf = (subscriptionId: string) =>
   platformRead((tx) => tx.select().from(billingInvoices).where(eq(billingInvoices.subscriptionId, subscriptionId)).orderBy(asc(billingInvoices.periodStart)));
 const auditOf = (action: string, entityId: string) =>
@@ -67,10 +73,9 @@ const auditOf = (action: string, entityId: string) =>
 beforeAll(async () => {
   settings = await platformRead(getBillingSettings);
   await addTestActivities([{ key: KEY, name: "Test lessons" }]);
-  plan.paid = await makePlan(KEY, "Paid", 50_000n);
-  plan.cheap = await makePlan(KEY, "Cheap", 20_000n, 0);
-  plan.zero = await makePlan(KEY, "Zero", 0n);
-  plan.trial = await makePlan("general", `Trial ${stamp}`, 40_000n);
+  plan.paid = await makePlan("Paid", 50_000n);
+  plan.cheap = await makePlan("Cheap", 20_000n, 0);
+  plan.zero = await makePlan("Zero", 0n);
 
   const a = await testAcademy({ name: `Invoices ${stamp}`, slug: `inv-${stamp}`, owner: { name: "Owner", email: `inv-${stamp}@example.test` } });
   A = a.tenant.id;
@@ -91,19 +96,10 @@ beforeAll(async () => {
     const studentId = (await createStudent(tx, owner, { fullName: "Asha", branchId: subs.drop.branchId, guardian, consents: { dataProcessing: true } })).student.id;
     await enroll(tx, owner, { studentId, batchId });
   });
-
-  const t = await createTenantWithDefaults({ actorType: "system" }, { name: `Trial ${stamp}`, slug: `inv-t-${stamp}`, planId: plan.trial, owner: { name: "Owner T", email: `inv-t-${stamp}@example.test` } });
-  T = t.tenant.id;
-  const cancelled = await withPlatformAdmin({ action: "test.invoices.start", actorType: "system" }, async (tx) => {
-    const branch = await createBranch(tx, { tenantId: T, name: "Second" });
-    return startActivity(tx, { tenantId: T, branchId: branch.id, activityKey: "general", planId: plan.trial, today: t.subscription.periodStart, trial: true });
-  });
-  trial = { main: t.subscription, cancelled };
-  await setCancelAtPeriodEnd(ME, trial.cancelled.id, true);
 });
 
 afterAll(async () => {
-  await deleteTenantsCompletely([A, T].filter(Boolean));
+  await deleteTenantsCompletely([A].filter(Boolean));
   await platformDb.delete(activityPlans).where(inArray(activityPlans.id, Object.values(plan).filter(Boolean)));
   await removeTestActivities([KEY]);
   await runtimeSql.end({ timeout: 5 });
@@ -111,7 +107,7 @@ afterAll(async () => {
 });
 
 describe("the first bill", () => {
-  it("comes when a paid activity starts, for a month from that day", async () => {
+  it("is made when the first month is paid, from that day, paid and due the same day", async () => {
     expect(subs.paid).toMatchObject({ status: "active", anchorDay: 31, periodStart: D0, periodEnd: "2026-02-28" });
     const bills = await billsOf(subs.paid.id);
     const tax = percent(50_000n, settings.taxRateBp);
@@ -125,10 +121,11 @@ describe("the first bill", () => {
         taxRateBp: settings.taxRateBp,
         taxPaise: tax,
         totalPaise: 50_000n + tax,
+        paidPaise: 50_000n + tax,
         gstin: settings.gstin,
-        status: "open",
+        status: "paid",
         issuedOn: D0,
-        dueOn: addDays(D0, settings.graceDays),
+        dueOn: D0,
       },
     ]);
     expect(bills[0]?.number).toMatch(/^BRV\/2025-26\/\d{5}$/);
@@ -142,31 +139,19 @@ describe("the first bill", () => {
     expect(serials).toEqual([...serials].sort((x, y) => x - y));
   });
 
-  it("isn't made for a ₹0 month, which still rolls on", async () => {
-    expect(subs.zero).toMatchObject({ periodStart: D0, periodEnd: "2026-02-28" });
+  it("isn't made for a ₹0 month, which starts at once and rolls on", async () => {
+    expect(subs.zero).toMatchObject({ status: "active", periodStart: D0, periodEnd: "2026-02-28" });
     expect(await billsOf(subs.zero.id)).toEqual([]);
   });
 });
 
-describe("an unpaid bill", () => {
-  it("pauses its activity the day after it's due, not before", async () => {
-    const due = addDays(D0, settings.graceDays);
-    await run(due);
-    expect((await sub(subs.paid.id))?.status).toBe("active");
-    await run(addDays(due, 1));
-    expect((await sub(subs.paid.id))?.status).toBe("paused");
-    const [first] = await billsOf(subs.paid.id);
-    expect(await auditOf("subscription.pause", subs.paid.id)).toMatchObject([{ after: { overdue: [first?.number] } }]);
-  });
-});
-
 describe("the month's end", () => {
-  it("bills the next month, while paused too, on the anchor day or the month's last day", async () => {
+  it("bills the next month on the anchor day, or the month's last day", async () => {
     await run("2026-03-01");
-    expect(await sub(subs.paid.id)).toMatchObject({ status: "paused", periodStart: "2026-02-28", periodEnd: "2026-03-31" });
-    expect((await billsOf(subs.paid.id)).map((b) => [b.periodStart, b.periodEnd])).toEqual([
-      [D0, "2026-02-28"],
-      ["2026-02-28", "2026-03-31"],
+    expect(await sub(subs.paid.id)).toMatchObject({ status: "active", periodStart: "2026-02-28", periodEnd: "2026-03-31" });
+    expect((await billsOf(subs.paid.id)).map((b) => [b.periodStart, b.periodEnd, b.status])).toEqual([
+      [D0, "2026-02-28", "paid"],
+      ["2026-02-28", "2026-03-31", "open"],
     ]);
     expect(await sub(subs.zero.id)).toMatchObject({ status: "active", periodEnd: "2026-03-31" });
     expect(await billsOf(subs.zero.id)).toEqual([]);
@@ -192,9 +177,23 @@ describe("the month's end", () => {
   it("bills each month once: another run the same day does nothing", async () => {
     expect(await run("2026-03-01")).toEqual({ renewed: 0, invoices: 0, paused: 0, failed: [] });
   });
+});
 
-  it("catches up: two months late gives two bills, both dated that day", async () => {
+describe("an unpaid bill", () => {
+  it("pauses its activity the day after it's due, not before", async () => {
+    const second = (await billsOf(subs.paid.id))[1];
+    const due = second?.dueOn ?? "";
+    expect(due).toBe(addDays("2026-03-01", settings.graceDays));
+    await run(due);
+    expect((await sub(subs.paid.id))?.status).toBe("active");
+    await run(addDays(due, 1));
+    expect((await sub(subs.paid.id))?.status).toBe("paused");
+    expect(await auditOf("subscription.pause", subs.paid.id)).toMatchObject([{ after: { overdue: [second?.number] } }]);
+  });
+
+  it("keeps billing while paused, catching up: two months late gives two bills, both dated that day", async () => {
     await run("2026-05-01");
+    expect((await sub(subs.paid.id))?.status).toBe("paused");
     const late = (await billsOf(subs.paid.id)).slice(2);
     expect(late.map((b) => [b.periodStart, b.issuedOn])).toEqual([
       ["2026-03-31", "2026-05-01"],
@@ -202,16 +201,5 @@ describe("the month's end", () => {
     ]);
     for (const b of late) expect(b.number).toMatch(/^BRV\/2026-27\//);
     expect((await sub(subs.paid.id))?.periodEnd).toBe("2026-05-31");
-  });
-});
-
-describe("a trial", () => {
-  it("ends in its first bill at the plan's price; one cancelled at its end has none", async () => {
-    const end = trial.main.periodEnd;
-    await run(end, T);
-    expect(await sub(trial.main.id)).toMatchObject({ status: "active", periodStart: end, periodEnd: monthsLaterOn(end, 1, trial.main.anchorDay) });
-    expect(await billsOf(trial.main.id)).toMatchObject([{ periodStart: end, subtotalPaise: 40_000n, issuedOn: end }]);
-    expect(await sub(trial.cancelled.id)).toMatchObject({ status: "cancelled" });
-    expect(await billsOf(trial.cancelled.id)).toEqual([]);
   });
 });

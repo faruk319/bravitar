@@ -65,7 +65,7 @@ beforeAll(async () => {
   main = t.branch.id;
   owner = await ctxFor(t.owner.id);
   kothrud = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Kothrud" }))).id;
-  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, (tx) => startActivity(tx, { tenantId: T, branchId: kothrud, activityKey: "karate", today, trial: false })); // each branch has its own
+  await withPlatformAdmin({ action: "test.setup", actorType: "system" }, (tx) => startActivity(tx, { tenantId: T, branchId: kothrud, activityKey: "karate", planId: t.subscription.planId, today, trial: false })); // each branch has its own; free, so it starts at once
   room = (await withTenant(T, (tx) => createResource(tx, { tenantId: T, branchId: main, name: "Main Hall", capacity: 40 }))).id;
   for (const r of await withTenant(T, listRoles)) roleIds[r.name] = r.id;
   karate = (await withTenant(T, (tx) => addProgram(tx, owner, { name: "Karate" }))).id;

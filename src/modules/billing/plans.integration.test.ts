@@ -17,6 +17,7 @@ import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { createTenantWithDefaults } from "@/modules/tenancy/service";
 import { listPlans, liveSubscriptions } from "./repo";
 import { activityPlans, planPriceHistory } from "./schema";
+import { payToStart } from "./payments";
 import { changePlan, editPlan, startActivity } from "./service";
 
 // Plans inside an activity (agreed 2026-09-30): a new price is for new
@@ -49,8 +50,12 @@ const makePlan = async (activityKey: string, name: string, v: { price: bigint; s
     .values({ id, activityKey, name, pricePaise: v.price, maxStudents: v.students ?? null, maxStaff: v.staff ?? null, isOffered: v.offered ?? true, isDefault: v.isDefault ?? false });
   return id;
 };
-const start = (tenantId: string, branchId: string, activityKey: string, planId?: string) =>
-  withPlatformAdmin({ action: "test.plans.start", actorType: "system" }, (tx) => startActivity(tx, { tenantId, branchId, activityKey, planId, today, trial: false }));
+// Paid first when it costs something (pay first, agreed 2026-09-30).
+const start = async (tenantId: string, branchId: string, activityKey: string, planId?: string) => {
+  const s = await withPlatformAdmin({ action: "test.plans.start", actorType: "system" }, (tx) => startActivity(tx, { tenantId, branchId, activityKey, planId, today, trial: false }));
+  if (s.status === "pending") await payToStart(ME, s.id);
+  return s;
+};
 const branch = async (tenantId: string, name: string) => (await withPlatformAdmin({ action: "test.plans.branch", actorType: "system" }, (tx) => createBranch(tx, { tenantId, name }))).id;
 const subOf = async (tenantId: string, branchId?: string) =>
   (await platformRead((tx) => liveSubscriptions(tx, { tenantIds: [tenantId] }))).find((s) => s.activityKey === KEY && (branchId === undefined || s.branchId === branchId));

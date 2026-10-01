@@ -41,6 +41,7 @@ import {
   type ActivityPlan,
   activityPlans,
   type ActivitySubscription,
+  type BillingInvoice,
   BILLING_INTERVALS,
   type BillingInterval,
   billingSettings,
@@ -62,12 +63,14 @@ export function effectivePrice(s: Pick<ActivitySubscription, "pricePaise" | "ove
 export type StartInput = { tenantId: string; branchId: string; activityKey: string; planId?: string | undefined; today: string; trial: boolean };
 
 // On the given plan, else the module's default one, at its price today. Only
-// an academy's first activity in its first branch gets the trial; any other
-// start bills its first month at once.
+// an academy's first activity in its first branch gets the trial. Any other
+// paid start waits for its first payment (pay first, agreed 2026-09-30); a
+// free one starts at once. The platform may start a module that is coming
+// soon, never a retired one; owners get offered modules only (agreed 2026-10-01).
 export async function startActivity(tx: PlatformTx, input: StartInput): Promise<ActivitySubscription> {
   const activity = await getActivity(tx, input.activityKey);
   if (!activity) throw new NotFoundError("Activity");
-  if (activity.status !== "active") throw new ConflictError(`${activity.name} isn't available yet`);
+  if (activity.status === "retired") throw new ConflictError(`${activity.name} isn't offered any more`);
   const plan = input.planId ? await getPlan(tx, input.planId) : await defaultPlan(tx, activity.key);
   if (!plan || plan.activityKey !== activity.key) throw input.planId ? new NotFoundError("Plan") : new ConflictError(`${activity.name} has no plan on offer`);
   const periodEnd = input.trial ? addDays(input.today, (await getBillingSettings(tx)).trialDays) : input.today;
@@ -76,7 +79,7 @@ export async function startActivity(tx: PlatformTx, input: StartInput): Promise<
     branchId: input.branchId,
     activityKey: activity.key,
     planId: plan.id,
-    status: input.trial ? "trial" : "active",
+    status: input.trial ? "trial" : plan.pricePaise > 0n ? "pending" : "active",
     pricePaise: plan.pricePaise,
     billingInterval: plan.billingInterval,
     anchorDay: Number(periodEnd.slice(8)),
@@ -86,7 +89,7 @@ export async function startActivity(tx: PlatformTx, input: StartInput): Promise<
     if (isUniqueViolation(e)) throw new ConflictError(`${activity.name} is already on in this branch`);
     throw e;
   });
-  return input.trial ? created : (await renew(tx, created, input.today)).subscription;
+  return created.status === "active" ? (await renew(tx, created, input.today)).subscription : created;
 }
 
 // ---- bills (agreed 2026-09-30): in advance on the anchor day, monthly or
@@ -96,14 +99,15 @@ const CYCLE_MONTHS: Record<BillingInterval, number> = { month: 1, year: 12 };
 
 export type Renewal = { subscription: ActivitySubscription; invoices: string[]; droppedPlanId: string | null };
 
-// Brings a locked subscription up to today, a month at a time: it ends if
+// Brings a locked subscription up to today, a period at a time: it ends if
 // cancelled at period end, takes a waiting downgrade that still fits (else
-// drops it), leaves its trial, and bills the month. Paused ones are billed too.
+// drops it) and bills the period; paused ones are billed too. A trial that
+// ends with something to pay waits for its first payment instead.
 export async function renew(tx: PlatformTx, s: ActivitySubscription, today: string): Promise<Renewal> {
   let cur = s;
   let droppedPlanId: string | null = null;
   const invoices: string[] = [];
-  while (cur.status !== "cancelled" && cur.periodEnd <= today) {
+  while (cur.status !== "cancelled" && cur.status !== "pending" && cur.periodEnd <= today) {
     if (cur.cancelAtPeriodEnd) {
       cur = { ...cur, status: "cancelled", cancelledAt: new Date() };
       break;
@@ -117,7 +121,11 @@ export async function renew(tx: PlatformTx, s: ActivitySubscription, today: stri
     const start = cur.periodEnd;
     const end = monthsLaterOn(start, CYCLE_MONTHS[cur.billingInterval], cur.anchorDay);
     const amount = effectivePrice(cur, start);
-    if (amount > 0n) invoices.push(await issueInvoice(tx, cur, start, end, amount, today));
+    if (cur.status === "trial" && amount > 0n) {
+      cur = { ...cur, status: "pending" };
+      break;
+    }
+    if (amount > 0n) invoices.push((await issueInvoice(tx, cur, { start, end }, amount, today)).number);
     cur = { ...cur, status: cur.status === "trial" ? "active" : cur.status, periodStart: start, periodEnd: end };
   }
   if (cur !== s) {
@@ -137,9 +145,22 @@ async function fits(tx: PlatformTx, s: ActivitySubscription, plan: ActivityPlan)
   }
 }
 
+// The first paid period of a waiting module, or of one paid during its trial:
+// from today, or from the trial's end.
+export function firstPeriod(s: Pick<ActivitySubscription, "status" | "periodEnd" | "billingInterval">, today: string): { start: string; end: string } {
+  const start = s.status === "trial" && s.periodEnd > today ? s.periodEnd : today;
+  return { start, end: monthsLaterOn(start, CYCLE_MONTHS[s.billingInterval], Number(start.slice(8))) };
+}
+
+// What starting it costs: the first period's price, with tax.
+export function dueToStart(s: ActivitySubscription, taxRateBp: number, today: string): bigint {
+  const subtotal = effectivePrice(s, firstPeriod(s, today).start);
+  return subtotal + percent(subtotal, taxRateBp);
+}
+
 // Numbered in this transaction, taxed at today's rate, due after the grace
-// days, and audited on its own.
-async function issueInvoice(tx: PlatformTx, s: ActivitySubscription, periodStart: string, periodEnd: string, subtotal: bigint, today: string): Promise<string> {
+// days unless told otherwise, and audited on its own.
+export async function issueInvoice(tx: PlatformTx, s: ActivitySubscription, period: { start: string; end: string }, subtotal: bigint, today: string, dueOn?: string): Promise<BillingInvoice> {
   const settings = await getBillingSettings(tx);
   const tax = percent(subtotal, settings.taxRateBp);
   const number = await allocateInvoiceNumber(tx, financialYear(today));
@@ -148,15 +169,15 @@ async function issueInvoice(tx: PlatformTx, s: ActivitySubscription, periodStart
     subscriptionId: s.id,
     number,
     description: await subscriptionLabel(tx, s),
-    periodStart,
-    periodEnd,
+    periodStart: period.start,
+    periodEnd: period.end,
     subtotalPaise: subtotal,
     taxRateBp: settings.taxRateBp,
     taxPaise: tax,
     totalPaise: subtotal + tax,
     gstin: settings.gstin,
     issuedOn: today,
-    dueOn: addDays(today, settings.graceDays),
+    dueOn: dueOn ?? addDays(today, settings.graceDays),
   });
   await writeAudit(tx, {
     actorType: "system",
@@ -164,9 +185,9 @@ async function issueInvoice(tx: PlatformTx, s: ActivitySubscription, periodStart
     tenantId: s.tenantId,
     entityType: "billing_invoice",
     entityId: invoice.id,
-    after: { number, totalPaise: String(invoice.totalPaise), periodStart },
+    after: { number, totalPaise: String(invoice.totalPaise), periodStart: period.start },
   });
-  return number;
+  return invoice;
 }
 
 // The renewal job's work on one subscription, in its own transaction.
@@ -228,9 +249,10 @@ async function assertFits(tx: PlatformTx, s: ActivitySubscription, plan: Activit
 export type PlanChange = "now" | "at_period_end" | "unchanged";
 
 // Same cycle and the same price or more: now, billed from the next bill. Less,
-// or another cycle: waits for the end of the paid period, if usage fits.
-// Choosing the current plan cancels a waiting change. Owners pick offered
-// plans; the platform any.
+// or another cycle: waits for the end of the paid period, if usage fits. On
+// trial or waiting, nothing is paid yet: any plan that fits, at once. Choosing
+// the current plan cancels a waiting change. Owners pick offered plans; the
+// platform any.
 export async function changePlan(actor: Actor, subscriptionId: string, planId: string): Promise<PlanChange> {
   return withPlatformAdmin({ ...actor, action: "subscription.plan.change", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
     const s = await lockSubscription(tx, subscriptionId);
@@ -246,6 +268,10 @@ export async function changePlan(actor: Actor, subscriptionId: string, planId: s
       result = "unchanged";
     } else if (!plan.isOffered && actor.actorType === "staff") {
       throw new ConflictError(`${plan.name} isn't on offer`);
+    } else if (s.status === "trial" || s.status === "pending") {
+      await assertFits(tx, s, plan);
+      await set({ planId: plan.id, pricePaise: plan.pricePaise, billingInterval: plan.billingInterval, nextPlanId: null });
+      result = "now";
     } else if (plan.billingInterval === s.billingInterval && plan.pricePaise >= s.pricePaise) {
       await set({ planId: plan.id, pricePaise: plan.pricePaise, nextPlanId: null });
       result = "now";

@@ -8,6 +8,7 @@ import { addDays, todayIn } from "@/lib/dates";
 import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
+import { payToStart } from "@/modules/billing/payments";
 import { startActivity } from "@/modules/billing/service";
 import { createPlatformAdmin } from "@/modules/platform/auth";
 import { platformAdmins } from "@/modules/platform/schema";
@@ -210,14 +211,15 @@ export async function seed(): Promise<SeedResult> {
       continue;
     }
     const { tenant, branch, owner } = await createTenantWithDefaults({ actorType: "system" }, input);
-    // A second branch pays for its activity on its own, with no trial (agreed 2026-09-30).
+    // A second branch pays for its activity on its own, with no trial, and
+    // first (agreed 2026-09-30): paid by UPI so the demo can use it.
     const second = extraBranch
       ? await withPlatformAdmin({ action: "seed.branch", actorType: "system", tenantId: tenant.id }, async (tx) => {
           const b = await createBranch(tx, { tenantId: tenant.id, name: extraBranch });
-          await startActivity(tx, { tenantId: tenant.id, branchId: b.id, activityKey: tenant.verticalPreset, today: todayIn(tenant.timezone), trial: false });
-          return b;
+          return { branch: b, subscription: await startActivity(tx, { tenantId: tenant.id, branchId: b.id, activityKey: tenant.verticalPreset, today: todayIn(tenant.timezone), trial: false }) };
         })
       : undefined;
+    if (second?.subscription.status === "pending") await payToStart({ actorType: "system" }, second.subscription.id);
     // Through the tenant's own context, like the app would.
     let invite = "";
     await withTenant(tenant.id, async (tx) => {
@@ -262,7 +264,7 @@ export async function seed(): Promise<SeedResult> {
           programId: programIds.get(b.program) ?? "",
           coachId: b.coach === "owner" ? owner.id : staff.id,
           ...(b.withRoom ? { resourceId: room.id } : {}),
-          ...(b.inExtraBranch && second ? { branchId: second.id } : { branchId: branch.id }),
+          ...(b.inExtraBranch && second ? { branchId: second.branch.id } : { branchId: branch.id }),
           capacity: b.capacity,
           defaultFeePlanId: feePlanIds.get(b.plan) ?? null,
           startDate: b.startDate,

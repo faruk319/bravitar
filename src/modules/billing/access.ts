@@ -7,10 +7,18 @@ import { branches } from "@/modules/tenancy/schema";
 import { activityStudentCounts, isActivityStudent, staffCounts, staffSeats, usageKey } from "./repo";
 import { activities, activityPlans, activitySubscriptions } from "./schema";
 
-// Anything that uses an activity needs it on in that branch and not paused
-// (agreed 2026-09-30). Reading and fees always work, and so does winding down:
-// closing a batch or a student leaving is never blocked.
-export type ActivityState = "trial" | "active" | "paused" | "off";
+// Anything that uses an activity needs it on in that branch, not paused and
+// not waiting for its first payment (agreed 2026-09-30). Reading and fees
+// always work, and so does winding down: closing a batch or a student leaving
+// is never blocked.
+export type ActivityState = "trial" | "active" | "paused" | "pending" | "off";
+
+// Why it's locked, for people who see Billing.
+export const LOCKED = {
+  paused: "is paused: a Bravitar bill is overdue.",
+  pending: "is waiting for payment. Subscribe in Billing.",
+  off: "isn't on. Turn it on in Billing.",
+} as const;
 
 export async function activityState(tx: Tx, branchId: string, activityKey: string): Promise<ActivityState> {
   const [row] = await tx
@@ -26,7 +34,7 @@ export async function assertActivityOpen(tx: Tx, ctx: AccessContext, branchId: s
   const [n] = await tx.select({ activity: activities.name, branch: branches.name }).from(activities).innerJoin(branches, eq(branches.id, branchId)).where(eq(activities.key, activityKey));
   const what = `${n?.activity ?? "This activity"} at ${n?.branch ?? "this branch"}`;
   if (!allows(ctx, "billing:view")) throw new ForbiddenError(`${what} is unavailable. Please contact your academy administrator.`);
-  throw new ForbiddenError(state === "paused" ? `${what} is paused: a Bravitar bill is overdue.` : `${what} isn't on. Turn it on in Billing.`);
+  throw new ForbiddenError(`${what} ${LOCKED[state]}`);
 }
 
 // A batch uses its branch and its program's activity.
@@ -65,14 +73,15 @@ export async function assertStaffRoom(tx: Tx, ctx: AccessContext): Promise<void>
   if (((await staffCounts(tx, [ctx.tenantId])).get(ctx.tenantId) ?? 0) >= allowed) throw new ConflictError(`Your plans allow ${allowed} staff. ${nextStep(ctx, "a plan")}`);
 }
 
-export type PausedActivity = { activity: string; branch: string };
+export type LockedActivity = { activity: string; branch: string; status: "paused" | "pending" };
 
 // For the notice at the top of every page; empty branchIds means all branches.
-export async function pausedActivities(tx: Tx, branchIds: string[]): Promise<PausedActivity[]> {
-  return tx
-    .select({ activity: activities.name, branch: branches.name })
+export async function lockedActivities(tx: Tx, branchIds: string[]): Promise<LockedActivity[]> {
+  const rows = await tx
+    .select({ activity: activities.name, branch: branches.name, status: activitySubscriptions.status })
     .from(activitySubscriptions)
     .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
     .innerJoin(branches, eq(branches.id, activitySubscriptions.branchId))
-    .where(and(eq(activitySubscriptions.status, "paused"), branchIds.length ? inArray(activitySubscriptions.branchId, branchIds) : undefined));
+    .where(and(inArray(activitySubscriptions.status, ["paused", "pending"]), branchIds.length ? inArray(activitySubscriptions.branchId, branchIds) : undefined));
+  return rows.flatMap((r) => (r.status === "paused" || r.status === "pending" ? [{ ...r, status: r.status }] : []));
 }

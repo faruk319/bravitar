@@ -9,12 +9,14 @@ import { type Academy, listAcademies } from "@/modules/platform/academies";
 
 const typeLabel = (t: string) => (t[0]?.toUpperCase() ?? "") + t.slice(1);
 
-// "Tuition, Dance · 1 on trial · 1 paused"
+// "Tuition, Dance · 1 on trial · 1 waiting for payment · 1 paused"
 function activitySummary(a: Academy): string {
   const subs = a.branches.flatMap((b) => b.activities);
   const count = (status: string) => subs.filter((s) => s.status === status).length;
   const names = [...new Set(subs.map((s) => s.activityName))].join(", ") || "No activity on";
-  return [names, count("trial") ? `${count("trial")} on trial` : "", count("paused") ? `${count("paused")} paused` : ""].filter(Boolean).join(" · ");
+  return [names, count("trial") ? `${count("trial")} on trial` : "", count("pending") ? `${count("pending")} waiting for payment` : "", count("paused") ? `${count("paused")} paused` : ""]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // Every academy: its branches and their activities, each billed on its own

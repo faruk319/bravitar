@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { AdminShell } from "@/components/shell/admin-shell";
 import { CoachShell } from "@/components/shell/coach-shell";
-import { PausedNotice } from "@/components/shell/paused-notice";
+import { BillingNotice } from "@/components/shell/billing-notice";
 import { TenantProvider } from "@/components/shell/tenant-provider";
 import { allows } from "@/lib/auth/can";
 import { BRANCH_COOKIE } from "@/lib/auth/branch-cookie";
@@ -11,15 +11,15 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { shellFor } from "@/lib/auth/shell";
 import { withTenant } from "@/lib/db/with-tenant";
 import { resolveLabels } from "@/lib/tenant/labels";
-import { pausedActivities } from "@/modules/billing/access";
+import { lockedActivities } from "@/modules/billing/access";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 
 export default async function TenantLayout({ children }: LayoutProps<"/">) {
   const session = await requireStaffPage();
-  const { tenant, branches, paused } = await withTenant(session.tenant.id, async (tx) => ({
+  const { tenant, branches, locked } = await withTenant(session.tenant.id, async (tx) => ({
     tenant: await getOwnTenant(tx),
     branches: await listBranches(tx),
-    paused: await pausedActivities(tx, session.branchIds),
+    locked: await lockedActivities(tx, session.branchIds),
   }));
   if (!tenant) throw new Error("tenant missing");
 
@@ -30,7 +30,7 @@ export default async function TenantLayout({ children }: LayoutProps<"/">) {
   const shell = shellFor(session);
   const page = (
     <>
-      <PausedNotice items={paused} seesBills={allows(scopedCtx(session), "billing:view")} />
+      <BillingNotice items={locked} seesBills={allows(scopedCtx(session), "billing:view")} />
       {children}
     </>
   );

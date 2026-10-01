@@ -56,4 +56,6 @@ export const PLATFORM_TABLES: Record<string, string> = {
 export const PLATFORM_WRITTEN: Record<string, string> = {
   activity_subscriptions: "what an academy pays Bravitar; activated, paused and priced by the platform (migration 0026)",
   billing_invoices: "Bravitar's bills to an academy; issued by the platform, read by the academy (migration 0028)",
+  billing_payments: "what an academy paid Bravitar, recorded on /platform; read by the academy (migration 0031)",
+  billing_allocations: "which Bravitar bills each payment paid; written with the payment (migration 0031)",
 };

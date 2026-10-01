@@ -7,6 +7,7 @@ import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/
 import { uuidv7 } from "@/lib/ids";
 import { createBranch } from "@/modules/tenancy/repo";
 import { activityPlans, activitySubscriptions, type BillingInterval, billingInvoices, planPriceHistory } from "./schema";
+import { payToStart } from "./payments";
 import { allSubscriptions, changePlan, editPlan, renewSubscription, setCancelAtPeriodEnd, startActivity } from "./service";
 
 // Monthly and yearly plans (agreed 2026-09-30): a subscription keeps the cycle
@@ -25,12 +26,18 @@ const makePlan = async (name: string, price: bigint, billingInterval: BillingInt
   await platformDb.insert(activityPlans).values({ id, activityKey: KEY, name, pricePaise: price, billingInterval, isDefault });
   return id;
 };
-const start = (name: string, planId: string, today: string) =>
-  withPlatformAdmin({ action: "test.cycles.start", actorType: "system" }, async (tx) => {
+const sub = async (id: string) => (await platformRead((tx) => tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id))))[0];
+// Paid first on that day, India time (pay first, agreed 2026-09-30).
+const start = async (name: string, planId: string, today: string) => {
+  const s = await withPlatformAdmin({ action: "test.cycles.start", actorType: "system" }, async (tx) => {
     const branch = await createBranch(tx, { tenantId: A, name });
     return startActivity(tx, { tenantId: A, branchId: branch.id, activityKey: KEY, planId, today, trial: false });
   });
-const sub = async (id: string) => (await platformRead((tx) => tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id))))[0];
+  await payToStart(ME, s.id, { now: new Date(`${today}T12:00:00+05:30`) });
+  const paid = await sub(s.id);
+  if (!paid) throw new Error("subscription missing");
+  return paid;
+};
 const billsOf = (id: string) =>
   platformRead((tx) =>
     tx

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { SUBSCRIPTION_STATUSES, type SubscriptionStatus } from "@/modules/billing/schema";
 import { allSubscriptions, effectivePrice } from "@/modules/billing/service";
 
-const STATUS_LABEL: Record<SubscriptionStatus, string> = { trial: "On trial", active: "Active", paused: "Paused", cancelled: "Ended" };
+const STATUS_LABEL: Record<SubscriptionStatus, string> = { trial: "On trial", pending: "Waiting for payment", active: "Active", paused: "Paused", cancelled: "Ended" };
 const isStatus = (s: unknown): s is SubscriptionStatus => typeof s === "string" && (SUBSCRIPTION_STATUSES as readonly string[]).includes(s);
 
 // Every academy's branch modules (agreed 2026-09-30): live ones unless a status
@@ -73,7 +73,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/pl
                 </td>
                 <td className="py-2">{s.planName}</td>
                 <td className="py-2 tabular-nums">{perCycle(effectivePrice(s, todayIn(s.timezone)), s.billingInterval)}</td>
-                <td className={cn("px-4 py-2", s.status === "paused" && "text-danger-600", s.status === "cancelled" && "text-muted-foreground")}>{subscriptionState(s)}</td>
+                <td className={cn("px-4 py-2", (s.status === "paused" || s.status === "pending") && "text-danger-600", s.status === "cancelled" && "text-muted-foreground")}>{subscriptionState(s)}</td>
               </tr>
             ))}
           </tbody>

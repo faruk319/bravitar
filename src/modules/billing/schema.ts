@@ -2,8 +2,7 @@ import { bigint, boolean, date, integer, pgSchema, smallint, text, timestamp, uu
 import { platformAdmins } from "@/modules/platform/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations/0026_activity_billing.sql, 0027_activity_plans.sql,
-// 0028_billing_invoices.sql, 0029_module_catalog.sql and 0030_billing_cycles.sql.
+// Mirrors migrations 0026_activity_billing.sql to 0031_pay_first.sql.
 // What an academy pays Bravitar, per activity per branch; shares no tables
 // with what academies charge students.
 const app = pgSchema("app");
@@ -61,7 +60,8 @@ export const billingSettings = app.table("billing_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const SUBSCRIPTION_STATUSES = ["trial", "active", "paused", "cancelled"] as const;
+// pending: waiting for its first payment (a trial that ended, or a new paid start).
+export const SUBSCRIPTION_STATUSES = ["trial", "pending", "active", "paused", "cancelled"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 // periodEnd is the next bill date (the trial's end while on trial). A
@@ -107,10 +107,38 @@ export const billingInvoices = app.table("billing_invoices", {
   taxRateBp: integer("tax_rate_bp").notNull(),
   taxPaise: bigint("tax_paise", { mode: "bigint" }).notNull(),
   totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
+  paidPaise: bigint("paid_paise", { mode: "bigint" }).notNull().default(0n),
   gstin: text("gstin"),
   status: text("status", { enum: ["open", "paid"] }).notNull().default("open"),
   issuedOn: date("issued_on").notNull(),
   dueOn: date("due_on").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const BILLING_PAYMENT_METHODS = ["upi", "bank_transfer", "cash", "cheque"] as const;
+
+// Recorded by hand on /platform, one branch module at a time.
+export const billingPayments = app.table("billing_payments", {
+  id: uuid("id").primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  subscriptionId: uuid("subscription_id").notNull().references(() => activitySubscriptions.id),
+  requestId: uuid("request_id").notNull(),
+  amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
+  method: text("method", { enum: BILLING_PAYMENT_METHODS }).notNull(),
+  reference: text("reference"),
+  receivedOn: date("received_on").notNull(),
+  note: text("note"),
+  recordedBy: uuid("recorded_by").references(() => platformAdmins.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Which bills a payment paid, and how much of each.
+export const billingAllocations = app.table("billing_allocations", {
+  id: uuid("id").primaryKey(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  paymentId: uuid("payment_id").notNull().references(() => billingPayments.id),
+  invoiceId: uuid("invoice_id").notNull().references(() => billingInvoices.id),
+  amountPaise: bigint("amount_paise", { mode: "bigint" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -119,3 +147,4 @@ export type ActivityPlan = typeof activityPlans.$inferSelect;
 export type BillingSettings = typeof billingSettings.$inferSelect;
 export type ActivitySubscription = typeof activitySubscriptions.$inferSelect;
 export type BillingInvoice = typeof billingInvoices.$inferSelect;
+export type BillingPayment = typeof billingPayments.$inferSelect;

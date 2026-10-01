@@ -1,7 +1,8 @@
-import { and, asc, count, countDistinct, desc, eq, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, inArray, isNull, lt, lte, ne, notInArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import type { PlatformTx } from "@/lib/db/platform";
+import { todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
@@ -14,9 +15,12 @@ import {
   activityPlans,
   type ActivitySubscription,
   activitySubscriptions,
+  billingAllocations,
   type BillingInvoice,
   billingInvoiceSeries,
   billingInvoices,
+  type BillingPayment,
+  billingPayments,
   billingSettings,
   type BillingSettings,
   planPriceHistory,
@@ -81,6 +85,11 @@ export async function insertSubscription(tx: PlatformTx, row: Omit<typeof activi
     .returning();
   if (!created) throw new Error("subscription insert returned no row");
   return created;
+}
+
+export async function getSubscription(tx: AnyTx, id: string): Promise<ActivitySubscription | undefined> {
+  const [row] = await tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id));
+  return row;
 }
 
 export async function lockSubscription(tx: PlatformTx, id: string): Promise<ActivitySubscription | undefined> {
@@ -202,14 +211,15 @@ export type DueSubscription = { id: string; timezone: string };
 const localToday = (now: Date) => sql`(${now.toISOString()}::timestamptz AT TIME ZONE ${tenants.timezone})::date`;
 const billed = (tenantIds?: string[]) => and(isNull(tenants.deletedAt), ne(tenants.status, "closed"), tenantIds ? inArray(activitySubscriptions.tenantId, tenantIds) : undefined);
 
-// Live subscriptions whose bill date has come in their academy's timezone.
-// Suspended academies are billed; closed and deleted ones aren't.
+// Live subscriptions whose bill date has come in their academy's timezone;
+// waiting ones wait for their first payment instead. Suspended academies are
+// billed; closed and deleted ones aren't.
 export async function dueSubscriptions(tx: PlatformTx, now: Date, tenantIds?: string[]): Promise<DueSubscription[]> {
   return tx
     .select({ id: activitySubscriptions.id, timezone: tenants.timezone })
     .from(activitySubscriptions)
     .innerJoin(tenants, eq(tenants.id, activitySubscriptions.tenantId))
-    .where(and(billed(tenantIds), ne(activitySubscriptions.status, "cancelled"), lte(activitySubscriptions.periodEnd, localToday(now))))
+    .where(and(billed(tenantIds), notInArray(activitySubscriptions.status, ["cancelled", "pending"]), lte(activitySubscriptions.periodEnd, localToday(now))))
     .orderBy(asc(activitySubscriptions.periodEnd));
 }
 
@@ -230,6 +240,75 @@ export async function overdueNumbers(tx: PlatformTx, subscriptionId: string, tod
     .where(and(eq(billingInvoices.subscriptionId, subscriptionId), eq(billingInvoices.status, "open"), lt(billingInvoices.dueOn, today)))
     .orderBy(asc(billingInvoices.dueOn));
   return rows.map((r) => r.number);
+}
+
+// ---- payments, recorded by hand
+
+export async function academyToday(tx: PlatformTx, tenantId: string, now = new Date()): Promise<string> {
+  const [t] = await tx.select({ timezone: tenants.timezone }).from(tenants).where(eq(tenants.id, tenantId));
+  if (!t) throw new Error("academyToday: no such academy");
+  return todayIn(t.timezone, now);
+}
+
+export type OpenBill = { id: string; number: string; balance: bigint };
+
+// A subscription's unpaid bills, oldest first.
+export async function openBills(tx: PlatformTx, subscriptionId: string): Promise<OpenBill[]> {
+  return tx
+    .select({ id: billingInvoices.id, number: billingInvoices.number, balance: sql<bigint>`${billingInvoices.totalPaise} - ${billingInvoices.paidPaise}`.mapWith(BigInt) })
+    .from(billingInvoices)
+    .where(and(eq(billingInvoices.subscriptionId, subscriptionId), eq(billingInvoices.status, "open")))
+    .orderBy(asc(billingInvoices.periodStart));
+}
+
+// What each subscription still owes on its bills.
+export async function openBalances(tx: AnyTx, tenantIds: string[]): Promise<Map<string, bigint>> {
+  const rows = await tx
+    .select({ id: billingInvoices.subscriptionId, owed: sql<bigint>`sum(${billingInvoices.totalPaise} - ${billingInvoices.paidPaise})`.mapWith(BigInt) })
+    .from(billingInvoices)
+    .where(and(eq(billingInvoices.status, "open"), inArray(billingInvoices.tenantId, tenantIds)))
+    .groupBy(billingInvoices.subscriptionId);
+  return new Map(rows.map((r) => [r.id, r.owed]));
+}
+
+export async function paymentByRequest(tx: PlatformTx, requestId: string): Promise<BillingPayment | undefined> {
+  const [row] = await tx.select().from(billingPayments).where(eq(billingPayments.requestId, requestId));
+  return row;
+}
+
+export async function insertPayment(tx: PlatformTx, row: Omit<typeof billingPayments.$inferInsert, "id">): Promise<BillingPayment> {
+  const [created] = await tx
+    .insert(billingPayments)
+    .values({ id: uuidv7(), ...row })
+    .returning();
+  if (!created) throw new Error("payment insert returned no row");
+  return created;
+}
+
+// Puts part of a payment on a bill; the bill is paid once nothing is left.
+export async function allocate(tx: PlatformTx, row: { tenantId: string; paymentId: string; invoiceId: string; amountPaise: bigint }): Promise<void> {
+  await tx.insert(billingAllocations).values({ id: uuidv7(), ...row });
+  const paid = sql`${billingInvoices.paidPaise} + ${row.amountPaise.toString()}::bigint`;
+  await tx
+    .update(billingInvoices)
+    .set({ paidPaise: paid, status: sql`CASE WHEN ${paid} = ${billingInvoices.totalPaise} THEN 'paid' ELSE 'open' END` })
+    .where(eq(billingInvoices.id, row.invoiceId));
+}
+
+export type ListedPayment = BillingPayment & { activityName: string; branchName: string };
+
+// Newest first, with what they paid for.
+export async function listPayments(tx: AnyTx, opts: { tenantIds: string[]; limit?: number }): Promise<ListedPayment[]> {
+  const rows = await tx
+    .select({ p: billingPayments, activityName: activities.name, branchName: branches.name })
+    .from(billingPayments)
+    .innerJoin(activitySubscriptions, eq(activitySubscriptions.id, billingPayments.subscriptionId))
+    .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
+    .innerJoin(branches, eq(branches.id, activitySubscriptions.branchId))
+    .where(inArray(billingPayments.tenantId, opts.tenantIds))
+    .orderBy(desc(billingPayments.createdAt))
+    .limit(opts.limit ?? 50);
+  return rows.map((r) => ({ ...r.p, activityName: r.activityName, branchName: r.branchName }));
 }
 
 // ---- usage against a plan's limits

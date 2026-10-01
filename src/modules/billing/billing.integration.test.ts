@@ -20,7 +20,7 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { pausedActivities } from "./access";
+import { lockedActivities } from "./access";
 import { getActivity, getBillingSettings, liveSubscriptions } from "./repo";
 import { activityPlans, activitySubscriptions } from "./schema";
 import { editBillingSettings, startActivity } from "./service";
@@ -130,8 +130,8 @@ describe("an activity in a branch stands alone", () => {
     await withTenant(A, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: kothrud, amountPaise: "50000" }));
     await withTenant(A, (tx) => leaveEnrollment(tx, owner, danceEnrollment));
 
-    expect(await withTenant(A, (tx) => pausedActivities(tx, []))).toEqual([{ activity: danceName, branch: "Kothrud Centre" }]);
-    expect(await withTenant(A, (tx) => pausedActivities(tx, [main]))).toEqual([]);
+    expect(await withTenant(A, (tx) => lockedActivities(tx, []))).toEqual([{ activity: danceName, branch: "Kothrud Centre", status: "paused" }]);
+    expect(await withTenant(A, (tx) => lockedActivities(tx, [main]))).toEqual([]);
   });
 
   it("works again once active; closing a batch works even while paused", async () => {
@@ -172,6 +172,6 @@ describe("billing settings", () => {
 describe("each academy sees only its own", () => {
   it("B sees B's activities and none of A's", async () => {
     expect((await withTenant(B, (tx) => liveSubscriptions(tx))).map((s) => [s.tenantId, s.activityKey])).toEqual([[B, "tuition"]]);
-    expect(await withTenant(B, (tx) => pausedActivities(tx, []))).toEqual([]);
+    expect(await withTenant(B, (tx) => lockedActivities(tx, []))).toEqual([]);
   });
 });

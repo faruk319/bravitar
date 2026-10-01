@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
-import { perCycle, planLabel, subscriptionState, totalsText } from "@/components/platform/billing-text";
+import { RecordPayment } from "@/components/platform/billing-forms";
+import { METHOD_LABEL, perCycle, planLabel, subscriptionState, totalsText } from "@/components/platform/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
 import { requirePlatformPage } from "@/lib/auth/server";
 import { addDays, formatDate, formatDayMonth, todayIn } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
-import { formatPaise } from "@/lib/money/format";
+import { formatPaise, rupeesText } from "@/lib/money/format";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { allPlans, effectivePrice } from "@/modules/billing/service";
 import { academyDetail, type BranchActivity } from "@/modules/platform/academies";
@@ -18,6 +19,15 @@ const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_
 
 // More students than the plan allows (its limit was lowered): nobody is removed.
 const over = (s: BranchActivity) => s.plan.maxStudents !== null && s.students > s.plan.maxStudents;
+const locked = (s: BranchActivity) => s.status === "paused" || s.status === "pending";
+const METHODS = Object.entries(METHOD_LABEL).map(([value, label]) => ({ value, label }));
+
+// What recording a payment does, in the sheet.
+function paymentHint(s: BranchActivity): string {
+  if (s.status === "pending") return "The first period: it starts today.";
+  if (s.status === "trial") return "The first period: it starts when the trial ends.";
+  return "Pays the oldest bills first.";
+}
 
 // One academy: owner, each branch's activities on their plans (agreed
 // 2026-09-30), modules, and access (Prompt 21).
@@ -76,7 +86,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                         <span>
                           <ActivityIcon name={s.activityIcon} className="mr-1.5 inline size-4 align-[-2px] text-accent-600" />
                           {s.activityName} · {s.plan.name}{" "}
-                          <span className={s.status === "paused" || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+                          <span className={locked(s) || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
                             · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {subscriptionState(s)}
                           </span>
                         </span>
@@ -86,6 +96,16 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                       <div className="flex flex-wrap items-center gap-2">
                         <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
                         <CancelAtPeriodEnd subscriptionId={s.id} cancelling={s.cancelAtPeriodEnd} />
+                        {s.duePaise > 0n ? (
+                          <RecordPayment
+                            subscriptionId={s.id}
+                            title={`${s.activityName} at ${b.name}`}
+                            hint={paymentHint(s)}
+                            due={rupeesText(s.duePaise)}
+                            today={today}
+                            methods={METHODS}
+                          />
+                        ) : null}
                       </div>
                     </div>
                   ))
@@ -110,17 +130,43 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
                     <span className="tabular-nums">{formatPaise(i.totalPaise)}</span>
-                    {i.status === "open" && today <= i.dueOn ? (
-                      <span className="text-caption text-muted-foreground">Due {formatDayMonth(i.dueOn)}</span>
+                    {i.status === "paid" ? (
+                      <InvoiceStatus status="paid" />
+                    ) : today > i.dueOn ? (
+                      <InvoiceStatus status="issued" overdue />
+                    ) : i.paidPaise > 0n ? (
+                      <InvoiceStatus status="part_paid" />
                     ) : (
-                      <InvoiceStatus status={i.status === "paid" ? "paid" : "issued"} overdue={i.status === "open"} />
+                      <span className="text-caption text-muted-foreground">Due {formatDayMonth(i.dueOn)}</span>
                     )}
+                    {i.status === "open" && i.paidPaise > 0n ? <span className="text-caption text-muted-foreground">{formatPaise(i.totalPaise - i.paidPaise)} left</span> : null}
                   </span>
                 </li>
               ))}
             </ul>
           ) : (
             <p className="text-body text-muted-foreground">No bills yet.</p>
+          )}
+        </Card>
+        <Card>
+          <CardHeader title="Payments" />
+          {a.payments.length ? (
+            <ul className="divide-y divide-neutral-100">
+              {a.payments.map((p) => (
+                <li key={p.id} className="flex items-start justify-between gap-3 py-3">
+                  <span className="text-body">
+                    {p.activityName} · {p.branchName}
+                    <span className="block text-caption text-muted-foreground">
+                      {formatDate(p.receivedOn)} · {METHOD_LABEL[p.method]}
+                      {p.reference ? ` · ${p.reference}` : ""}
+                    </span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">{formatPaise(p.amountPaise)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-body text-muted-foreground">No payments yet.</p>
           )}
         </Card>
         <Card>

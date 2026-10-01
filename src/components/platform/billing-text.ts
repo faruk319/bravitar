@@ -1,6 +1,6 @@
 import { formatDate } from "@/lib/dates";
 import { formatPaise } from "@/lib/money/format";
-import { type ActivityPlan, type ActivitySubscription, BILLING_INTERVALS, type BillingInterval } from "@/modules/billing/schema";
+import { type ActivityPlan, type ActivitySubscription, BILLING_INTERVALS, type BillingInterval, type BillingPayment } from "@/modules/billing/schema";
 
 // How /platform words Bravitar's prices and subscriptions.
 
@@ -13,6 +13,8 @@ export function totalsText(totals: Record<BillingInterval, bigint>): string {
   return parts.length ? parts.join(" + ") : perCycle(0n, "month");
 }
 
+export const METHOD_LABEL: Record<BillingPayment["method"], string> = { upi: "UPI", bank_transfer: "Bank transfer", cash: "Cash", cheque: "Cheque" };
+
 // For plan pickers: "Starter · ₹300/month (not offered)".
 export const planLabel = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billingInterval" | "isOffered">): string =>
   `${p.name} · ${perCycle(p.pricePaise, p.billingInterval)}${p.isOffered ? "" : " (not offered)"}`;
@@ -20,6 +22,7 @@ export const planLabel = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billing
 export function subscriptionState(s: Pick<ActivitySubscription, "status" | "periodEnd" | "cancelAtPeriodEnd">): string {
   const when = formatDate(s.periodEnd);
   if (s.status === "cancelled") return `Ended ${when}`;
+  if (s.status === "pending") return "Waiting for payment";
   if (s.cancelAtPeriodEnd) return `${s.status === "paused" ? "Paused · ends" : "Ends"} ${when}`;
   if (s.status === "trial") return `Trial until ${when}`;
   return s.status === "paused" ? "Paused" : `Next bill ${when}`;

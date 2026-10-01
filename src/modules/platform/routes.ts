@@ -3,6 +3,7 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
+import { recordPayment } from "@/modules/billing/payments";
 import { addPlan, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan } from "@/modules/billing/service";
 import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
@@ -81,6 +82,12 @@ export const subscriptionHandler = withPlatformRequest(async (req, actor) => {
     return json({ ok: true });
   }
   return json({ when: await changePlan(actor, id, String(planId ?? "")) });
+});
+
+// POST /api/platform/subscriptions/<id>/payments: a payment recorded by hand.
+export const recordPaymentHandler = withPlatformRequest(async (req, actor) => {
+  const r = await recordPayment(actor, pathSegment(req, 3), await readJson(req));
+  return json({ id: r.payment.id, started: r.started, resumed: r.resumed }, { status: 201 });
 });
 
 // PATCH /api/platform/billing-settings

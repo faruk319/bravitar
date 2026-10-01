@@ -10,9 +10,21 @@ import { uuidv7 } from "@/lib/ids";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { sessionsAuth } from "@/modules/auth/schema";
-import { activityStudentCounts, listInvoices, liveSubscriptions, staffCounts, staffSeats, type SubscriptionRow, usageKey } from "@/modules/billing/repo";
+import {
+  activityStudentCounts,
+  getBillingSettings,
+  type ListedPayment,
+  listInvoices,
+  listPayments,
+  liveSubscriptions,
+  openBalances,
+  staffCounts,
+  staffSeats,
+  type SubscriptionRow,
+  usageKey,
+} from "@/modules/billing/repo";
 import type { BillingInterval, BillingInvoice } from "@/modules/billing/schema";
-import { effectivePrice } from "@/modules/billing/service";
+import { dueToStart, effectivePrice } from "@/modules/billing/service";
 import { INVITE_DAYS } from "@/modules/staff/service";
 import { PASSWORD_UNSET, staffInvites, staffUsers } from "@/modules/staff/schema";
 import { branches, type EnabledModules, tenants } from "@/modules/tenancy/schema";
@@ -27,8 +39,10 @@ type Actor = Pick<AuditEntry, "actorType" | "actorId">;
 // Paused and cancelled activities pay nothing; a trial is priced as it will be.
 const PAYING = new Set(["trial", "active"]);
 
-// students: in this activity's batches at this branch, against the plan's limit.
-export type BranchActivity = SubscriptionRow & { students: number };
+// students: in this activity's batches at this branch, against the plan's
+// limit. duePaise: what paying now takes: the first period while on trial or
+// waiting, else what its bills still owe.
+export type BranchActivity = SubscriptionRow & { students: number; duePaise: bigint };
 export type AcademyBranch = { id: string; name: string; isDefault: boolean; students: number; activities: BranchActivity[] };
 export type Academy = {
   id: string;
@@ -51,6 +65,7 @@ async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Pr
   const branchRows = await tx.select().from(branches).where(and(inArray(branches.tenantId, ids), isNull(branches.deletedAt))).orderBy(asc(branches.createdAt));
   const subs = await liveSubscriptions(tx, { tenantIds: ids });
   const [students, inActivity, staff, seats] = [await studentsByBranch(tx, ids), await activityStudentCounts(tx, { tenantIds: ids }), await staffCounts(tx, ids), await staffSeats(tx, { tenantIds: ids })];
+  const [owed, { taxRateBp }] = [await openBalances(tx, ids), await getBillingSettings(tx)];
   return rows.map((t) => {
     const today = todayIn(t.timezone);
     const own = branchRows
@@ -60,7 +75,13 @@ async function academiesWhere(tx: PlatformTx, where: ReturnType<typeof and>): Pr
         name: b.name,
         isDefault: b.isDefault,
         students: students.get(b.id) ?? 0,
-        activities: subs.filter((s) => s.branchId === b.id).map((s) => ({ ...s, students: inActivity.get(usageKey(b.id, s.activityKey)) ?? 0 })),
+        activities: subs
+          .filter((s) => s.branchId === b.id)
+          .map((s) => ({
+            ...s,
+            students: inActivity.get(usageKey(b.id, s.activityKey)) ?? 0,
+            duePaise: s.status === "trial" || s.status === "pending" ? dueToStart(s, taxRateBp, today) : (owed.get(s.id) ?? 0n),
+          })),
       }));
     const totals: Record<BillingInterval, bigint> = { month: 0n, year: 0n };
     for (const s of own.flatMap((b) => b.activities)) if (PAYING.has(s.status)) totals[s.billingInterval] += effectivePrice(s, today);
@@ -86,7 +107,12 @@ export async function listAcademies(q?: string): Promise<Academy[]> {
   return platformRead((tx) => academiesWhere(tx, term ? or(ilike(tenants.name, `%${term}%`), ilike(tenants.slug, `%${term}%`)) : undefined));
 }
 
-export type AcademyDetail = Academy & { modules: EnabledModules; owner: { id: string; name: string; email: string; signedUp: boolean } | undefined; invoices: BillingInvoice[] };
+export type AcademyDetail = Academy & {
+  modules: EnabledModules;
+  owner: { id: string; name: string; email: string; signedUp: boolean } | undefined;
+  invoices: BillingInvoice[];
+  payments: ListedPayment[];
+};
 
 export async function academyDetail(id: string): Promise<AcademyDetail> {
   return platformRead(async (tx) => {
@@ -97,8 +123,8 @@ export async function academyDetail(id: string): Promise<AcademyDetail> {
       .select({ id: staffUsers.id, name: staffUsers.fullName, email: staffUsers.email, hash: staffUsers.passwordHash })
       .from(staffUsers)
       .where(and(eq(staffUsers.tenantId, id), eq(staffUsers.isOwner, true), isNull(staffUsers.deletedAt)));
-    const invoices = await listInvoices(tx, { tenantIds: [id], limit: 24 });
-    return { ...academy, modules: t.modules, owner: owner ? { id: owner.id, name: owner.name, email: owner.email, signedUp: owner.hash !== PASSWORD_UNSET } : undefined, invoices };
+    const [invoices, payments] = [await listInvoices(tx, { tenantIds: [id], limit: 24 }), await listPayments(tx, { tenantIds: [id], limit: 24 })];
+    return { ...academy, modules: t.modules, owner: owner ? { id: owner.id, name: owner.name, email: owner.email, signedUp: owner.hash !== PASSWORD_UNSET } : undefined, invoices, payments };
   });
 }
 
