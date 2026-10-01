@@ -2,14 +2,15 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { type AuditEntry, writeAudit } from "@/lib/db/audit";
 import { type PlatformTx, platformRead, withPlatformAdmin } from "@/lib/db/platform";
-import { addDays, monthsLaterOn } from "@/lib/dates";
-import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
+import { addDays, isIsoDate, monthsLaterOn } from "@/lib/dates";
+import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { ACTIVITY_ICONS } from "@/lib/activities";
 import { uuidv7 } from "@/lib/ids";
 import { financialYear } from "@/lib/money/fy";
 import { parseRupees, percent } from "@/lib/money/paise";
 import { students } from "./access";
 import {
+  academyToday,
   activityStudentCounts,
   allocateInvoiceNumber,
   defaultPlan,
@@ -54,6 +55,14 @@ import {
 
 type Actor = Pick<AuditEntry, "actorType" | "actorId">;
 
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((v) => v || null);
+
 // What the next bill charges: the override while it lasts, else the price
 // agreed when the activity started or last moved up a plan.
 export function effectivePrice(s: Pick<ActivitySubscription, "pricePaise" | "overridePaise" | "overrideUntil">, on: string): bigint {
@@ -73,7 +82,7 @@ export async function startActivity(tx: PlatformTx, input: StartInput): Promise<
   if (activity.status === "retired") throw new ConflictError(`${activity.name} isn't offered any more`);
   const plan = input.planId ? await getPlan(tx, input.planId) : await defaultPlan(tx, activity.key);
   if (!plan || plan.activityKey !== activity.key) throw input.planId ? new NotFoundError("Plan") : new ConflictError(`${activity.name} has no plan on offer`);
-  const periodEnd = input.trial ? addDays(input.today, (await getBillingSettings(tx)).trialDays) : input.today;
+  const periodEnd = input.trial ? addDays(input.today, activity.trialDays ?? (await getBillingSettings(tx)).trialDays) : input.today;
   const created = await insertSubscription(tx, {
     tenantId: input.tenantId,
     branchId: input.branchId,
@@ -219,6 +228,81 @@ export async function pauseIfOverdue(id: string, today: string): Promise<boolean
   });
 }
 
+// Free use or a special price (agreed 2026-09-30): from the next bill, until a
+// date or for good; a blank price removes it. A waiting module that becomes
+// free starts at once, since a free period starts at once.
+export const priceSchema = z
+  .object({
+    price: z.string().trim(),
+    until: z
+      .string()
+      .trim()
+      .optional()
+      .transform((v) => v || null)
+      .refine((v) => v === null || isIsoDate(v), "Pick a date"),
+    reason: optionalText(200),
+  })
+  .transform((d, ctx) => {
+    if (!d.price) return { paise: null, until: null, reason: null };
+    const paise = parseRupees(d.price);
+    if (paise === undefined) {
+      ctx.addIssue({ code: "custom", message: "Enter the price in rupees", path: ["price"] });
+      return z.NEVER;
+    }
+    if (!d.reason || d.reason.length < 3) {
+      ctx.addIssue({ code: "custom", message: "Add a reason", path: ["reason"] });
+      return z.NEVER;
+    }
+    return { paise, until: d.until, reason: d.reason };
+  });
+
+export async function setPrice(actor: Actor, subscriptionId: string, input: z.input<typeof priceSchema>, opts: { now?: Date } = {}): Promise<{ started: boolean }> {
+  const d = priceSchema.parse(input);
+  return withPlatformAdmin({ ...actor, action: "subscription.price", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
+    const s = await lockSubscription(tx, subscriptionId);
+    if (!s || s.status === "cancelled") throw new NotFoundError("Subscription");
+    audit.tenantId = s.tenantId;
+    audit.before = { price: s.overridePaise === null ? null : String(s.overridePaise), until: s.overrideUntil, reason: s.overrideReason };
+    const today = await academyToday(tx, s.tenantId, opts.now);
+    if (d.until && d.until < today) throw new BadRequestError("The until date has passed");
+    const priced = { ...s, overridePaise: d.paise, overrideUntil: d.until, overrideReason: d.reason };
+    await updateSubscription(tx, s.id, { overridePaise: d.paise, overrideUntil: d.until, overrideReason: d.reason });
+    const started = s.status === "pending" && effectivePrice(priced, today) === 0n;
+    if (started) {
+      const from = { status: "active" as const, anchorDay: Number(today.slice(8)), periodStart: today, periodEnd: today };
+      await updateSubscription(tx, s.id, from);
+      await renew(tx, { ...priced, ...from }, today); // the free period rolls on, with no bill
+    }
+    audit.after = { price: d.paise === null ? null : String(d.paise), until: d.until, reason: d.reason, started };
+    return { started };
+  });
+}
+
+export const trialDaysSchema = z.object({
+  days: z.coerce.number().int().min(1, "At least 1 day").max(365, "At most 365 days"),
+  reason: z.string().trim().min(3, "Add a reason").max(200),
+});
+
+// Extra trial days for one branch module (agreed 2026-10-01): a trial runs
+// that much longer; a module waiting for payment goes on trial from today. A
+// paid one gets free use instead.
+export async function addTrialDays(actor: Actor, subscriptionId: string, input: z.input<typeof trialDaysSchema>, opts: { now?: Date } = {}): Promise<{ until: string }> {
+  const d = trialDaysSchema.parse(input);
+  return withPlatformAdmin({ ...actor, action: "subscription.trial.extend", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
+    const s = await lockSubscription(tx, subscriptionId);
+    if (!s || s.status === "cancelled") throw new NotFoundError("Subscription");
+    audit.tenantId = s.tenantId;
+    if (s.status !== "trial" && s.status !== "pending") throw new ConflictError("Only a trial, or a module waiting for payment, can get trial days. Give a paid one free use instead.");
+    const today = await academyToday(tx, s.tenantId, opts.now);
+    const from = s.status === "trial" && s.periodEnd > today ? s.periodEnd : today;
+    const until = addDays(from, d.days);
+    await updateSubscription(tx, s.id, { status: "trial", periodStart: s.status === "trial" ? s.periodStart : today, periodEnd: until, anchorDay: Number(until.slice(8)) });
+    audit.before = { status: s.status, until: s.periodEnd };
+    audit.after = { days: d.days, reason: d.reason, until };
+    return { until };
+  });
+}
+
 // Ends at the end of the paid month (or the trial) with no more bills; it can
 // be turned off until then.
 export async function setCancelAtPeriodEnd(actor: Actor, subscriptionId: string, cancel: boolean): Promise<void> {
@@ -287,19 +371,15 @@ export async function changePlan(actor: Actor, subscriptionId: string, planId: s
 
 // ---- the catalog and settings, in /platform/modules
 
-const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .optional()
-    .transform((v) => v || null);
+// A module's own trial length; blank uses the Billing card's default.
+const trialLength = z.union([z.literal(""), z.coerce.number().int().min(0).max(365)]).transform((v) => (v === "" ? null : v));
 
 export const activityEditSchema = z.object({
   name: z.string().trim().min(2).max(60),
   description: optionalText(200),
   icon: z.enum(ACTIVITY_ICONS),
   status: z.enum(ACTIVITY_STATUSES),
+  trialDays: trialLength.optional(),
 });
 
 export async function editActivity(actor: Actor, key: string, input: z.input<typeof activityEditSchema>): Promise<void> {
@@ -307,7 +387,7 @@ export async function editActivity(actor: Actor, key: string, input: z.input<typ
   await withPlatformAdmin({ ...actor, action: "activity.edit", entityType: "activity", after: { key, ...d } }, async (tx, audit) => {
     const [before] = await tx.select().from(activities).where(eq(activities.key, key));
     if (!before) throw new NotFoundError("Activity");
-    audit.before = { key, name: before.name, description: before.description, icon: before.icon, status: before.status };
+    audit.before = { key, name: before.name, description: before.description, icon: before.icon, status: before.status, trialDays: before.trialDays };
     await tx.update(activities).set({ ...d, updatedAt: new Date() }).where(eq(activities.key, key));
   });
 }

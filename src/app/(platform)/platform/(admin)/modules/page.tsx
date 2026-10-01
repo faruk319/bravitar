@@ -39,7 +39,12 @@ export default async function ModulesPage() {
                 <ActivityIcon name={a.icon} className="size-5 text-accent-600" />
                 {a.name}
               </p>
-              <ActivityRow statuses={STATUS} icons={ICONS} a={{ key: a.key, name: a.name, description: a.description ?? "", icon: a.icon, status: a.status }} />
+              <ActivityRow
+                statuses={STATUS}
+                icons={ICONS}
+                defaultTrialDays={settings.trialDays}
+                a={{ key: a.key, name: a.name, description: a.description ?? "", icon: a.icon, status: a.status, trialDays: a.trialDays === null ? "" : String(a.trialDays) }}
+              />
               <p className="pb-3 text-caption text-muted-foreground">
                 {own.length ? `Own features: ${own.map((f) => (f.ready ? f.name : `${f.name} (planned)`)).join(" · ")}` : "Shared features only"}
               </p>

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
-import { RecordPayment } from "@/components/platform/billing-forms";
+import { PriceSheet, ReasonAction, RecordPayment, TrialDaysSheet } from "@/components/platform/billing-forms";
 import { METHOD_LABEL, perCycle, planLabel, subscriptionState, totalsText } from "@/components/platform/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
 import { MODULES } from "@/lib/auth/permissions";
@@ -21,6 +21,13 @@ const words = (s: string) => (s[0]?.toUpperCase() ?? "") + s.slice(1).replace("_
 const over = (s: BranchActivity) => s.plan.maxStudents !== null && s.students > s.plan.maxStudents;
 const locked = (s: BranchActivity) => s.status === "paused" || s.status === "pending";
 const METHODS = Object.entries(METHOD_LABEL).map(([value, label]) => ({ value, label }));
+
+// Free use or a special price while it lasts: "Free until 31 Dec 2026 · Pilot".
+function priceNote(s: BranchActivity, today: string): string | null {
+  if (s.overridePaise === null || (s.overrideUntil !== null && today > s.overrideUntil)) return null;
+  const price = s.overridePaise === 0n ? "Free" : perCycle(s.overridePaise, s.billingInterval);
+  return `${price}${s.overrideUntil ? ` until ${formatDate(s.overrideUntil)}` : ""}${s.overrideReason ? ` · ${s.overrideReason}` : ""}`;
+}
 
 // What recording a payment does, in the sheet.
 function paymentHint(s: BranchActivity): string {
@@ -93,9 +100,22 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                         <span className="tabular-nums">{perCycle(effectivePrice(s, today), s.billingInterval)}</span>
                       </p>
                       {s.nextPlanName ? <p className="text-caption text-muted-foreground">Moves to {s.nextPlanName} on {formatDate(s.periodEnd)}</p> : null}
+                      {priceNote(s, today) ? <p className="text-caption text-accent-600">{priceNote(s, today)}</p> : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
                         <CancelAtPeriodEnd subscriptionId={s.id} cancelling={s.cancelAtPeriodEnd} />
+                        <PriceSheet
+                          subscriptionId={s.id}
+                          title={`Price for ${s.activityName} at ${b.name}`}
+                          current={{ price: s.overridePaise === null ? "" : rupeesText(s.overridePaise), until: s.overrideUntil ?? "", reason: s.overrideReason ?? "" }}
+                        />
+                        {s.status === "trial" || s.status === "pending" ? (
+                          <TrialDaysSheet
+                            subscriptionId={s.id}
+                            title={`Trial days for ${s.activityName} at ${b.name}`}
+                            hint={s.status === "trial" ? `On trial until ${formatDate(s.periodEnd)}; the days are added to its end.` : "It goes back on trial from today."}
+                          />
+                        ) : null}
                         {s.duePaise > 0n ? (
                           <RecordPayment
                             subscriptionId={s.id}
@@ -127,10 +147,13 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                     <span className="block text-caption text-muted-foreground">
                       {i.number} · {formatDayMonth(i.periodStart)} – {formatDate(addDays(i.periodEnd, -1))}
                     </span>
+                    {i.voidReason ? <span className="block text-caption text-muted-foreground">Void: {i.voidReason}</span> : null}
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
                     <span className="tabular-nums">{formatPaise(i.totalPaise)}</span>
-                    {i.status === "paid" ? (
+                    {i.status === "void" ? (
+                      <InvoiceStatus status="void" />
+                    ) : i.status === "paid" ? (
                       <InvoiceStatus status="paid" />
                     ) : today > i.dueOn ? (
                       <InvoiceStatus status="issued" overdue />
@@ -140,6 +163,9 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                       <span className="text-caption text-muted-foreground">Due {formatDayMonth(i.dueOn)}</span>
                     )}
                     {i.status === "open" && i.paidPaise > 0n ? <span className="text-caption text-muted-foreground">{formatPaise(i.totalPaise - i.paidPaise)} left</span> : null}
+                    {i.status === "open" && i.paidPaise === 0n ? (
+                      <ReasonAction trigger="Void" title={`Void ${i.number}`} hint="It keeps its number and isn't owed." path={`/api/platform/billing-invoices/${i.id}/void`} submitLabel="Void bill" />
+                    ) : null}
                   </span>
                 </li>
               ))}
@@ -153,15 +179,27 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
           {a.payments.length ? (
             <ul className="divide-y divide-neutral-100">
               {a.payments.map((p) => (
-                <li key={p.id} className="flex items-start justify-between gap-3 py-3">
+                <li key={p.id} className={p.cancelledAt ? "flex items-start justify-between gap-3 py-3 text-muted-foreground" : "flex items-start justify-between gap-3 py-3"}>
                   <span className="text-body">
                     {p.activityName} · {p.branchName}
                     <span className="block text-caption text-muted-foreground">
                       {formatDate(p.receivedOn)} · {METHOD_LABEL[p.method]}
                       {p.reference ? ` · ${p.reference}` : ""}
                     </span>
+                    {p.cancelledAt ? <span className="block text-caption">Cancelled: {p.cancelReason}</span> : null}
                   </span>
-                  <span className="shrink-0 tabular-nums">{formatPaise(p.amountPaise)}</span>
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <span className={p.cancelledAt ? "tabular-nums line-through" : "tabular-nums"}>{formatPaise(p.amountPaise)}</span>
+                    {p.cancelledAt ? null : (
+                      <ReasonAction
+                        trigger="Cancel"
+                        title="Cancel payment"
+                        hint="Its money comes off its bills. A payment that started its module puts it back to waiting."
+                        path={`/api/platform/billing-payments/${p.id}/cancel`}
+                        submitLabel="Cancel payment"
+                      />
+                    )}
+                  </span>
                 </li>
               ))}
             </ul>

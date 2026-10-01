@@ -72,3 +72,96 @@ export function RecordPayment({ subscriptionId, title, hint, due, today, methods
     </Sheet>
   );
 }
+
+// Void a bill or cancel a payment: both keep their record, with the reason.
+export function ReasonAction({ trigger, title, hint, path, submitLabel }: { trigger: string; title: string; hint: string; path: string; submitLabel: string }) {
+  const a = useAction();
+  const id = `${path}-reason`;
+  return (
+    <Sheet open={a.open} onOpenChange={a.setOpen}>
+      <SheetTrigger render={<Button variant="ghost" size="sm" className="text-danger-600" />}>{trigger}</SheetTrigger>
+      <SheetForm
+        trigger={trigger}
+        title={title}
+        submitLabel={submitLabel}
+        variant="destructive"
+        busy={a.busy}
+        error={a.error}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void a.run(() => send(path, "POST", { reason: text(new FormData(e.currentTarget), "reason") }));
+        }}
+      >
+        <p className="text-body text-muted-foreground">{hint}</p>
+        <Field label="Reason" id={id}>
+          <Input id={id} name="reason" required autoComplete="off" />
+        </Field>
+      </SheetForm>
+    </Sheet>
+  );
+}
+
+// Free use or a special price, from the next bill; a blank price removes it.
+export function PriceSheet({ subscriptionId, title, current }: { subscriptionId: string; title: string; current: { price: string; until: string; reason: string } }) {
+  const a = useAction();
+  const id = (f: string) => `${subscriptionId}-price-${f}`;
+  return (
+    <Sheet open={a.open} onOpenChange={a.setOpen}>
+      <SheetTrigger render={<Button variant="outline" size="lg" />}>Price</SheetTrigger>
+      <SheetForm
+        trigger="Price"
+        title={title}
+        submitLabel="Save price"
+        busy={a.busy}
+        error={a.error}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          void a.run(() => send(`/api/platform/subscriptions/${subscriptionId}`, "PATCH", { price: { price: text(f, "price"), until: text(f, "until"), reason: text(f, "reason") } }));
+        }}
+      >
+        <p className="text-body text-muted-foreground">From the next bill. 0 is free use; blank goes back to the plan&apos;s price.</p>
+        <Field label="Price ₹" id={id("price")}>
+          <Input id={id("price")} name="price" inputMode="decimal" defaultValue={current.price} />
+        </Field>
+        <Field label="Until" id={id("until")}>
+          <Input id={id("until")} name="until" type="date" defaultValue={current.until} />
+        </Field>
+        <Field label="Reason" id={id("reason")}>
+          <Input id={id("reason")} name="reason" defaultValue={current.reason} autoComplete="off" />
+        </Field>
+      </SheetForm>
+    </Sheet>
+  );
+}
+
+// Extra trial days for one branch module; a waiting one goes on trial again.
+export function TrialDaysSheet({ subscriptionId, title, hint }: { subscriptionId: string; title: string; hint: string }) {
+  const a = useAction();
+  const id = (f: string) => `${subscriptionId}-trial-${f}`;
+  return (
+    <Sheet open={a.open} onOpenChange={a.setOpen}>
+      <SheetTrigger render={<Button variant="outline" size="lg" />}>Trial days</SheetTrigger>
+      <SheetForm
+        trigger="Trial days"
+        title={title}
+        submitLabel="Add trial days"
+        busy={a.busy}
+        error={a.error}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          void a.run(() => send(`/api/platform/subscriptions/${subscriptionId}`, "PATCH", { trialDays: { days: text(f, "days"), reason: text(f, "reason") } }));
+        }}
+      >
+        <p className="text-body text-muted-foreground">{hint}</p>
+        <Field label="Extra days" id={id("days")}>
+          <Input id={id("days")} name="days" inputMode="numeric" defaultValue="7" />
+        </Field>
+        <Field label="Reason" id={id("reason")}>
+          <Input id={id("reason")} name="reason" required autoComplete="off" />
+        </Field>
+      </SheetForm>
+    </Sheet>
+  );
+}

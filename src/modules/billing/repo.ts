@@ -285,6 +285,47 @@ export async function insertPayment(tx: PlatformTx, row: Omit<typeof billingPaym
   return created;
 }
 
+export async function getInvoice(tx: AnyTx, id: string): Promise<BillingInvoice | undefined> {
+  const [row] = await tx.select().from(billingInvoices).where(eq(billingInvoices.id, id));
+  return row;
+}
+
+export async function lockInvoice(tx: PlatformTx, id: string): Promise<BillingInvoice | undefined> {
+  const [row] = await tx.select().from(billingInvoices).where(eq(billingInvoices.id, id)).for("update");
+  return row;
+}
+
+export async function updateInvoice(tx: PlatformTx, id: string, patch: Partial<BillingInvoice>): Promise<void> {
+  await tx.update(billingInvoices).set(patch).where(eq(billingInvoices.id, id));
+}
+
+export async function getPayment(tx: AnyTx, id: string): Promise<BillingPayment | undefined> {
+  const [row] = await tx.select().from(billingPayments).where(eq(billingPayments.id, id));
+  return row;
+}
+
+export async function lockPayment(tx: PlatformTx, id: string): Promise<BillingPayment | undefined> {
+  const [row] = await tx.select().from(billingPayments).where(eq(billingPayments.id, id)).for("update");
+  return row;
+}
+
+export async function updatePayment(tx: PlatformTx, id: string, patch: Partial<BillingPayment>): Promise<void> {
+  await tx.update(billingPayments).set(patch).where(eq(billingPayments.id, id));
+}
+
+// The bills a payment paid, and how much of each.
+export async function allocationsOf(tx: PlatformTx, paymentId: string): Promise<{ invoiceId: string; amountPaise: bigint }[]> {
+  return tx.select({ invoiceId: billingAllocations.invoiceId, amountPaise: billingAllocations.amountPaise }).from(billingAllocations).where(eq(billingAllocations.paymentId, paymentId));
+}
+
+// Takes a cancelled payment's money back off a bill, which is open again.
+export async function deallocate(tx: PlatformTx, invoiceId: string, amountPaise: bigint): Promise<void> {
+  await tx
+    .update(billingInvoices)
+    .set({ paidPaise: sql`${billingInvoices.paidPaise} - ${amountPaise.toString()}::bigint`, status: "open" })
+    .where(eq(billingInvoices.id, invoiceId));
+}
+
 // Puts part of a payment on a bill; the bill is paid once nothing is left.
 export async function allocate(tx: PlatformTx, row: { tenantId: string; paymentId: string; invoiceId: string; amountPaise: bigint }): Promise<void> {
   await tx.insert(billingAllocations).values({ id: uuidv7(), ...row });

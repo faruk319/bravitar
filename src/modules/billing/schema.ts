@@ -2,7 +2,7 @@ import { bigint, boolean, date, integer, pgSchema, smallint, text, timestamp, uu
 import { platformAdmins } from "@/modules/platform/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
-// Mirrors migrations 0026_activity_billing.sql to 0031_pay_first.sql.
+// Mirrors migrations 0026_activity_billing.sql to 0032_corrections_and_trials.sql.
 // What an academy pays Bravitar, per activity per branch; shares no tables
 // with what academies charge students.
 const app = pgSchema("app");
@@ -19,6 +19,7 @@ export const activities = app.table("activities", {
   description: text("description"),
   icon: text("icon").notNull(), // one of ACTIVITY_ICONS (src/lib/activities.ts)
   status: text("status", { enum: ACTIVITY_STATUSES }).notNull().default("active"),
+  trialDays: smallint("trial_days"), // blank: billing_settings.trial_days
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -109,9 +110,12 @@ export const billingInvoices = app.table("billing_invoices", {
   totalPaise: bigint("total_paise", { mode: "bigint" }).notNull(),
   paidPaise: bigint("paid_paise", { mode: "bigint" }).notNull().default(0n),
   gstin: text("gstin"),
-  status: text("status", { enum: ["open", "paid"] }).notNull().default("open"),
+  status: text("status", { enum: ["open", "paid", "void"] }).notNull().default("open"),
   issuedOn: date("issued_on").notNull(),
   dueOn: date("due_on").notNull(),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidReason: text("void_reason"),
+  voidedBy: uuid("voided_by").references(() => platformAdmins.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -129,6 +133,10 @@ export const billingPayments = app.table("billing_payments", {
   receivedOn: date("received_on").notNull(),
   note: text("note"),
   recordedBy: uuid("recorded_by").references(() => platformAdmins.id),
+  started: boolean("started").notNull().default(false), // it started its module (pay first)
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancelReason: text("cancel_reason"),
+  cancelledBy: uuid("cancelled_by").references(() => platformAdmins.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

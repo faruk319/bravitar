@@ -215,20 +215,21 @@ export function AccessForm({ academyId, suspended }: { academyId: string; suspen
   );
 }
 
-export type ActivityRowData = { key: string; name: string; description: string; icon: string; status: string };
+export type ActivityRowData = { key: string; name: string; description: string; icon: string; status: string; trialDays: string };
 
-// One module in the catalog: its name, icon and whether academies can have it.
-export function ActivityRow({ a, statuses, icons }: { a: ActivityRowData; statuses: Option[]; icons: Option[] }) {
+// One module in the catalog: its name, icon, trial length (blank: the default)
+// and whether academies can have it.
+export function ActivityRow({ a, statuses, icons, defaultTrialDays }: { a: ActivityRowData; statuses: Option[]; icons: Option[]; defaultTrialDays: number }) {
   const s = useSave();
   const [initial] = useState(a); // after a save the fields already hold what was saved
   const id = (f: string) => `${a.key}-${f}`;
   return (
     <form
-      className="grid grid-cols-2 items-end gap-2 pb-3 md:grid-cols-[1fr_2fr_10rem_9rem_auto]"
+      className="grid grid-cols-2 items-end gap-2 pb-3 md:grid-cols-[1fr_2fr_10rem_7rem_9rem_auto]"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
-        void s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), icon: f.get("icon"), status: f.get("status") });
+        void s.save(`/api/platform/activities/${a.key}`, "PATCH", { name: f.get("name"), description: f.get("description"), icon: f.get("icon"), trialDays: f.get("trialDays"), status: f.get("status") });
       }}
     >
       <Field label="Module" id={id("name")}>
@@ -245,6 +246,9 @@ export function ActivityRow({ a, statuses, icons }: { a: ActivityRowData; status
             </option>
           ))}
         </select>
+      </Field>
+      <Field label="Trial days" id={id("trialDays")}>
+        <Input id={id("trialDays")} name="trialDays" inputMode="numeric" placeholder={String(defaultTrialDays)} defaultValue={initial.trialDays} />
       </Field>
       <Field label="Status" id={id("status")}>
         <select id={id("status")} name="status" defaultValue={initial.status} className={selectClass}>
@@ -437,7 +441,7 @@ export function BillingSettingsForm({ v: fresh }: { v: SettingsData }) {
       <Field label="Grace days" id="graceDays">
         <Input id="graceDays" name="graceDays" inputMode="numeric" defaultValue={v.graceDays} />
       </Field>
-      <Field label="Trial days" id="trialDays">
+      <Field label="Default trial days" id="trialDays">
         <Input id="trialDays" name="trialDays" inputMode="numeric" defaultValue={v.trialDays} />
       </Field>
       <Field label="Tax %" id="taxPercent">

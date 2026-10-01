@@ -3,8 +3,8 @@ import { json, jsonError, pathSegment, readJson } from "@/lib/auth/route";
 import { getPlatformSessionFromToken, type PlatformSession } from "@/lib/auth/session";
 import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
-import { recordPayment } from "@/modules/billing/payments";
-import { addPlan, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan } from "@/modules/billing/service";
+import { cancelPayment, recordPayment, voidBill } from "@/modules/billing/payments";
+import { addPlan, addTrialDays, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan, setPrice } from "@/modules/billing/service";
 import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
@@ -73,15 +73,30 @@ export const defaultPlanHandler = withPlatformRequest(async (req, actor) => {
 });
 
 // PATCH /api/platform/subscriptions/<id> { planId }: now or at the month's end;
-// { cancelAtPeriodEnd }: ends it then, or not.
+// { cancelAtPeriodEnd }: ends it then, or not; { price }: free use or a
+// special price; { trialDays }: extra trial days.
 export const subscriptionHandler = withPlatformRequest(async (req, actor) => {
   const id = pathSegment(req, 3);
-  const { planId, cancelAtPeriodEnd } = (await readJson(req)) as { planId?: unknown; cancelAtPeriodEnd?: unknown };
-  if (typeof cancelAtPeriodEnd === "boolean") {
-    await setCancelAtPeriodEnd(actor, id, cancelAtPeriodEnd);
+  const body = await readJson<{ planId?: string; cancelAtPeriodEnd?: boolean; price?: Parameters<typeof setPrice>[2]; trialDays?: Parameters<typeof addTrialDays>[2] }>(req);
+  if (typeof body.cancelAtPeriodEnd === "boolean") {
+    await setCancelAtPeriodEnd(actor, id, body.cancelAtPeriodEnd);
     return json({ ok: true });
   }
-  return json({ when: await changePlan(actor, id, String(planId ?? "")) });
+  if (body.price) return json(await setPrice(actor, id, body.price));
+  if (body.trialDays) return json(await addTrialDays(actor, id, body.trialDays));
+  return json({ when: await changePlan(actor, id, String(body.planId ?? "")) });
+});
+
+// POST /api/platform/billing-invoices/<id>/void { reason }
+export const voidBillHandler = withPlatformRequest(async (req, actor) => {
+  await voidBill(actor, pathSegment(req, 3), await readJson(req));
+  return json({ ok: true });
+});
+
+// POST /api/platform/billing-payments/<id>/cancel { reason }
+export const cancelPaymentHandler = withPlatformRequest(async (req, actor) => {
+  await cancelPayment(actor, pathSegment(req, 3), await readJson(req));
+  return json({ ok: true });
 });
 
 // POST /api/platform/subscriptions/<id>/payments: a payment recorded by hand.
