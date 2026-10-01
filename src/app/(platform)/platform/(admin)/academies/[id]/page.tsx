@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
 import { BillStatus } from "@/components/bill-status";
-import { AccessForm, CancelAtPeriodEnd, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
+import { CancelButton } from "@/components/billing/cancel-button";
+import { AccessForm, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { PriceSheet, ReasonAction, RecordPayment, TrialDaysSheet } from "@/components/platform/billing-forms";
 import { METHOD_LABEL, perCycle, planLabel, priceNote, subscriptionState, totalsText } from "@/components/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -96,7 +97,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                       {priceNote(s, today) ? <p className="text-caption text-accent-600">{priceNote(s, today)}</p> : null}
                       <div className="flex flex-wrap items-center gap-2">
                         <PlanChangeForm subscriptionId={s.id} current={s.planId} plans={plans.filter((p) => p.activityKey === s.activityKey)} />
-                        <CancelAtPeriodEnd subscriptionId={s.id} cancelling={s.cancelAtPeriodEnd} />
+                        <CancelButton path={`/api/platform/subscriptions/${s.id}`} cancelling={s.cancelAtPeriodEnd} waiting={s.status === "pending"} size="lg" />
                         <PriceSheet
                           subscriptionId={s.id}
                           title={`Price for ${s.activityName} at ${b.name}`}

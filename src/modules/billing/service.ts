@@ -309,12 +309,18 @@ export async function addTrialDays(actor: Actor, subscriptionId: string, input: 
 }
 
 // Ends at the end of the paid month (or the trial) with no more bills; it can
-// be turned off until then.
+// be turned off until then. One waiting for its first payment ends at once,
+// as nothing was paid (agreed 2026-10-01).
 export async function setCancelAtPeriodEnd(actor: Actor, subscriptionId: string, cancel: boolean): Promise<void> {
   await withPlatformAdmin({ ...actor, action: cancel ? "subscription.cancel" : "subscription.cancel.undo", entityType: "activity_subscription", entityId: subscriptionId }, async (tx, audit) => {
     const s = await lockSubscription(tx, subscriptionId);
     if (!s || s.status === "cancelled") throw new NotFoundError("Subscription");
     audit.tenantId = s.tenantId;
+    if (s.status === "pending" && cancel) {
+      audit.after = { endedNow: true };
+      await updateSubscription(tx, s.id, { status: "cancelled", cancelledAt: new Date() });
+      return;
+    }
     audit.after = { endsOn: cancel ? s.periodEnd : null };
     await updateSubscription(tx, s.id, { cancelAtPeriodEnd: cancel });
   });

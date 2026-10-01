@@ -44,7 +44,7 @@ const paidOnD0 = async (name: string) => {
 };
 const sub = async (id: string) => (await platformRead((tx) => tx.select().from(activitySubscriptions).where(eq(activitySubscriptions.id, id))))[0];
 const billsOf = (id: string) =>
-  platformRead((tx) => tx.select().from(billingInvoices).where(eq(billingInvoices.subscriptionId, id)).orderBy(asc(billingInvoices.periodStart)));
+  platformRead((tx) => tx.select().from(billingInvoices).where(eq(billingInvoices.subscriptionId, id)).orderBy(asc(billingInvoices.periodStart), asc(billingInvoices.createdAt)));
 const paymentsOf = (id: string) => platformRead((tx) => tx.select().from(billingPayments).where(eq(billingPayments.subscriptionId, id)).orderBy(asc(billingPayments.createdAt)));
 const editModule = (trialDays: string) => editActivity(ME, KEY, { name: "Test fix", description: "", icon: "shapes", status: "active", trialDays });
 

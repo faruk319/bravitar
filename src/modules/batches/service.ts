@@ -52,10 +52,10 @@ async function findProgramByName(tx: Tx, name: string): Promise<Program | undefi
 async function programActivity(tx: Tx, given: string | undefined, branchId: string | undefined): Promise<string> {
   const on = await liveActivityKeys(tx, given ? undefined : branchId);
   if (given) {
-    if (!on.includes(given)) throw new BadRequestError("That activity isn't on");
+    if (!on.includes(given)) throw new BadRequestError("That module isn't on");
     return given;
   }
-  if (on.length > 1) throw new BadRequestError("Pick the activity for this program");
+  if (on.length > 1) throw new BadRequestError("Pick the module for this program");
   return on[0] ?? (await getOwnTenant(tx))?.verticalPreset ?? "general";
 }
 
@@ -128,6 +128,7 @@ export const newBatchSchema = z.object({
   name: z.string().trim().min(1, "Give the batch a name").max(80),
   programId: z.uuid().optional(),
   newProgramName: z.string().trim().max(80).optional(),
+  newProgramActivityKey: z.string().optional(),
   branchId: z.uuid().optional(),
   coachId: z.uuid().nullable().optional(),
   resourceId: z.uuid().nullable().optional(),
@@ -152,7 +153,7 @@ async function resolveProgram(tx: Tx, ctx: ScopedCtx, data: z.infer<typeof newBa
     // Typing an existing name reuses it, so the one-screen form never trips on duplicates.
     const existing = await findProgramByName(tx, data.newProgramName);
     if (existing) return existing.isActive ? existing : await editProgram(tx, ctx, existing.id, { isActive: true });
-    return addProgram(tx, ctx, { name: data.newProgramName, branchId });
+    return addProgram(tx, ctx, { name: data.newProgramName, branchId, ...(data.newProgramActivityKey ? { activityKey: data.newProgramActivityKey } : {}) });
   }
   throw new BadRequestError("Pick a program");
 }

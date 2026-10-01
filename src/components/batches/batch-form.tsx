@@ -30,7 +30,8 @@ export function FeePlanField({ plans, value }: { plans: { id: string; name: stri
 
 // docs/06 Prompt 8: name, program, days, time, coach, start date on one
 // screen, in under a minute. Capacity and room are optional extras below.
-export function BatchForm({ programs, coaches, rooms, plans, canAddProgram, today }: { programs: { id: string; name: string }[]; coaches: CoachOption[]; rooms: { id: string; name: string; branchId: string }[]; plans: { id: string; name: string }[]; canAddProgram: boolean; today: string }) {
+// modules: given only when the academy has two or more, for a new program.
+export function BatchForm({ programs, modules, coaches, rooms, plans, canAddProgram, today }: { programs: { id: string; name: string }[]; modules: { key: string; name: string }[]; coaches: CoachOption[]; rooms: { id: string; name: string; branchId: string }[]; plans: { id: string; name: string }[]; canAddProgram: boolean; today: string }) {
   const router = useRouter();
   const { branches, currentBranchId } = useBranch();
   const batch = useLabel("batch");
@@ -57,7 +58,7 @@ export function BatchForm({ programs, coaches, rooms, plans, canAddProgram, toda
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: str("name"),
-        ...(programChoice === NEW ? { newProgramName: str("newProgram") } : { programId: programChoice }),
+        ...(programChoice === NEW ? { newProgramName: str("newProgram"), ...(modules.length ? { newProgramActivityKey: str("newProgramModule") } : {}) } : { programId: programChoice }),
         ...(branchId ? { branchId } : {}),
         coachId: str("coachId") || null,
         resourceId: str("resourceId") || null,
@@ -95,6 +96,17 @@ export function BatchForm({ programs, coaches, rooms, plans, canAddProgram, toda
         ) : null}
         {programChoice === NEW ? <Input id={programs.length ? "newProgram" : "program"} name="newProgram" required placeholder="e.g. Karate" aria-label={`New ${program.toLowerCase()}`} /> : null}
       </Field>
+      {programChoice === NEW && modules.length ? (
+        <Field label="Module" id="newProgramModule">
+          <select id="newProgramModule" name="newProgramModule" className={selectClass}>
+            {modules.map((m) => (
+              <option key={m.key} value={m.key}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
 
       <ScheduleEditor value={schedule} onChange={setSchedule} />
 

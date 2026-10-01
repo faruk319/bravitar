@@ -2,15 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { selectClass } from "@/components/fees/plan-editor";
 import { useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { send } from "@/lib/send";
 import { Input } from "@/components/ui/input";
 
-type P = { id: string; name: string; isActive: boolean };
+type P = { id: string; name: string; isActive: boolean; module?: string | undefined };
 
-export function ProgramList({ programs, canManage }: { programs: P[]; canManage: boolean }) {
+// modules: listed only when the academy has two or more, so a new program picks one.
+export function ProgramList({ programs, modules, canManage }: { programs: P[]; modules: { key: string; name: string }[]; canManage: boolean }) {
   const router = useRouter();
   const label = useLabel("program");
   const [error, setError] = useState<string>();
@@ -26,15 +28,25 @@ export function ProgramList({ programs, canManage }: { programs: P[]; canManage:
   async function add(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
-    const name = (new FormData(form).get("name") as string).trim();
-    if (await call("/api/programs", "POST", { name })) form.reset();
+    const f = new FormData(form);
+    const name = (f.get("name") as string).trim();
+    if (await call("/api/programs", "POST", { name, ...(modules.length ? { activityKey: f.get("activityKey") } : {}) })) form.reset();
   }
 
   return (
     <div className="flex max-w-xl flex-col gap-4">
       {canManage ? (
-        <form onSubmit={add} className="flex gap-2">
-          <Input name="name" placeholder={`New ${label.toLowerCase()}`} aria-label={`New ${label.toLowerCase()}`} required className="flex-1" />
+        <form onSubmit={add} className="flex flex-wrap gap-2">
+          <Input name="name" placeholder={`New ${label.toLowerCase()}`} aria-label={`New ${label.toLowerCase()}`} required className="min-w-40 flex-1" />
+          {modules.length ? (
+            <select name="activityKey" aria-label="Module" className={selectClass}>
+              {modules.map((m) => (
+                <option key={m.key} value={m.key}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <Button type="submit">Add</Button>
         </form>
       ) : null}
@@ -60,7 +72,10 @@ export function ProgramList({ programs, canManage }: { programs: P[]; canManage:
               </form>
             ) : (
               <>
-                <span className={p.isActive ? "flex-1 text-body" : "flex-1 text-body text-muted-foreground line-through"}>{p.name}</span>
+                <span className={p.isActive ? "flex-1 text-body" : "flex-1 text-body text-muted-foreground line-through"}>
+                  {p.name}
+                  {p.module ? <span className="text-caption text-muted-foreground"> · {p.module}</span> : null}
+                </span>
                 {canManage ? (
                   <>
                     <Button variant="ghost" size="sm" onClick={() => setEditing(p.id)}>Rename</Button>

@@ -19,6 +19,10 @@ export const METHOD_LABEL: Record<BillingPayment["method"], string> = { upi: "UP
 export const planLabel = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billingInterval" | "isOffered">): string =>
   `${p.name} · ${perCycle(p.pricePaise, p.billingInterval)}${p.isOffered ? "" : " (not offered)"}`;
 
+// For owners: "Growth · ₹600/month · 200 students · 5 staff".
+export const planChoice = (p: Pick<ActivityPlan, "name" | "pricePaise" | "billingInterval" | "maxStudents" | "maxStaff">): string =>
+  `${p.name} · ${perCycle(p.pricePaise, p.billingInterval)} · ${p.maxStudents ?? "Any"} students · ${p.maxStaff ?? "Any"} staff`;
+
 // Free use or a special price while it lasts: "Free until 31 Dec 2026 · Pilot".
 export function priceNote(s: Pick<ActivitySubscription, "overridePaise" | "overrideUntil" | "overrideReason" | "billingInterval">, today: string): string | null {
   if (s.overridePaise === null || (s.overrideUntil !== null && today > s.overrideUntil)) return null;

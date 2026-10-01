@@ -150,11 +150,16 @@ describe("an activity in a branch stands alone", () => {
 
 describe("a program is one activity", () => {
   it("takes the one asked for, or the only one on; with two on, one must be picked", async () => {
-    await expect(withTenant(A, (tx) => addProgram(tx, owner, { name: "Kata" }))).rejects.toThrow("Pick the activity for this program");
-    await expect(withTenant(A, (tx) => addProgram(tx, owner, { name: "Algebra", activityKey: "tuition" }))).rejects.toThrow("That activity isn't on");
+    await expect(withTenant(A, (tx) => addProgram(tx, owner, { name: "Kata" }))).rejects.toThrow("Pick the module for this program");
+    await expect(withTenant(A, (tx) => addProgram(tx, owner, { name: "Algebra", activityKey: "tuition" }))).rejects.toThrow("That module isn't on");
     const made = await withTenant(A, (tx) => createBatch(tx, owner, { name: "Kumite", newProgramName: "Kumite", branchId: main, slots: everyDay }));
     const program = (await withTenant(A, (tx) => programList(tx, owner))).find((p) => p.id === made.programId);
     expect(program?.activityKey).toBe("karate"); // the only one on at Main Dojo
+  });
+
+  it("a new program on the batch form takes the module picked there", async () => {
+    const salsa = { name: "Salsa", newProgramName: "Salsa", newProgramActivityKey: "dance", branchId: main, slots: everyDay };
+    await expect(withTenant(A, (tx) => createBatch(tx, owner, salsa))).rejects.toThrow(`${danceName} at Main Dojo isn't on`);
   });
 });
 

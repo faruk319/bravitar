@@ -16,7 +16,7 @@ export const PERMISSIONS = {
   "integrations:manage": { module: "core", description: "Connect Razorpay and WhatsApp" },
   "audit:read": { module: "core", description: "View the academy audit log" },
   "billing:view": { module: "core", description: "See Bravitar's bills for this academy" },
-  "billing:manage": { module: "core", description: "Turn activities on or off in a branch" },
+  "billing:manage": { module: "core", description: "Add branches and modules, change plans, cancel" },
 
   "students:read": { module: "students", description: "See students in assigned batches and branches" },
   "students:read_all": { module: "students", description: "See every student regardless of coach assignment" },

@@ -146,6 +146,16 @@ export async function subscriptionList(tx: PlatformTx, f: SubscriptionFilters = 
   return rows.map(({ s, ...names }) => ({ ...s, ...names }));
 }
 
+// The modules an academy has on in any branch, by name.
+export async function liveModules(tx: Tx): Promise<{ key: string; name: string }[]> {
+  return tx
+    .selectDistinct({ key: activities.key, name: activities.name })
+    .from(activitySubscriptions)
+    .innerJoin(activities, eq(activities.key, activitySubscriptions.activityKey))
+    .where(ne(activitySubscriptions.status, "cancelled"))
+    .orderBy(asc(activities.name));
+}
+
 // The activities an academy has on, in any branch or in one.
 export async function liveActivityKeys(tx: Tx, branchId?: string): Promise<string[]> {
   const rows = await tx

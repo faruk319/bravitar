@@ -9,6 +9,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { todayIn } from "@/lib/dates";
 import { listPrograms } from "@/modules/batches/repo";
 import { coachChoices } from "@/modules/batches/service";
+import { liveModules } from "@/modules/billing/repo";
 import { planChoices } from "@/modules/fees/service";
 import { getOwnTenant, listResources } from "@/modules/tenancy/repo";
 
@@ -19,6 +20,7 @@ export default async function NewBatchPage() {
   const data = allowed
     ? await withTenant(session.tenant.id, async (tx) => ({
         programs: (await listPrograms(tx, { activeOnly: true })).map((p) => ({ id: p.id, name: p.name })),
+        modules: await liveModules(tx).then((m) => (m.length > 1 ? m : [])),
         coaches: await coachChoices(tx, ctx),
         rooms: (await listResources(tx)).map((r) => ({ id: r.id, name: r.name, branchId: r.branchId })),
         plans: (await planChoices(tx, ctx)).map((p) => ({ id: p.id, name: p.name })),

@@ -58,6 +58,10 @@ export async function getBranch(tx: Tx, id: string): Promise<Branch | undefined>
   return row;
 }
 
+export async function renameBranch(tx: Tx, id: string, name: string): Promise<void> {
+  await tx.update(branches).set({ name }).where(eq(branches.id, id));
+}
+
 export type CreateResourceInput = { tenantId: string; branchId: string; name: string; capacity?: number };
 
 export async function createResource(tx: Tx | PlatformTx, input: CreateResourceInput): Promise<Resource> {
