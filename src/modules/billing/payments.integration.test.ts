@@ -116,7 +116,8 @@ describe("a paid start", () => {
     expect(await paymentsOf(waiting.id)).toHaveLength(1);
     await expect(pay(waiting.id, due - 1n, { requestId })).rejects.toThrow("This form was already used for a different payment");
     const audit = await platformRead((tx) => tx.select({ after: auditLog.after }).from(auditLog).where(and(eq(auditLog.action, "billing_payment.create"), eq(auditLog.entityId, first.payment.id))));
-    expect(audit[0]).toMatchObject({ after: { started: true, amountPaise: String(due) } });
+    expect(audit).toHaveLength(2); // the payment and the double click, in any order
+    expect(audit).toContainEqual({ after: expect.objectContaining({ started: true, amountPaise: String(due) }) });
   });
 
   it("on a yearly plan, starts with its first year", async () => {
