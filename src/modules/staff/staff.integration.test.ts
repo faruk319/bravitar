@@ -18,9 +18,12 @@ import {
   setOwner,
   setRolePermissions,
   setStaffRole,
+  staffDirectory,
 } from "@/modules/staff/service";
+import { listBranches } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
 import { testAcademy } from "@/lib/db/isolation/academy";
+import { createBatch } from "@/modules/batches/service";
 import { setTenantModules } from "@/modules/tenancy/service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -53,18 +56,32 @@ afterAll(async () => {
 });
 
 describe("tenant creation (docs/03 §1)", () => {
-  it("creates the four preset roles with their permission sets and an owner holding the Owner role", async () => {
-    expect(Object.keys(roles).sort()).toEqual(["Front Desk", "Manager", "Owner", "Teacher"]);
+  it("creates the five preset roles with their permission sets and an owner holding the Owner role", async () => {
+    expect(Object.keys(roles).sort()).toEqual(["Accountant", "Front Desk", "Manager", "Owner", "Teacher"]);
     expect(roles.Owner?.isSystem).toBe(true);
     const counts = await withTenant(T, async (tx) => ({
       owner: (await rolePermissionKeys(tx, roles.Owner?.id ?? "")).length,
       manager: (await rolePermissionKeys(tx, roles.Manager?.id ?? "")).length,
       teacher: (await rolePermissionKeys(tx, roles.Teacher?.id ?? "")).length,
       frontDesk: (await rolePermissionKeys(tx, roles["Front Desk"]?.id ?? "")).length,
+      accountant: await rolePermissionKeys(tx, roles.Accountant?.id ?? ""),
       ownerRoles: await staffRoleIds(tx, owner.id),
     }));
+    expect([...counts.accountant].sort()).toEqual([...PRESET_ROLES.Accountant.permissions].sort());
     expect(counts).toMatchObject({ owner: 0, manager: PERMISSION_KEYS.length - 4, teacher: 4, frontDesk: 13 });
     expect(counts.ownerRoles).toEqual([roles.Owner?.id]);
+  });
+});
+
+describe("the staff list", () => {
+  it("shows the batches each person coaches", async () => {
+    const ownerCtx = { ...(await ctxOf(owner.id)), branchIds: [] };
+    const [branch] = await withTenant(T, listBranches);
+    const slots = [{ weekday: 1, startTime: "17:00", endTime: "18:00" }];
+    await withTenant(T, (tx) => createBatch(tx, ownerCtx, { name: `Kata ${stamp}`, newProgramName: `Kata ${stamp}`, branchId: branch?.id ?? "", coachId: teacher.id, slots }));
+    const list = await withTenant(T, (tx) => staffDirectory(tx, ownerCtx));
+    expect(list.find((s) => s.id === teacher.id)?.batches).toMatchObject([{ name: `Kata ${stamp}`, programName: `Kata ${stamp}` }]);
+    expect(list.find((s) => s.id === frontDesk.id)?.batches).toEqual([]);
   });
 });
 

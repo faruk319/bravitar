@@ -55,7 +55,7 @@ afterAll(async () => {
 
 describe("roles the owner makes", () => {
   it("a custom role's ticks are exactly what its holder can do; copying starts from another role", async () => {
-    const accountant = await withTenant(T, (tx) => addRole(tx, owner, { name: "Accountant" }));
+    const accountant = await withTenant(T, (tx) => addRole(tx, owner, { name: "Bookkeeper" }));
     await withTenant(T, (tx) => setRolePermissions(tx, owner, accountant.id, ["students:read", "invoices:read"]));
     const { staff } = await hire("accounts", accountant.id);
     const ctx = await ctxFor(staff.id);

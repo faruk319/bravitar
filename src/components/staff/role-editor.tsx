@@ -34,16 +34,29 @@ export function RoleEditor({ roleId, name, keys, holders, groups }: { roleId: st
           Rename
         </Button>
       </div>
-      {groups.map((g) => (
-        <div key={g.module} className={g.off ? "opacity-60" : undefined}>
-          <CheckList
-            legend={g.off ? `${g.label} · off for this academy` : g.label}
-            options={g.options}
-            value={ticked.filter((k) => g.options.some((o) => o.id === k))}
-            onChange={(ids) => setTicked([...ticked.filter((k) => !g.options.some((o) => o.id === k)), ...ids])}
-          />
-        </div>
-      ))}
+      {groups.map((g) => {
+        const others = ticked.filter((k) => !g.options.some((o) => o.id === k));
+        return (
+          <div key={g.module} className={g.off ? "opacity-60" : undefined}>
+            <CheckList
+              legend={g.off ? `${g.label} · off for this academy` : g.label}
+              options={g.options}
+              value={ticked.filter((k) => g.options.some((o) => o.id === k))}
+              onChange={(ids) => setTicked([...others, ...ids])}
+              actions={
+                <>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setTicked([...others, ...g.options.map((o) => o.id)])}>
+                    Select all
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setTicked(others)}>
+                    Clear
+                  </Button>
+                </>
+              }
+            />
+          </div>
+        );
+      })}
       <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center gap-3 border-t border-neutral-100 bg-card px-4 py-3 md:-mx-5 md:px-5">
         <Button size="lg" onClick={() => save({ keys: ticked })}>
           Save permissions
@@ -88,7 +101,7 @@ export function NewRole({ roles }: { roles: Option[] }) {
           }}
         >
           <Field label="Name" id="new-role">
-            <Input id="new-role" name="name" required placeholder="e.g. Accountant" autoFocus />
+            <Input id="new-role" name="name" required placeholder="e.g. Front Desk Manager" autoFocus />
           </Field>
           <Field label="Start from" id="copy-from">
             <select id="copy-from" name="copyFrom" className="h-12 rounded-lg border border-input bg-background px-3 text-body">

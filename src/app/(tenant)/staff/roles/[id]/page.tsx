@@ -4,22 +4,12 @@ import { Gate } from "@/components/shell/gate";
 import { type PermissionGroup, RoleEditor } from "@/components/staff/role-editor";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
-import { MODULES, PERMISSION_KEYS, PERMISSIONS } from "@/lib/auth/permissions";
+import { byModule, PERMISSION_KEYS, PERMISSIONS } from "@/lib/auth/permissions";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { roleViews } from "@/modules/staff/service";
 
-const MODULE_LABEL: Record<(typeof MODULES)[number], string> = {
-  core: "Staff & settings",
-  students: "Students",
-  enquiries: "Enquiries",
-  batches: "Batches & classes",
-  attendance: "Attendance",
-  fees: "Fees",
-  messaging: "Messages",
-  reports: "Reports",
-};
 
 export default async function RolePage({ params }: PageProps<"/staff/roles/[id]">) {
   const { id } = await params;
@@ -28,12 +18,12 @@ export default async function RolePage({ params }: PageProps<"/staff/roles/[id]"
   if (!allows(ctx, "staff:read")) return <Gate permission="staff:read">{null}</Gate>;
   const role = (await withTenant(session.tenant.id, (tx) => roleViews(tx, ctx))).find((r) => r.id === id);
   if (!role) notFound();
-  const groups: PermissionGroup[] = MODULES.map((m) => ({
-    module: m,
-    label: MODULE_LABEL[m],
-    off: m !== "core" && ctx.modules[m] === false,
-    options: PERMISSION_KEYS.filter((k) => PERMISSIONS[k].module === m).map((k) => ({ id: k, label: PERMISSIONS[k].description, hint: k })),
-  })).filter((g) => g.options.length);
+  const groups: PermissionGroup[] = byModule(PERMISSION_KEYS).map((g) => ({
+    module: g.module,
+    label: g.label,
+    off: g.module !== "core" && ctx.modules[g.module] === false,
+    options: g.keys.map((k) => ({ id: k, label: PERMISSIONS[k].description, hint: k })),
+  }));
 
   return (
     <Gate permission="staff:read">

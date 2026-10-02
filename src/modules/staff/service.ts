@@ -11,6 +11,7 @@ import { withTenant } from "@/lib/db/with-tenant";
 import { AppError, BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { invalidateSessionsForRoleHolders, invalidateSessionsForStaff, revokeSessionsForStaff } from "@/modules/auth/repo";
+import { listBatchRows } from "@/modules/batches/repo";
 import { assertStaffRoom } from "@/modules/billing/access";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
@@ -232,16 +233,17 @@ export async function roleViews(tx: Tx, ctx: AccessContext): Promise<RoleView[]>
 }
 
 export type StaffStatus = "active" | "invited" | "needs-link" | "off";
-export type StaffRow = StaffUser & { roleId: string | null; branchIds: string[]; status: StaffStatus };
+export type StaffRow = StaffUser & { roleId: string | null; branchIds: string[]; status: StaffStatus; batches: { id: string; name: string; programName: string }[] };
 
 export async function staffDirectory(tx: Tx, ctx: AccessContext, now = new Date()): Promise<StaffRow[]> {
   assertCan(ctx, "staff:read");
-  const [list, roleLinks, branchLinks, invited] = await Promise.all([listStaff(tx), staffRoleLinks(tx), staffBranchLinks(tx), staffWithOpenInvites(tx, now)]);
+  const [list, roleLinks, branchLinks, invited, coached] = await Promise.all([listStaff(tx), staffRoleLinks(tx), staffBranchLinks(tx), staffWithOpenInvites(tx, now), listBatchRows(tx, [])]);
   return list.map((s) => ({
     ...s,
     roleId: roleLinks.find((l) => l.staffId === s.id)?.roleId ?? null,
     branchIds: branchLinks.filter((l) => l.staffId === s.id).map((l) => l.branchId),
     status: !s.isActive ? "off" : s.passwordHash !== PASSWORD_UNSET ? "active" : invited.has(s.id) ? "invited" : "needs-link",
+    batches: coached.filter((b) => b.coachId === s.id).map((b) => ({ id: b.id, name: b.name, programName: b.programName })), // the batches they coach
   }));
 }
 

@@ -67,8 +67,24 @@ export function permissionsFor(module: Module): PermissionKey[] {
   return PERMISSION_KEYS.filter((k) => PERMISSIONS[k].module === module);
 }
 
+export const MODULE_LABELS: Record<Module, string> = {
+  core: "Staff & settings",
+  students: "Students",
+  enquiries: "Enquiries",
+  batches: "Batches & classes",
+  attendance: "Attendance",
+  fees: "Fees",
+  messaging: "Messages",
+  reports: "Reports",
+};
+
+// Keys grouped by module, in catalog order: the role editor and access summaries.
+export function byModule(keys: readonly string[]): { module: Module; label: string; keys: PermissionKey[] }[] {
+  return MODULES.map((m) => ({ module: m, label: MODULE_LABELS[m], keys: permissionsFor(m).filter((k) => keys.includes(k)) })).filter((g) => g.keys.length);
+}
+
 // docs/03 §2. Owner has no rows: access comes from staff_users.is_owner.
-export const PRESET_ROLE_NAMES = ["Owner", "Manager", "Teacher", "Front Desk"] as const;
+export const PRESET_ROLE_NAMES = ["Owner", "Manager", "Teacher", "Front Desk", "Accountant"] as const;
 export type PresetRoleName = (typeof PRESET_ROLE_NAMES)[number];
 
 const MANAGER_EXCLUDED: PermissionKey[] = ["staff:manage", "integrations:manage", "fees:refund", "billing:manage"];
@@ -80,5 +96,10 @@ export const PRESET_ROLES: Record<PresetRoleName, { isSystem: boolean; permissio
   "Front Desk": {
     isSystem: false,
     permissions: [...permissionsFor("students"), ...permissionsFor("enquiries"), "enrollments:manage", "fees:collect", "invoices:read", "attendance:mark"],
+  },
+  // Agreed 2026-10-02; refunds stay with the owner, as for Manager.
+  Accountant: {
+    isSystem: false,
+    permissions: ["students:read", "students:read_all", "invoices:read", "invoices:manage", "fees:collect", "payments:read", "fee_plans:manage", "reports:view", "reports:export"],
   },
 };

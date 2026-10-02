@@ -1,10 +1,24 @@
+import type { ReactNode } from "react";
+
 export type Option = { id: string; label: string; hint?: string; disabled?: boolean };
 
-// Checkboxes as 48px rows; the value is the ticked ids.
-export function CheckList({ legend, options, value, onChange }: { legend: string; options: Option[]; value: string[]; onChange: (ids: string[]) => void }) {
+// Checkboxes as 48px rows; the value is the ticked ids. actions sit beside the legend.
+export function CheckList({ legend, options, value, onChange, actions }: { legend: string; options: Option[]; value: string[]; onChange: (ids: string[]) => void; actions?: ReactNode }) {
   return (
     <fieldset className="flex flex-col">
-      <legend className="mb-1 text-label">{legend}</legend>
+      {actions ? (
+        <>
+          <legend className="sr-only">{legend}</legend>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span aria-hidden className="text-label">
+              {legend}
+            </span>
+            <span className="flex gap-1">{actions}</span>
+          </div>
+        </>
+      ) : (
+        <legend className="mb-1 text-label">{legend}</legend>
+      )}
       {options.map((o) => (
         <label key={o.id} className="flex min-h-12 items-center gap-3 border-b border-neutral-100 last:border-b-0">
           <input

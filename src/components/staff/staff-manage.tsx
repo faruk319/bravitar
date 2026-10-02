@@ -19,6 +19,7 @@ export function StaffManage({ staffId, name, active, roles, branches, roleId: in
   const [msg, setMsg] = useState<string>();
   const [token, setToken] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
   const post = async (body: object) => {
     setBusy(true);
     const r = await request<{ token?: string }>(`/api/staff/${staffId}`, "POST", body);
@@ -74,12 +75,14 @@ export function StaffManage({ staffId, name, active, roles, branches, roleId: in
           className={active ? "text-danger-600" : undefined}
           disabled={busy}
           onClick={async () => {
+            if (active && !confirmSuspend) return setConfirmSuspend(true);
             const err = await send(`/api/staff/${staffId}`, "POST", { action: active ? "deactivate" : "reactivate" });
+            setConfirmSuspend(false);
             if (err) setMsg(err);
             else router.refresh();
           }}
         >
-          {active ? "Turn off access" : "Turn access back on"}
+          {active ? (confirmSuspend ? "Tap again to suspend" : "Suspend") : "Activate"}
         </Button>
       </div>
       {token ? <InviteLink token={token} name={name} /> : null}

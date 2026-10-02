@@ -5,6 +5,7 @@ import { NewRole } from "@/components/staff/role-editor";
 import { StaffTabs } from "@/components/staff/staff-tabs";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
+import { byModule } from "@/lib/auth/permissions";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -28,7 +29,7 @@ export default async function RolesPage() {
               <Link href={`/staff/roles/${r.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 hover:bg-neutral-50 md:px-5">
                 <span>
                   <span className="block text-body font-medium text-neutral-900">{r.name}</span>
-                  <span className="block text-caption text-muted-foreground">{r.isSystem ? "Everything, always" : `${r.keys.length} permissions`}</span>
+                  <span className="block text-caption text-muted-foreground">{r.isSystem ? "Everything, always" : byModule(r.keys).map((g) => g.label).join(", ") || "Nothing ticked"}</span>
                 </span>
                 <span className="text-label text-muted-foreground tabular-nums">{r.holders} staff</span>
               </Link>
