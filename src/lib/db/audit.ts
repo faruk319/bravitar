@@ -35,12 +35,13 @@ export type AuditEntry = {
 type Insertable = { insert: (table: typeof auditLog) => { values: (v: typeof auditLog.$inferInsert) => Promise<unknown> } };
 
 // Works with a tenant Tx (RLS limits it to its own tenant_id) and a PlatformTx.
+// impersonatedBy left out takes the transaction's app.impersonated_by.
 export async function writeAudit(tx: Insertable, entry: AuditEntry): Promise<void> {
   await tx.insert(auditLog).values({
     tenantId: entry.tenantId ?? null,
     actorType: entry.actorType,
     actorId: entry.actorId ?? null,
-    impersonatedBy: entry.impersonatedBy ?? null,
+    ...(entry.impersonatedBy ? { impersonatedBy: entry.impersonatedBy } : {}),
     action: entry.action,
     entityType: entry.entityType ?? null,
     entityId: entry.entityId ?? null,

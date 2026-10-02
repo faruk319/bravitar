@@ -5,7 +5,7 @@ import { NotFoundError, UnauthorizedError } from "@/lib/errors";
 import { metaOf, slugFromHost } from "@/modules/auth/routes";
 import { cancelPayment, recordPayment, voidBill } from "@/modules/billing/payments";
 import { addPlan, addTrialDays, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan, setPrice } from "@/modules/billing/service";
-import { createAcademy, ownerInvite, setAcademyStatus, setModules } from "./academies";
+import { createAcademy, impersonate, ownerInvite, setAcademyStatus, setModules } from "./academies";
 import { platformSignIn } from "./auth";
 
 // POST /api/platform/login, on the main site only.
@@ -50,6 +50,9 @@ export const academyHandler = withPlatformRequest(async (req, actor) => {
 
 // POST /api/platform/academies/<id>/invite: a new link for the owner.
 export const ownerInviteHandler = withPlatformRequest(async (req, actor) => json({ inviteUrl: await ownerInvite(actor, pathSegment(req, 3)) }));
+
+// POST /api/platform/academies/<id>/impersonate { reason }: a pass to sign in as its owner.
+export const impersonateHandler = withPlatformRequest(async (req, actor) => json({ url: await impersonate(actor, pathSegment(req, 3), await readJson(req)) }, { status: 201 }));
 
 // PATCH /api/platform/activities/<key>: name, description, icon, status.
 export const activityHandler = withPlatformRequest(async (req, actor) => {

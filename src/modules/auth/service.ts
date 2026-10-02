@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type AccessContext, assertCan, ForbiddenError } from "@/lib/auth/can";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/cookie";
 import { dummyPasswordHash, hashPassword, passwordSchema, verifyPassword } from "@/lib/auth/password";
-import { buildSessionContext, type GuardianContext, type SessionContext } from "@/lib/auth/session";
+import { buildSessionContext, type GuardianContext, type Impersonation, type SessionContext } from "@/lib/auth/session";
 import { hashToken, newToken } from "@/lib/auth/token";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
@@ -33,10 +33,12 @@ const BAD_CREDENTIALS = "Wrong email or password";
 export const PAUSED = "This academy's account is paused. Contact Bravitar support.";
 
 export type Meta = { ip?: string | undefined; userAgent?: string | undefined };
+export const IMPERSONATION_SECONDS = 2 * 60 * 60; // Bravitar support as an owner (Prompt 21)
 export type OpenedSession = { token: string; sessionId: string; context: SessionContext };
 
-// A new 30-day session for a staff member, audited as a login.
-export async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string): Promise<OpenedSession> {
+// A new 30-day session for a staff member, audited as a login; 2 hours when
+// Bravitar support signs in as them.
+export async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string, impersonation?: Impersonation): Promise<OpenedSession> {
   const token = newToken();
   const context = await buildSessionContext(tx, staffId);
   const session = await insertSession(tx, {
@@ -45,11 +47,12 @@ export async function openSession(tx: Tx, tenantId: string, staffId: string, met
     actorId: staffId,
     tenantId,
     cachedContext: context,
-    expiresAt: new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000),
+    expiresAt: new Date(Date.now() + (impersonation ? IMPERSONATION_SECONDS : SESSION_MAX_AGE_SECONDS) * 1000),
+    ...(impersonation ? { impersonatedBy: impersonation.by, impersonationReason: impersonation.reason } : {}),
     ...(meta.ip !== undefined ? { ip: meta.ip } : {}),
     ...(meta.userAgent !== undefined ? { userAgent: meta.userAgent } : {}),
   });
-  await writeAudit(tx, { actorType: "staff", actorId: staffId, tenantId, action: "auth.login", entityType: "session", entityId: session.id, ...(meta.ip !== undefined ? { ip: meta.ip } : {}), ...(via ? { after: { via } } : {}) });
+  await writeAudit(tx, { actorType: "staff", actorId: staffId, tenantId, action: "auth.login", ...(impersonation ? { impersonatedBy: impersonation.by } : {}), entityType: "session", entityId: session.id, ...(meta.ip !== undefined ? { ip: meta.ip } : {}), ...(via ? { after: { via } } : {}) });
   return { token, sessionId: session.id, context };
 }
 
@@ -139,18 +142,23 @@ export async function redeemHandoff(slug: string | undefined, token: string, met
     const who = await useHandoff(tx, hashToken(token), opts.now ?? new Date());
     if (who && "staffId" in who) {
       const staff = await getStaff(tx, who.staffId);
-      return staff?.isActive ? { token: (await openSession(tx, tenant.id, staff.id, meta, "main site")).token, home: "/" } : undefined;
+      const impersonation = who.impersonatedBy ? { by: who.impersonatedBy, reason: who.impersonationReason ?? "" } : undefined;
+      return staff?.isActive ? { token: (await openSession(tx, tenant.id, staff.id, meta, impersonation ? "Bravitar support" : "main site", impersonation)).token, home: "/" } : undefined;
     }
     const guardian = who ? await getGuardian(tx, who.guardianId) : undefined;
     return guardian?.canLogin ? { token: (await openGuardianSession(tx, guardian.id, guardian.phone, meta, "main site")).token, home: "/portal" } : undefined;
   });
 }
 
-export async function logout(tenantId: string, sessionId: string, actor: { actorType: "staff" | "guardian"; actorId: string }): Promise<void> {
-  await withTenant(tenantId, async (tx) => {
-    await revokeSession(tx, sessionId);
-    await writeAudit(tx, { ...actor, tenantId, action: "auth.logout", entityType: "session", entityId: sessionId });
-  });
+export async function logout(tenantId: string, sessionId: string, actor: { actorType: "staff" | "guardian"; actorId: string }, impersonatedBy?: string): Promise<void> {
+  await withTenant(
+    tenantId,
+    async (tx) => {
+      await revokeSession(tx, sessionId);
+      await writeAudit(tx, { ...actor, tenantId, action: "auth.logout", entityType: "session", entityId: sessionId });
+    },
+    { impersonatedBy },
+  );
 }
 
 // Self-service, or staff:manage for someone else. Does not revoke sessions:

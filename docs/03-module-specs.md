@@ -15,7 +15,7 @@ refunds or attendance.
 
 **Screens:** academies, create academy, academy detail (each branch's modules
 with plan, usage, bills and payments; features; suspend/restore), Modules &
-pricing, Subscriptions, Billing, impersonate (read-only), platform-wide message
+pricing, Subscriptions, Billing, open as owner (impersonation), platform-wide message
 log. Each academy also has its own Billing page.
 
 **Rules**
@@ -25,8 +25,10 @@ log. Each academy also has its own Billing page.
   label pack, and the current financial year's number series rows.
 - Suspending a tenant blocks staff login with a clear message and a contact
   route. It never deletes data.
-- Impersonation is read-only, shows a persistent banner in the tenant UI, and
-  writes an audit row containing a typed reason.
+- Impersonation ("Open as owner") is read-write, for 2 hours, with a typed
+  reason and a banner on every page until End. Every audit row written meanwhile
+  carries `impersonated_by`; the start (with its reason) and the end are in the
+  academy's own audit log. A suspended academy can't be opened.
 
 **Bravitar billing** (slice 24, built; tables in `02-data-model.md` §2)
 
@@ -78,7 +80,8 @@ log. Each academy also has its own Billing page.
 
 - [ ] A new tenant is usable (login → add student → mark attendance) with zero
       manual SQL
-- [ ] Impersonation cannot write, and is visible in the tenant's own audit log
+- [ ] Every write during impersonation carries `impersonated_by`, visible in the
+      tenant's own audit log
 - [ ] Plan limits (students per branch module, staff seats) are enforced
       server-side with a clear error, not a crash
 

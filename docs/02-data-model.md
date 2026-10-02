@@ -250,6 +250,7 @@ CREATE TABLE sessions_auth (             -- named to avoid clashing with class s
   actor_id      uuid NOT NULL,
   tenant_id     uuid,                    -- null for platform admins
   impersonated_by uuid,                  -- platform_admins.id when impersonating
+  impersonation_reason text,             -- typed when support opened it (2-hour session)
   cached_context jsonb,                  -- modules + permissions snapshot
   ip            inet,
   user_agent    text,
@@ -278,7 +279,8 @@ DEFINER functions `otp_issue` and `otp_check`, which keep the docs/01 limits.
 a sign-in from the main site to the academy's address, under RLS. Migration
 0023 adds `guardian_id` (exactly one of staff_id and guardian_id is set), the
 SECURITY DEFINER `guardian_academies_by_phone` and an index on
-`guardians(phone)`.
+`guardians(phone)`. Migration 0033 adds `impersonated_by` and
+`impersonation_reason`: Bravitar support's pass to sign in as the owner.
 
 > **Careful:** `sessions_auth` is deliberately NOT called `sessions`. The class
 > `sessions` table below is one of the most-queried tables in the product. Two
@@ -789,7 +791,7 @@ CREATE TABLE audit_log (
   tenant_id   uuid,                      -- NULL for platform-level actions
   actor_type  text NOT NULL,
   actor_id    uuid,
-  impersonated_by uuid,
+  impersonated_by uuid,                  -- defaults to the transaction's app.impersonated_by
   action      text NOT NULL,             -- 'payment.create', 'role.update'
   entity_type text,
   entity_id   uuid,

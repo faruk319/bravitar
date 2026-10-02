@@ -22,7 +22,9 @@ export type SessionContext = {
   permissions: string[];
 };
 
-export type StaffSession = SessionContext & { sessionId: string };
+// Bravitar support signed in as this staff member (Prompt 21): who and why.
+export type Impersonation = { by: string; reason: string };
+export type StaffSession = SessionContext & { sessionId: string; impersonation?: Impersonation };
 
 export async function buildSessionContext(tx: Tx, staffId: string): Promise<SessionContext> {
   const access = await loadAccessContext(tx, staffId);
@@ -50,6 +52,8 @@ type LookupRow = {
   actor_type: string;
   actor_id: string;
   tenant_id: string | null;
+  impersonated_by: string | null;
+  impersonation_reason: string | null;
   cached_context: unknown;
   expires_at: Date;
   revoked_at: Date | null;
@@ -77,7 +81,8 @@ export async function getStaffSession(req: Request): Promise<StaffSession | unde
 export async function getStaffSessionFromToken(token: string): Promise<StaffSession | undefined> {
   const row = await liveSession(token, "staff");
   if (!row) return undefined;
-  if (row.cached_context) return { sessionId: row.id, ...(row.cached_context as SessionContext) };
+  const impersonation = row.impersonated_by ? { impersonation: { by: row.impersonated_by, reason: row.impersonation_reason ?? "" } } : {};
+  if (row.cached_context) return { sessionId: row.id, ...(row.cached_context as SessionContext), ...impersonation };
 
   // Cache was invalidated: rebuild inside the tenant, re-checking the staff row.
   const tenantId = row.tenant_id;
@@ -85,7 +90,7 @@ export async function getStaffSessionFromToken(token: string): Promise<StaffSess
     const context = await buildSessionContext(tx, row.actor_id).catch(() => undefined);
     if (!context) return undefined;
     await setCachedContext(tx, row.id, context);
-    return { sessionId: row.id, ...context };
+    return { sessionId: row.id, ...context, ...impersonation };
   });
 }
 

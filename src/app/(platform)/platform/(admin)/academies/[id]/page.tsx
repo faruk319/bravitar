@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ActivityIcon } from "@/components/activity-icon";
 import { BillStatus } from "@/components/bill-status";
 import { CancelButton } from "@/components/billing/cancel-button";
-import { AccessForm, ModulesForm, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
+import { AccessForm, ModulesForm, OpenAsOwner, OwnerInvite, PlanChangeForm } from "@/components/platform/academy-forms";
 import { PriceSheet, ReasonAction, RecordPayment, TrialDaysSheet } from "@/components/platform/billing-forms";
 import { METHOD_LABEL, perCycle, planLabel, priceNote, subscriptionState, totalsText } from "@/components/billing-text";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -62,7 +62,10 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                 {a.owner.name} <span className="text-caption text-muted-foreground">· {a.owner.email}</span>
               </p>
               <p className="mb-3 text-caption text-muted-foreground">{a.owner.signedUp ? "Has set a password" : "Hasn't set a password yet"}</p>
-              <OwnerInvite academyId={a.id} />
+              <div className="flex flex-wrap items-start gap-2">
+                <OwnerInvite academyId={a.id} />
+                {a.status === "active" ? <OpenAsOwner academyId={a.id} owner={a.owner.name} /> : null}
+              </div>
             </>
           ) : (
             <p className="text-body text-muted-foreground">No owner.</p>

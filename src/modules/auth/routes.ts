@@ -39,7 +39,7 @@ export async function logoutHandler(req: Request): Promise<Response> {
   try {
     const token = readSessionCookie(req);
     const session = token ? ((await getStaffSessionFromToken(token)) ?? (await getGuardianSessionFromToken(token))) : undefined;
-    if (session) await logout(session.tenant.id, session.sessionId, { actorType: session.actor.type, actorId: session.actor.id });
+    if (session) await logout(session.tenant.id, session.sessionId, { actorType: session.actor.type, actorId: session.actor.id }, "impersonation" in session ? session.impersonation?.by : undefined);
     const platform = token && !session ? await getPlatformSessionFromToken(token) : undefined;
     if (platform) await platformLogout(platform.sessionId, platform.actor.id);
     return json({ ok: true }, { headers: { "set-cookie": clearSessionCookieHeader() } });

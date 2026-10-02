@@ -42,7 +42,7 @@ export function withStaffRequest(permission: PermissionKey | null, handler: (r: 
           permission,
         );
       }
-      return await withTenant(session.tenant.id, (tx) => handler({ req, session, tx }));
+      return await withTenant(session.tenant.id, (tx) => handler({ req, session, tx }), { impersonatedBy: session.impersonation?.by });
     } catch (err) {
       return jsonError(err);
     }

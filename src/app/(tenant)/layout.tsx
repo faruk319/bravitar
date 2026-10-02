@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { AdminShell } from "@/components/shell/admin-shell";
 import { CoachShell } from "@/components/shell/coach-shell";
 import { BillingNotice } from "@/components/shell/billing-notice";
+import { ImpersonationBanner } from "@/components/shell/impersonation-banner";
 import { TenantProvider } from "@/components/shell/tenant-provider";
 import { allows } from "@/lib/auth/can";
 import { BRANCH_COOKIE } from "@/lib/auth/branch-cookie";
@@ -11,6 +12,7 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { shellFor } from "@/lib/auth/shell";
 import { withTenant } from "@/lib/db/with-tenant";
 import { resolveLabels } from "@/lib/tenant/labels";
+import { mainOrigin } from "@/lib/tenant/origin";
 import { lockedActivities } from "@/modules/billing/access";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 
@@ -30,6 +32,7 @@ export default async function TenantLayout({ children }: LayoutProps<"/">) {
   const shell = shellFor(session);
   const page = (
     <>
+      {session.impersonation ? <ImpersonationBanner owner={session.actor.name} reason={session.impersonation.reason} back={`${mainOrigin()}/platform/academies/${session.tenant.id}`} /> : null}
       <BillingNotice items={locked} seesBills={allows(scopedCtx(session), "billing:view")} />
       {children}
     </>

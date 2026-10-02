@@ -9,7 +9,9 @@ import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
+import { insertHandoff } from "@/modules/auth/repo";
 import { sessionsAuth } from "@/modules/auth/schema";
+import { HANDOFF_SECONDS } from "@/modules/auth/service";
 import {
   activityStudentCounts,
   getBillingSettings,
@@ -141,6 +143,24 @@ export async function ownerInvite(actor: Actor, tenantId: string, now = new Date
     return t.slug;
   });
   return `${tenantOrigin(slug)}/invite/${token}`;
+}
+
+// Bravitar support signs in as the owner (Prompt 21: read-write, tagged): a
+// one-time pass to the academy's address for a 2-hour session. The start and
+// its reason go in the academy's audit log.
+export async function impersonate(admin: { actorType: "platform"; actorId: string }, tenantId: string, input: { reason?: unknown }, now = new Date()): Promise<string> {
+  const reason = z.string().trim().min(3, "Give a reason").max(200).parse(input.reason ?? "");
+  const token = newToken();
+  const slug = await withPlatformAdmin({ ...admin, action: "impersonation.start", tenantId, entityType: "staff_user", after: { reason } }, async (tx, audit) => {
+    const [t] = await tx.select({ slug: tenants.slug, status: tenants.status }).from(tenants).where(eq(tenants.id, tenantId));
+    const [owner] = await tx.select({ id: staffUsers.id }).from(staffUsers).where(and(eq(staffUsers.tenantId, tenantId), eq(staffUsers.isOwner, true), isNull(staffUsers.deletedAt)));
+    if (!t || !owner) throw new NotFoundError("Owner");
+    if (t.status !== "active") throw new ConflictError("This academy is suspended. Restore it first.");
+    audit.entityId = owner.id;
+    await insertHandoff(tx, { tenantId, staffId: owner.id, impersonatedBy: admin.actorId, impersonationReason: reason, tokenHash: hashToken(token), expiresAt: new Date(now.getTime() + HANDOFF_SECONDS * 1000) });
+    return t.slug;
+  });
+  return `${tenantOrigin(slug)}/api/auth/handoff?t=${token}`;
 }
 
 export const newAcademySchema = z.object({

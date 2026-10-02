@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { CopyText } from "@/components/copy-text";
 import { selectClass } from "@/components/fees/plan-editor";
-import { Field } from "@/components/sheet-form";
+import { Field, SheetForm, useAction } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { request, send } from "@/lib/send";
 
 // The /platform forms (Prompt 21). Each saves, then refreshes the page's data.
@@ -162,6 +163,42 @@ export function OwnerInvite({ academyId }: { academyId: string }) {
       </Button>
       <Feedback error={error} done={false} />
     </div>
+  );
+}
+
+// Sign in as the owner for 2 hours, with a reason; every change is tagged.
+export function OpenAsOwner({ academyId, owner }: { academyId: string; owner: string }) {
+  const a = useAction();
+  return (
+    <Sheet open={a.open} onOpenChange={a.setOpen}>
+      <SheetTrigger render={<Button variant="outline" />}>Open as owner</SheetTrigger>
+      <SheetForm
+        trigger="Open as owner"
+        title={`Open as ${owner}`}
+        submitLabel="Open"
+        busy={a.busy}
+        error={a.error}
+        onSubmit={(e) => {
+          e.preventDefault();
+          const reason = String(new FormData(e.currentTarget).get("reason") ?? "");
+          let url = "";
+          void a.run(
+            async () => {
+              const r = await request<{ url: string }>(`/api/platform/academies/${academyId}/impersonate`, "POST", { reason });
+              if (r.error !== undefined) return r.error;
+              url = r.data.url;
+              return undefined;
+            },
+            () => window.location.assign(url),
+          );
+        }}
+      >
+        <p className="text-body text-muted-foreground">2 hours. Every change is tagged with your name.</p>
+        <Field label="Reason" id="impersonate-reason">
+          <Input id="impersonate-reason" name="reason" required autoComplete="off" />
+        </Field>
+      </SheetForm>
+    </Sheet>
   );
 }
 

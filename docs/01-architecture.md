@@ -110,8 +110,10 @@ in the codebase.
 
 **Platform-admin queries** use a separate connection role that is exempt from RLS,
 through a dedicated `withPlatformAdmin()` helper. Every call through it writes an
-audit row. Impersonating a tenant uses `withTenant()` like anyone else, with an
-`impersonated_by` field on the audit row.
+audit row. Impersonating a tenant (support signs in as its owner through a
+one-time pass, for 2 hours) uses `withTenant()` like anyone else; the transaction
+also sets `app.impersonated_by`, which `audit_log.impersonated_by` defaults to, so
+every row written meanwhile is tagged.
 
 ### The isolation test suite
 

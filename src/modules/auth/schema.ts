@@ -16,6 +16,7 @@ export const sessionsAuth = app.table("sessions_auth", {
   actorId: uuid("actor_id").notNull(),
   tenantId: uuid("tenant_id").references(() => tenants.id),
   impersonatedBy: uuid("impersonated_by"),
+  impersonationReason: text("impersonation_reason"),
   cachedContext: jsonb("cached_context"),
   ip: inet("ip"),
   userAgent: text("user_agent"),
@@ -40,6 +41,8 @@ export const loginHandoffs = app.table("login_handoffs", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   staffId: uuid("staff_id").references(() => staffUsers.id),
   guardianId: uuid("guardian_id").references(() => guardians.id),
+  impersonatedBy: uuid("impersonated_by"), // Bravitar support, signing in as this staff member
+  impersonationReason: text("impersonation_reason"),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }),
