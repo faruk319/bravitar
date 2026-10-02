@@ -142,7 +142,7 @@ export function RenameBranch({ branchId, name }: { branchId: string; name: strin
         }}
       >
         <Field label="Name" id={id}>
-          <Input id={id} name="name" defaultValue={name} required autoComplete="off" />
+          <Input key={name} id={id} name="name" defaultValue={name} required autoComplete="off" />
         </Field>
       </SheetForm>
     </Sheet>

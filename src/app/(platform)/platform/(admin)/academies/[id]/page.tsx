@@ -124,7 +124,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                     </div>
                   ))
                 ) : (
-                  <p className="mt-1 text-caption text-muted-foreground">No activity on</p>
+                  <p className="mt-1 text-caption text-muted-foreground">No module on</p>
                 )}
               </li>
             ))}
