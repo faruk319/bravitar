@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { selectClass } from "@/components/fees/plan-editor";
 import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,13 +17,12 @@ export function AddStaff({ roles, branches }: { roles: Option[]; branches: Optio
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [done, setDone] = useState<{ token: string; name: string }>();
-  const [roleIds, setRoleIds] = useState<string[]>([]);
   const [branchIds, setBranchIds] = useState<string[]>([]);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const body = { fullName: f.get("fullName"), email: f.get("email"), ...(f.get("phone") ? { phone: f.get("phone") } : {}), roleIds, branchIds };
+    const body = { fullName: f.get("fullName"), email: f.get("email"), ...(f.get("phone") ? { phone: f.get("phone") } : {}), roleId: f.get("roleId"), branchIds };
     setBusy(true);
     const r = await request<{ token: string }>("/api/staff", "POST", body);
     setBusy(false);
@@ -39,7 +39,6 @@ export function AddStaff({ roles, branches }: { roles: Option[]; branches: Optio
         if (o) {
           setDone(undefined);
           setError(undefined);
-          setRoleIds([]);
           setBranchIds([]);
         }
       }}
@@ -71,7 +70,19 @@ export function AddStaff({ roles, branches }: { roles: Option[]; branches: Optio
             <Field label="Phone" id="phone">
               <Input id="phone" name="phone" type="tel" inputMode="tel" />
             </Field>
-            <CheckList legend="Roles" options={roles} value={roleIds} onChange={setRoleIds} />
+            <Field label="Role" id="roleId">
+              <select id="roleId" name="roleId" required defaultValue="" className={selectClass}>
+                <option value="" disabled>
+                  Pick a role
+                </option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-caption text-muted-foreground">Permissions come from the role.</span>
+            </Field>
             {branches.length > 1 ? <CheckList legend="Branches (none = all)" options={branches} value={branchIds} onChange={setBranchIds} /> : null}
             {error ? (
               <p role="alert" className="text-label text-danger-600">

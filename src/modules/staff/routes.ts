@@ -1,6 +1,6 @@
 import { json, jsonError, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
-import { acceptInvite, addRole, addStaff, deactivateStaff, issueInvite, reactivateStaff, removeRole, renameRole, setRolePermissions, setStaffBranches, setStaffRoles } from "./service";
+import { acceptInvite, addRole, addStaff, deactivateStaff, issueInvite, reactivateStaff, removeRole, renameRole, setRolePermissions, setStaffBranches, setStaffRole } from "./service";
 
 const ctxOf = (r: StaffRequest) => scopedCtx(r.session, r.req);
 
@@ -11,13 +11,13 @@ export const addStaffRoute = withStaffRequest("staff:manage", async (r) => {
 
 export const staffActionRoute = withStaffRequest("staff:manage", async (r) => {
   const id = pathSegment(r.req, 2);
-  const body = await readJson<{ action?: string; roleIds?: string[]; branchIds?: string[] }>(r.req);
+  const body = await readJson<{ action?: string; roleId?: string; branchIds?: string[] }>(r.req);
   const ctx = ctxOf(r);
   if (body.action === "invite") return json({ token: await issueInvite(r.tx, ctx, id) });
   if (body.action === "deactivate") return json(await deactivateStaff(r.tx, ctx, id));
   if (body.action === "reactivate") return json(await reactivateStaff(r.tx, ctx, id));
   if (body.action === "access") {
-    await setStaffRoles(r.tx, ctx, id, body.roleIds ?? []);
+    await setStaffRole(r.tx, ctx, id, body.roleId ?? "");
     await setStaffBranches(r.tx, ctx, id, body.branchIds ?? []);
     return json({ ok: true });
   }

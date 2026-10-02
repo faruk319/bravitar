@@ -52,7 +52,7 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
 };
 const staff = (name: string, role: string, branches: string[] = []) =>
   withTenant(T, async (tx) => {
-    const s = await createStaffMember(tx, owner, { email: `${name.toLowerCase().replace(/\W/g, "")}-${stamp}@example.test`, fullName: name, roleIds: [roleIds[role] ?? ""] });
+    const s = await createStaffMember(tx, owner, { email: `${name.toLowerCase().replace(/\W/g, "")}-${stamp}@example.test`, fullName: name, roleId: roleIds[role] ?? "" });
     if (branches.length) await setStaffBranches(tx, owner, s.id, branches);
     return s.id;
   });

@@ -63,7 +63,7 @@ beforeAll(async () => {
   program = (await withTenant(T, (tx) => createProgram(tx, { tenantId: T, name: "Karate", activityKey: "karate" }))).id;
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
   const staff = async (name: string, role: string) =>
-    ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds: [roles[role] ?? ""] }))).id);
+    ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId: roles[role] ?? "" }))).id);
   [teacherA, teacherB, manager] = [await staff("ta", "Teacher"), await staff("tb", "Teacher"), await staff("mgr", "Manager")];
 });
 

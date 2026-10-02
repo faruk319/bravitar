@@ -5,6 +5,7 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, deactivateStaff, loadAccessContext } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -25,7 +26,8 @@ const academy = async (key: keyof typeof made, password: string) => {
   made[key] = { id: t.tenant.id, slug, name: t.tenant.name };
   return withTenant(t.tenant.id, async (tx) => {
     const ctx = await loadAccessContext(tx, t.owner.id);
-    const coach = await createStaffMember(tx, ctx, { email: EMAIL, fullName: "Ravi Coach" });
+    const roleId = (await listRoles(tx)).find((r) => r.name === "Teacher")?.id ?? "";
+    const coach = await createStaffMember(tx, ctx, { email: EMAIL, fullName: "Ravi Coach", roleId });
     await setPassword(tx, ctx, coach.id, password);
     return { ctx, coach };
   });

@@ -77,7 +77,7 @@ beforeAll(async () => {
   await setUp(A);
   await setUp(B);
   const roles = Object.fromEntries((await withTenant(A.id, listRoles)).map((r) => [r.name, r.id]));
-  desk = await ctxFor(A.id, (await withTenant(A.id, (tx) => createStaffMember(tx, A.owner, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleIds: [roles["Front Desk"] ?? ""] }))).id);
+  desk = await ctxFor(A.id, (await withTenant(A.id, (tx) => createStaffMember(tx, A.owner, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleId: roles["Front Desk"] ?? "" }))).id);
   const r = await withTenant(A.id, (tx) =>
     createStudent(tx, A.owner, { fullName: "Riya", guardian: { fullName: "Parent of Riya", phone: "+919410000001", relation: "father" }, consents: { dataProcessing: true, whatsapp: true } }),
   );

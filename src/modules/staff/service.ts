@@ -31,9 +31,9 @@ import {
   renameRoleRow,
   replaceRolePermissions,
   replaceStaffBranches,
-  replaceStaffRoles,
   roleHolderCounts,
   rolePermissionKeys,
+  setStaffRoleRow,
   staffBranchLinks,
   staffRoleIds,
   staffRoleLinks,
@@ -89,7 +89,7 @@ const staffInputSchema = z.object({
   email: z.email().trim().toLowerCase(),
   fullName: z.string().trim().min(1).max(120),
   phone: phoneSchema.optional(),
-  roleIds: z.array(z.uuid()).default([]),
+  roleId: z.uuid("Pick a role"),
   branchIds: z.array(z.uuid()).default([]),
 });
 export type NewStaffInput = z.input<typeof staffInputSchema>;
@@ -99,6 +99,7 @@ export async function createStaffMember(tx: Tx, ctx: AccessContext, input: NewSt
   assertCan(ctx, "staff:manage");
   const data = staffInputSchema.parse(input);
   await assertStaffRoom(tx, ctx);
+  await requireAssignableRole(tx, data.roleId);
   const staff = await createStaff(tx, {
     tenantId: ctx.tenantId,
     email: data.email,
@@ -106,19 +107,27 @@ export async function createStaffMember(tx: Tx, ctx: AccessContext, input: NewSt
     passwordHash: PASSWORD_UNSET,
     ...(data.phone !== undefined ? { phone: data.phone } : {}),
   });
-  await replaceStaffRoles(tx, ctx.tenantId, staff.id, data.roleIds);
+  await setStaffRoleRow(tx, ctx.tenantId, staff.id, data.roleId);
   await replaceStaffBranches(tx, ctx.tenantId, staff.id, data.branchIds);
-  await writeAudit(tx, { ...actor(ctx), action: "staff.create", entityType: "staff_user", entityId: staff.id, after: { email: data.email, roleIds: data.roleIds } });
+  await writeAudit(tx, { ...actor(ctx), action: "staff.create", entityType: "staff_user", entityId: staff.id, after: { email: data.email, roleId: data.roleId } });
   return staff;
 }
 
-export async function setStaffRoles(tx: Tx, ctx: AccessContext, staffId: string, roleIds: string[]): Promise<void> {
+// Any role but the system Owner one: owners come from is_owner.
+async function requireAssignableRole(tx: Tx, roleId: string): Promise<void> {
+  const role = await getRole(tx, z.uuid("Pick a role").parse(roleId));
+  if (!role || role.isSystem) throw new NotFoundError("Role");
+}
+
+// One role per staff member (agreed 2026-10-02); the new one applies at once.
+export async function setStaffRole(tx: Tx, ctx: AccessContext, staffId: string, roleId: string): Promise<void> {
   assertCan(ctx, "staff:manage");
   await requireStaff(tx, staffId);
-  for (const id of roleIds) if (!(await getRole(tx, id))) throw new NotFoundError("Role");
+  await requireAssignableRole(tx, roleId);
   const before = await staffRoleIds(tx, staffId);
-  await replaceStaffRoles(tx, ctx.tenantId, staffId, roleIds);
-  await writeAudit(tx, { ...actor(ctx), action: "staff.roles.set", entityType: "staff_user", entityId: staffId, before: { roleIds: before }, after: { roleIds } });
+  if (before.length === 1 && before[0] === roleId) return;
+  await setStaffRoleRow(tx, ctx.tenantId, staffId, roleId);
+  await writeAudit(tx, { ...actor(ctx), action: "staff.role.set", entityType: "staff_user", entityId: staffId, before: { roleIds: before }, after: { roleId } });
   await invalidateSessionsForStaff(tx, staffId);
 }
 
@@ -223,14 +232,14 @@ export async function roleViews(tx: Tx, ctx: AccessContext): Promise<RoleView[]>
 }
 
 export type StaffStatus = "active" | "invited" | "needs-link" | "off";
-export type StaffRow = StaffUser & { roleIds: string[]; branchIds: string[]; status: StaffStatus };
+export type StaffRow = StaffUser & { roleId: string | null; branchIds: string[]; status: StaffStatus };
 
 export async function staffDirectory(tx: Tx, ctx: AccessContext, now = new Date()): Promise<StaffRow[]> {
   assertCan(ctx, "staff:read");
   const [list, roleLinks, branchLinks, invited] = await Promise.all([listStaff(tx), staffRoleLinks(tx), staffBranchLinks(tx), staffWithOpenInvites(tx, now)]);
   return list.map((s) => ({
     ...s,
-    roleIds: roleLinks.filter((l) => l.staffId === s.id).map((l) => l.roleId),
+    roleId: roleLinks.find((l) => l.staffId === s.id)?.roleId ?? null,
     branchIds: branchLinks.filter((l) => l.staffId === s.id).map((l) => l.branchId),
     status: !s.isActive ? "off" : s.passwordHash !== PASSWORD_UNSET ? "active" : invited.has(s.id) ? "invited" : "needs-link",
   }));

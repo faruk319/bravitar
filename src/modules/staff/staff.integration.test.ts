@@ -8,7 +8,7 @@ import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { countActiveOwners, listRoles, rolePermissionKeys, staffRoleIds } from "@/modules/staff/repo";
-import type { Role, StaffUser } from "@/modules/staff/schema";
+import { type Role, type StaffUser, staffRoles } from "@/modules/staff/schema";
 import {
   createStaffMember,
   deactivateStaff,
@@ -17,7 +17,7 @@ import {
   RoleNotEditableError,
   setOwner,
   setRolePermissions,
-  setStaffRoles,
+  setStaffRole,
 } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -40,9 +40,9 @@ beforeAll(async () => {
   roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r]));
   const ownerCtx = await ctxOf(owner.id);
   [teacher, frontDesk, dual] = await withTenant(T, async (tx) => [
-    await createStaffMember(tx, ownerCtx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleIds: [roles.Teacher?.id ?? ""] }),
-    await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Front Desk", roleIds: [roles["Front Desk"]?.id ?? ""] }),
-    await createStaffMember(tx, ownerCtx, { email: `dual-${stamp}@example.test`, fullName: "Dual", roleIds: [roles.Teacher?.id ?? "", roles["Front Desk"]?.id ?? ""] }),
+    await createStaffMember(tx, ownerCtx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleId: roles.Teacher?.id ?? "" }),
+    await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Front Desk", roleId: roles["Front Desk"]?.id ?? "" }),
+    await createStaffMember(tx, ownerCtx, { email: `dual-${stamp}@example.test`, fullName: "Dual", roleId: roles["Front Desk"]?.id ?? "" }),
   ]);
 });
 
@@ -79,13 +79,12 @@ describe("owner bypass", () => {
   });
 });
 
-describe("multi-role union", () => {
-  it("a staff member with two roles gets the union of their permissions", async () => {
+describe("one role", () => {
+  it("a staff member gets exactly their role's permissions", async () => {
     const ctx = await ctxOf(dual.id);
-    const expected = [...new Set([...PRESET_ROLES.Teacher.permissions, ...PRESET_ROLES["Front Desk"].permissions])].sort();
-    expect(ctx.permissions).toEqual(expected);
-    expect(can(ctx, "batches", "sessions:note")).toBe(true); // Teacher only
-    expect(can(ctx, "enquiries", "enquiries:create")).toBe(true); // Front Desk only
+    expect(ctx.permissions).toEqual([...new Set(PRESET_ROLES["Front Desk"].permissions)].sort());
+    expect(can(ctx, "enquiries", "enquiries:create")).toBe(true); // Front Desk
+    expect(can(ctx, "batches", "sessions:note")).toBe(false); // Teacher only
     expect(can(ctx, "fees", "fees:refund")).toBe(false); // neither
   });
 });
@@ -131,7 +130,7 @@ describe("service-layer gate", () => {
 
   it("staff without staff:manage cannot manage staff or roles", async () => {
     const ctx = await ctxOf(frontDesk.id);
-    await expect(withTenant(T, (tx) => createStaffMember(tx, ctx, { email: `x-${stamp}@example.test`, fullName: "X" }))).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(withTenant(T, (tx) => createStaffMember(tx, ctx, { email: `x-${stamp}@example.test`, fullName: "X", roleId: roles.Teacher?.id ?? "" }))).rejects.toBeInstanceOf(ForbiddenError);
     await expect(withTenant(T, (tx) => setRolePermissions(tx, ctx, roles.Teacher?.id ?? "", ["fees:refund"]))).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
@@ -171,12 +170,14 @@ describe("last owner", () => {
     await withTenant(T, (tx) => setOwner(tx, teacherCtx, owner.id, true)); // restore
   });
 
-  it("reassigning roles replaces the union with the new roles' current keys", async () => {
+  it("a new role replaces the old one at once; one role per person, and never the Owner role", async () => {
     const ctx: AccessContext = await ctxOf(owner.id);
     expect(ctx.isOwner).toBe(true);
-    await withTenant(T, (tx) => setStaffRoles(tx, ctx, dual.id, [roles.Teacher?.id ?? ""]));
+    await withTenant(T, (tx) => setStaffRole(tx, ctx, dual.id, roles.Teacher?.id ?? ""));
     const teacherKeys = await withTenant(T, (tx) => rolePermissionKeys(tx, roles.Teacher?.id ?? ""));
     expect((await ctxOf(dual.id)).permissions).toEqual(teacherKeys);
     expect(teacherKeys).toContain("attendance:amend"); // added by the override test above
+    await expect(withTenant(T, (tx) => tx.insert(staffRoles).values({ tenantId: T, staffId: dual.id, roleId: roles["Front Desk"]?.id ?? "" }))).rejects.toThrow();
+    await expect(withTenant(T, (tx) => setStaffRole(tx, ctx, dual.id, roles.Owner?.id ?? ""))).rejects.toThrow(/not found/i);
   });
 });

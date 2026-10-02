@@ -187,7 +187,7 @@ describe("who can import, and where", () => {
   it("a Teacher cannot import", async () => {
     const teacher = await withTenant(T, async (tx) => {
       const roles = await listRoles(tx);
-      return createStaffMember(tx, ownerCtx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleIds: [roles.find((r) => r.name === "Teacher")?.id ?? ""] });
+      return createStaffMember(tx, ownerCtx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleId: roles.find((r) => r.name === "Teacher")?.id ?? "" });
     });
     await expect(run(await ctxFor(teacher.id), FIXTURE, MAPPING, true)).rejects.toBeInstanceOf(ForbiddenError);
   });
@@ -196,7 +196,7 @@ describe("who can import, and where", () => {
     const other = await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Other Centre" }));
     const desk = await withTenant(T, async (tx) => {
       const roles = await listRoles(tx);
-      const s = await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleIds: [roles.find((r) => r.name === "Front Desk")?.id ?? ""] });
+      const s = await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleId: roles.find((r) => r.name === "Front Desk")?.id ?? "" });
       await setStaffBranches(tx, ownerCtx, s.id, [mainBranch]);
       return s;
     });

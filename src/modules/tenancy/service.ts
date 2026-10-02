@@ -9,7 +9,7 @@ import { VERTICAL_PRESETS } from "@/lib/tenant/labels";
 import { phoneSchema } from "@/lib/phone";
 import type { ActivitySubscription } from "@/modules/billing/schema";
 import { startActivity } from "@/modules/billing/service";
-import { createStaff, replaceStaffRoles, syncPermissions } from "@/modules/staff/repo";
+import { createStaff, setStaffRoleRow, syncPermissions } from "@/modules/staff/repo";
 import { PASSWORD_UNSET, type StaffUser } from "@/modules/staff/schema";
 import { createPresetRoles } from "@/modules/staff/service";
 import { invalidateSessionsForTenant } from "@/modules/auth/repo";
@@ -68,7 +68,7 @@ export async function createTenantWithDefaults(
       isOwner: true,
       ...(data.owner.phone !== undefined ? { phone: data.owner.phone } : {}),
     });
-    await replaceStaffRoles(tx, tenant.id, owner.id, [roles.Owner.id]);
+    await setStaffRoleRow(tx, tenant.id, owner.id, roles.Owner.id);
     return { tenant, branch, subscription, owner };
   });
 }

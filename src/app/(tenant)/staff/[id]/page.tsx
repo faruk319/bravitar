@@ -56,11 +56,11 @@ export default async function StaffMemberPage({ params }: PageProps<"/staff/[id]
               active={s.isActive}
               roles={roles.filter((r) => !r.isSystem).map((r) => ({ id: r.id, label: r.name, hint: `${r.keys.length} permissions` }))}
               branches={branches.map((b) => ({ id: b.id, label: b.name }))}
-              roleIds={s.roleIds}
+              roleId={s.roleId}
               branchIds={s.branchIds}
             />
           ) : (
-            <p className="text-body text-muted-foreground">{s.roleIds.map((r) => roles.find((x) => x.id === r)?.name).join(", ") || "No role"}</p>
+            <p className="text-body text-muted-foreground">{roles.find((x) => x.id === s.roleId)?.name ?? "No role"}</p>
           )}
         </Card>
       </div>

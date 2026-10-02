@@ -2,17 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { selectClass } from "@/components/fees/plan-editor";
+import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { request, send } from "@/lib/send";
 import { CheckList, type Option } from "./check-list";
 import { InviteLink } from "./invite-link";
 
-type Props = { staffId: string; name: string; active: boolean; roles: Option[]; branches: Option[]; roleIds: string[]; branchIds: string[] };
+type Props = { staffId: string; name: string; active: boolean; roles: Option[]; branches: Option[]; roleId: string | null; branchIds: string[] };
 
-// Roles and branches (saved together), a fresh invite link, on/off.
-export function StaffManage({ staffId, name, active, roles, branches, roleIds: initialRoles, branchIds: initialBranches }: Props) {
+// The role and branches (saved together), a fresh invite link, on/off.
+export function StaffManage({ staffId, name, active, roles, branches, roleId: initialRole, branchIds: initialBranches }: Props) {
   const router = useRouter();
-  const [roleIds, setRoleIds] = useState(initialRoles);
+  const [roleId, setRoleId] = useState(initialRole ?? "");
   const [branchIds, setBranchIds] = useState(initialBranches);
   const [msg, setMsg] = useState<string>();
   const [token, setToken] = useState<string>();
@@ -26,14 +28,25 @@ export function StaffManage({ staffId, name, active, roles, branches, roleIds: i
 
   return (
     <div className="flex flex-col gap-5">
-      <CheckList legend="Roles" options={roles} value={roleIds} onChange={setRoleIds} />
+      <Field label="Role" id="staff-role">
+        <select id="staff-role" value={roleId} onChange={(e) => setRoleId(e.target.value)} className={selectClass}>
+          <option value="" disabled>
+            Pick a role
+          </option>
+          {roles.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </Field>
       {branches.length > 1 ? <CheckList legend="Branches (none = all)" options={branches} value={branchIds} onChange={setBranchIds} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <Button
           size="lg"
           disabled={busy}
           onClick={async () => {
-            const r = await post({ action: "access", roleIds, branchIds });
+            const r = await post({ action: "access", roleId, branchIds });
             setMsg(r.error ?? "Saved ✓");
             if (!r.error) router.refresh();
           }}

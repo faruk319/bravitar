@@ -50,7 +50,7 @@ beforeAll(async () => {
   const staff = async (name: string, role: string, branches: string[] = []) =>
     ctxFor(
       await withTenant(T, async (tx) => {
-        const s = await createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds: [roles[role] ?? ""] });
+        const s = await createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId: roles[role] ?? "" });
         if (branches.length) await setStaffBranches(tx, owner, s.id, branches);
         return s.id;
       }),

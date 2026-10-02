@@ -80,9 +80,10 @@ export async function rolePermissionKeys(tx: AnyTx, roleId: string): Promise<str
   return rows.map((r) => r.key);
 }
 
-export async function replaceStaffRoles(tx: AnyTx, tenantId: string, staffId: string, roleIds: string[]): Promise<void> {
+// One role per staff member (migration 0034).
+export async function setStaffRoleRow(tx: AnyTx, tenantId: string, staffId: string, roleId: string): Promise<void> {
   await tx.delete(staffRoles).where(eq(staffRoles.staffId, staffId));
-  if (roleIds.length) await tx.insert(staffRoles).values(roleIds.map((roleId) => ({ tenantId, staffId, roleId })));
+  await tx.insert(staffRoles).values({ tenantId, staffId, roleId });
 }
 
 export async function replaceStaffBranches(tx: Tx, tenantId: string, staffId: string, branchIds: string[]): Promise<void> {

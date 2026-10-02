@@ -48,7 +48,7 @@ beforeAll(async () => {
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
-  teacher = await ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `teacher-${stamp}@example.test`, fullName: "Ravi Coach", roleIds: [roles.Teacher ?? ""] }))).id);
+  teacher = await ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `teacher-${stamp}@example.test`, fullName: "Ravi Coach", roleId: roles.Teacher ?? "" }))).id);
   today = await withTenant(T, tenantToday);
   program = (await withTenant(T, (tx) => addProgram(tx, owner, { name: "Karate" }))).id;
   const everyDay = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, startTime: "06:00", endTime: "07:00" }));

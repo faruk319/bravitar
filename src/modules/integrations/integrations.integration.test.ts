@@ -41,7 +41,7 @@ beforeAll(async () => {
   ownerA = await ctxFor(A, a.owner.id);
   ownerB = await ctxFor(B, b.owner.id);
   const roles = Object.fromEntries((await withTenant(A, listRoles)).map((r) => [r.name, r.id]));
-  const m = await withTenant(A, (tx) => createStaffMember(tx, ownerA, { email: `rzp-manager-${stamp}@example.test`, fullName: "Manager", roleIds: [roles.Manager ?? ""] }));
+  const m = await withTenant(A, (tx) => createStaffMember(tx, ownerA, { email: `rzp-manager-${stamp}@example.test`, fullName: "Manager", roleId: roles.Manager ?? "" }));
   managerA = await ctxFor(A, m.id);
 });
 

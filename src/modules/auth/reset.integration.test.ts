@@ -6,6 +6,7 @@ import { db, sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import type { CodeSender } from "./codes";
@@ -39,9 +40,10 @@ beforeAll(async () => {
     const t = await testAcademy({ name: `Reset ${key.toUpperCase()} ${stamp}`, slug, owner: { name: "Owner", email: `owner-${key}-${stamp}@example.test` } });
     const staffId = await withTenant(t.tenant.id, async (tx) => {
       const ctx = await loadAccessContext(tx, t.owner.id);
-      const s = await createStaffMember(tx, ctx, { email: EMAIL, fullName: "Neha Desk", phone });
+      const roleId = (await listRoles(tx)).find((r) => r.name === "Teacher")?.id ?? "";
+      const s = await createStaffMember(tx, ctx, { email: EMAIL, fullName: "Neha Desk", phone, roleId });
       await setPassword(tx, ctx, s.id, OLD);
-      if (key === "a") await setPassword(tx, ctx, (await createStaffMember(tx, ctx, { email: NO_PHONE, fullName: "No Phone" })).id, OLD);
+      if (key === "a") await setPassword(tx, ctx, (await createStaffMember(tx, ctx, { email: NO_PHONE, fullName: "No Phone", roleId })).id, OLD);
       return s.id;
     });
     made[key] = { id: t.tenant.id, slug, name: t.tenant.name, staffId };

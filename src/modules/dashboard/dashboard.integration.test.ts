@@ -63,7 +63,7 @@ beforeAll(async () => {
   owner = await ctxFor(t.owner.id);
   other = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Other" }))).id;
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
-  desk = await ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleIds: [roles["Front Desk"] ?? ""] }))).id);
+  desk = await ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleId: roles["Front Desk"] ?? "" }))).id);
   today = await withTenant(T, tenantToday);
   noon = localToUtc(today, "12:00", TZ);
 

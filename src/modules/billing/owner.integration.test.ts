@@ -78,10 +78,10 @@ beforeAll(async () => {
   [A, B] = [a.tenant.id, b.tenant.id];
   owner = await ctxFor(A, a.owner.id);
   const teacherRole = (await withTenant(A, listRoles)).find((r) => r.name === "Teacher")?.id ?? "";
-  const t = await withTenant(A, (tx) => addStaff(tx, owner, { email: `own-t-${stamp}@example.test`, fullName: "Teacher", roleIds: [teacherRole] }));
+  const t = await withTenant(A, (tx) => addStaff(tx, owner, { email: `own-t-${stamp}@example.test`, fullName: "Teacher", roleId: teacherRole }));
   teacher = await ctxFor(A, t.staff.id);
   const managerRole = (await withTenant(A, listRoles)).find((r) => r.name === "Manager")?.id ?? "";
-  const m = await withTenant(A, (tx) => addStaff(tx, owner, { email: `own-m-${stamp}@example.test`, fullName: "Manager", roleIds: [managerRole] }));
+  const m = await withTenant(A, (tx) => addStaff(tx, owner, { email: `own-m-${stamp}@example.test`, fullName: "Manager", roleId: managerRole }));
   manager = await ctxFor(A, m.staff.id);
 
   ids.paid = await paidThenOwing(A, "Paid");

@@ -22,7 +22,7 @@ import {
   removeRole,
   renameRole,
   setRolePermissions,
-  setStaffRoles,
+  setStaffRole,
 } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -37,14 +37,14 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
   const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
   return { ...base, branchIds };
 };
-const hire = (name: string, roleIds: string[]) => withTenant(T, (tx) => addStaff(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds }));
+const hire = (name: string, roleId: string) => withTenant(T, (tx) => addStaff(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId }));
 
 beforeAll(async () => {
   const t = await testAcademy({ name: `Roles ${stamp}`, slug, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
   T = t.tenant.id;
   owner = await ctxFor(t.owner.id);
   for (const r of await withTenant(T, listRoles)) role[r.name] = r.id;
-  manager = await ctxFor((await hire("manager", [role.Manager ?? ""])).staff.id);
+  manager = await ctxFor((await hire("manager", role.Manager ?? "")).staff.id);
 });
 
 afterAll(async () => {
@@ -57,7 +57,7 @@ describe("roles the owner makes", () => {
   it("a custom role's ticks are exactly what its holder can do; copying starts from another role", async () => {
     const accountant = await withTenant(T, (tx) => addRole(tx, owner, { name: "Accountant" }));
     await withTenant(T, (tx) => setRolePermissions(tx, owner, accountant.id, ["students:read", "invoices:read"]));
-    const { staff } = await hire("accounts", [accountant.id]);
+    const { staff } = await hire("accounts", accountant.id);
     const ctx = await ctxFor(staff.id);
     expect([...ctx.permissions].sort()).toEqual(["invoices:read", "students:read"]);
     expect([allows(ctx, "students:read"), allows(ctx, "students:create"), allows(ctx, "staff:manage")]).toEqual([true, false, false]);
@@ -73,9 +73,9 @@ describe("roles the owner makes", () => {
     await expect(withTenant(T, (tx) => addRole(tx, owner, { name: "Senior Coach" }))).rejects.toThrow('A role called "Senior Coach" already exists');
     await expect(withTenant(T, (tx) => renameRole(tx, owner, r.id, "Teacher"))).rejects.toThrow("already exists");
 
-    const { staff } = await hire("senior", [r.id]);
+    const { staff } = await hire("senior", r.id);
     await expect(withTenant(T, (tx) => removeRole(tx, owner, r.id))).rejects.toThrow("Remove it from 1 staff first");
-    await withTenant(T, (tx) => setStaffRoles(tx, owner, staff.id, []));
+    await withTenant(T, (tx) => setStaffRole(tx, owner, staff.id, role.Teacher ?? ""));
     await withTenant(T, (tx) => removeRole(tx, owner, r.id));
     expect((await withTenant(T, listRoles)).some((x) => x.id === r.id)).toBe(false);
 
@@ -89,7 +89,7 @@ describe("roles the owner makes", () => {
 
 describe("invite links", () => {
   it("add staff → open the link → set a password → sign in; the link works once", async () => {
-    const { staff, token } = await hire("coach", [role.Teacher ?? ""]);
+    const { staff, token } = await hire("coach", role.Teacher ?? "");
     expect(await inviteInfo(token)).toEqual({ ok: true, staffName: "coach", email: `coach-${stamp}@example.test`, academy: `Roles ${stamp}` });
     await acceptInvite(token, PASSWORD);
     const session = await login({ slug, email: staff.email, password: PASSWORD });
@@ -99,7 +99,7 @@ describe("invite links", () => {
   });
 
   it("a new link kills the old one; old links expire; a switched-off person can't use one", async () => {
-    const { staff, token: first } = await hire("desk", [role["Front Desk"] ?? ""]);
+    const { staff, token: first } = await hire("desk", role["Front Desk"] ?? "");
     const second = await withTenant(T, (tx) => issueInvite(tx, owner, staff.id));
     expect(await inviteInfo(first)).toEqual({ ok: false, reason: "expired" });
     expect((await inviteInfo(second)).ok).toBe(true);
@@ -114,7 +114,7 @@ describe("invite links", () => {
   });
 
   it("using a new link signs the person out everywhere; editing their role clears their cached access", async () => {
-    const { staff, token } = await hire("reset", [role.Teacher ?? ""]);
+    const { staff, token } = await hire("reset", role.Teacher ?? "");
     await acceptInvite(token, PASSWORD);
     const old = await login({ slug, email: staff.email, password: PASSWORD });
     expect(await getStaffSessionFromToken(old.token)).toBeDefined();
@@ -131,8 +131,8 @@ describe("invite links", () => {
 
 describe("the dashboard follows permissions", () => {
   it("each role gets exactly the blocks it may see", async () => {
-    const teacher = await ctxFor((await hire("dash-teacher", [role.Teacher ?? ""])).staff.id);
-    const desk = await ctxFor((await hire("dash-desk", [role["Front Desk"] ?? ""])).staff.id);
+    const teacher = await ctxFor((await hire("dash-teacher", role.Teacher ?? "")).staff.id);
+    const desk = await ctxFor((await hire("dash-desk", role["Front Desk"] ?? "")).staff.id);
     const blocks = async (ctx: ScopedCtx) => Object.keys(await withTenant(T, (tx) => dashboardData(tx, ctx))).filter((k) => k !== "date").sort();
     expect(await blocks(owner)).toEqual(["atRisk", "money", "pipeline", "today"]);
     expect(await blocks(teacher)).toEqual(["atRisk", "today"]); // Teacher got attendance:read above

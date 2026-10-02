@@ -177,7 +177,7 @@ describe("branch scoping", () => {
     const otherKid = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Other Branch Kid", dateOfBirth: "2014-01-01", branchId: otherBranch, guardian: { fullName: "Prakash Rao", phone: P(400), relation: "father" }, consents }));
     const desk = await withTenant(T, async (tx) => {
       const roles = await listRoles(tx);
-      const s = await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleIds: [roles.find((r) => r.name === "Front Desk")?.id ?? ""] });
+      const s = await createStaffMember(tx, ownerCtx, { email: `desk-${stamp}@example.test`, fullName: "Desk", roleId: roles.find((r) => r.name === "Front Desk")?.id ?? "" });
       await setStaffBranches(tx, ownerCtx, s.id, [mainBranch]);
       return s;
     });

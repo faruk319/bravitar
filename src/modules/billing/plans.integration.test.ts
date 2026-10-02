@@ -84,7 +84,7 @@ beforeAll(async () => {
   await start(A, second, KEY, plan.small);
   owner = await ctxFor(A, a.owner.id);
   const roles = Object.fromEntries((await withTenant(A, listRoles)).map((r) => [r.name, r.id]));
-  desk = await ctxFor(A, (await withTenant(A, (tx) => addStaff(tx, owner, { email: `plans-desk-${stamp}@example.test`, fullName: "Desk", roleIds: [roles["Front Desk"] ?? ""] }))).staff.id);
+  desk = await ctxFor(A, (await withTenant(A, (tx) => addStaff(tx, owner, { email: `plans-desk-${stamp}@example.test`, fullName: "Desk", roleId: roles["Front Desk"] ?? "" }))).staff.id);
   await withTenant(A, async (tx) => {
     const programId = (await addProgram(tx, owner, { name: "Test program", activityKey: KEY })).id;
     const slots = [{ weekday: 1, startTime: "17:00", endTime: "18:00" }];
@@ -176,7 +176,8 @@ describe("staff seats", () => {
     C = c.tenant.id;
     await start(C, await branch(C, "C Second"), KEY, plan.small); // 1 more seat
     cOwner = await ctxFor(C, c.owner.id);
-    const add = async (name: string) => (await withTenant(C, (tx) => addStaff(tx, cOwner, { email: `${name}-${stamp}@example.test`, fullName: name }))).staff.id;
+    const roleId = await withTenant(C, async (tx) => (await listRoles(tx)).find((r) => r.name === "Teacher")?.id ?? "");
+    const add = async (name: string) => (await withTenant(C, (tx) => addStaff(tx, cOwner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId }))).staff.id;
     await add("x");
     yStaff = await add("y");
     await expect(add("z")).rejects.toThrow("Your plans allow 3 staff. Upgrade a plan in Billing.");

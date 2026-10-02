@@ -66,7 +66,7 @@ beforeAll(async () => {
   main = t.branch.id;
   owner = await ctxFor(T, t.owner.id);
   const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
-  const hire = async (name: string, role: string) => ctxFor(T, (await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleIds: [roles[role] ?? ""] }))).id);
+  const hire = async (name: string, role: string) => ctxFor(T, (await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId: roles[role] ?? "" }))).id);
   desk = await hire("desk", "Front Desk");
   teacher = await hire("coach", "Teacher");
   await withTenant(T, (tx) => connectRazorpay(tx, owner, { keyId: "rzp_test_Links123456", keySecret: "secret-ok", webhookSecret: "whsec-links" }, { api: rzp.api }));

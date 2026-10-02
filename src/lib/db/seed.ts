@@ -227,11 +227,11 @@ export async function seed(): Promise<SeedResult> {
       await setPassword(tx, ctx, owner.id, DEMO_PASSWORD);
       const room = await createResource(tx, { tenantId: tenant.id, branchId: branch.id, name: resource });
       const roles = await listRoles(tx);
-      const roleId = (name: string) => roles.filter((r) => r.name === name).map((r) => r.id); // demo data only
-      const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleIds: roleId("Teacher") });
+      const roleId = (name: string) => roles.find((r) => r.name === name)?.id ?? ""; // demo data only
+      const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleId: roleId("Teacher") });
       await setPassword(tx, ctx, staff.id, DEMO_PASSWORD);
       // A front desk hire who hasn't opened their invite yet.
-      const desk = await addStaff(tx, ctx, { email: `desk@${input.slug}.demo`, fullName: "Neha Kulkarni", roleIds: roleId("Front Desk") });
+      const desk = await addStaff(tx, ctx, { email: `desk@${input.slug}.demo`, fullName: "Neha Kulkarni", roleId: roleId("Front Desk") });
       invite = `http://${input.slug}.localhost:3000/invite/${desk.token}`;
 
       const sctx: StudentCtx = { ...ctx, branchIds: [] };

@@ -13,7 +13,7 @@ import { loginAttempts, sessionsAuth } from "@/modules/auth/schema";
 import { LOGIN_MAX_FAILURES, login, setPassword } from "@/modules/auth/service";
 import { listRoles } from "@/modules/staff/repo";
 import type { Role, StaffUser } from "@/modules/staff/schema";
-import { createStaffMember, deactivateStaff, loadAccessContext, setRolePermissions, setStaffRoles } from "@/modules/staff/service";
+import { createStaffMember, deactivateStaff, loadAccessContext, setRolePermissions, setStaffRole } from "@/modules/staff/service";
 import { tenants } from "@/modules/tenancy/schema";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { setTenantModules } from "@/modules/tenancy/service";
@@ -47,7 +47,7 @@ beforeAll(async () => {
   roles = Object.fromEntries((await withTenant(A, listRoles)).map((r) => [r.name, r]));
   await withTenant(A, async (tx) => {
     const ctx = await loadAccessContext(tx, ownerA.id);
-    teacher = await createStaffMember(tx, ctx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleIds: [roles.Teacher?.id ?? ""] });
+    teacher = await createStaffMember(tx, ctx, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleId: roles.Teacher?.id ?? "" });
     await setPassword(tx, ctx, teacher.id, PASSWORD);
   });
 });
@@ -142,7 +142,7 @@ describe("session lifecycle", () => {
     // the teacher's email is rate-limited by the lockout test above; use a fresh staff member
     const victim = await withTenant(A, async (tx) => {
       const ctx = await loadAccessContext(tx, ownerA.id);
-      const v = await createStaffMember(tx, ctx, { email: `victim-${stamp}@example.test`, fullName: "Victim", roleIds: [roles.Teacher?.id ?? ""] });
+      const v = await createStaffMember(tx, ctx, { email: `victim-${stamp}@example.test`, fullName: "Victim", roleId: roles.Teacher?.id ?? "" });
       await setPassword(tx, ctx, v.id, PASSWORD);
       return v;
     });
@@ -161,7 +161,7 @@ describe("cache invalidation", () => {
   it("role assignment, role permission edits and module changes all show on the next request", async () => {
     const member = await withTenant(A, async (tx) => {
       const ctx = await loadAccessContext(tx, ownerA.id);
-      const m = await createStaffMember(tx, ctx, { email: `member-${stamp}@example.test`, fullName: "Member", roleIds: [roles.Teacher?.id ?? ""] });
+      const m = await createStaffMember(tx, ctx, { email: `member-${stamp}@example.test`, fullName: "Member", roleId: roles.Teacher?.id ?? "" });
       await setPassword(tx, ctx, m.id, PASSWORD);
       return m;
     });
@@ -170,7 +170,7 @@ describe("cache invalidation", () => {
     const me = async () => (await (await meHandler(get("/api/auth/me", cookie))).json()) as { permissions: string[]; modules: Record<string, boolean> };
     expect((await me()).permissions).not.toContain("fees:collect");
 
-    await withTenant(A, async (tx) => setStaffRoles(tx, await loadAccessContext(tx, ownerA.id), member.id, [roles["Front Desk"]?.id ?? ""]));
+    await withTenant(A, async (tx) => setStaffRole(tx, await loadAccessContext(tx, ownerA.id), member.id, roles["Front Desk"]?.id ?? ""));
     expect((await me()).permissions).toContain("fees:collect");
 
     await withTenant(A, async (tx) => setRolePermissions(tx, await loadAccessContext(tx, ownerA.id), roles["Front Desk"]?.id ?? "", ["students:read"]));
@@ -189,7 +189,7 @@ describe("route helper", () => {
     const ownerCookie = cookieOf(await loginHandler(post("/api/auth/login", { email, password: PASSWORD })));
     const t = await withTenant(A, async (tx) => {
       const ctx = await loadAccessContext(tx, ownerA.id);
-      const s = await createStaffMember(tx, ctx, { email: `t2-${stamp}@example.test`, fullName: "Teacher 2", roleIds: [roles.Teacher?.id ?? ""] });
+      const s = await createStaffMember(tx, ctx, { email: `t2-${stamp}@example.test`, fullName: "Teacher 2", roleId: roles.Teacher?.id ?? "" });
       await setPassword(tx, ctx, s.id, PASSWORD);
       return s;
     });
