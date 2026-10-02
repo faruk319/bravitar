@@ -25,6 +25,9 @@ export default async function PlatformLayout({ children }: LayoutProps<"/platfor
             <Link href="/platform/billing" className="text-label text-neutral-700 hover:text-neutral-900">
               Billing
             </Link>
+            <Link href="/platform/queues" className="text-label text-neutral-700 hover:text-neutral-900">
+              Queues
+            </Link>
           </nav>
           <span className="flex items-center gap-2 text-label text-muted-foreground">
             {s.actor.name}

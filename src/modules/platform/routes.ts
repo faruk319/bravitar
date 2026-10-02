@@ -6,6 +6,7 @@ import { metaOf, slugFromHost } from "@/modules/auth/routes";
 import { cancelPayment, recordPayment, voidBill } from "@/modules/billing/payments";
 import { addPlan, addTrialDays, changePlan, editActivity, editBillingSettings, editPlan, setCancelAtPeriodEnd, setDefaultPlan, setPrice } from "@/modules/billing/service";
 import { createAcademy, impersonate, ownerInvite, setAcademyStatus, setModules } from "./academies";
+import { retryMessage } from "./queues";
 import { platformSignIn } from "./auth";
 
 // POST /api/platform/login, on the main site only.
@@ -53,6 +54,13 @@ export const ownerInviteHandler = withPlatformRequest(async (req, actor) => json
 
 // POST /api/platform/academies/<id>/impersonate { reason }: a pass to sign in as its owner.
 export const impersonateHandler = withPlatformRequest(async (req, actor) => json({ url: await impersonate(actor, pathSegment(req, 3), await readJson(req)) }, { status: 201 }));
+
+// POST /api/platform/messages/<id> { action: "retry" }: a failed message back in its queue.
+export const messageHandler = withPlatformRequest(async (req, actor) => {
+  if ((await readJson<{ action?: string }>(req)).action !== "retry") throw new NotFoundError("Action");
+  await retryMessage(actor, pathSegment(req, 3));
+  return json({ ok: true });
+});
 
 // PATCH /api/platform/activities/<key>: name, description, icon, status.
 export const activityHandler = withPlatformRequest(async (req, actor) => {

@@ -15,8 +15,9 @@ refunds or attendance.
 
 **Screens:** academies, create academy, academy detail (each branch's modules
 with plan, usage, bills and payments; features; suspend/restore), Modules &
-pricing, Subscriptions, Billing, open as owner (impersonation), platform-wide message
-log. Each academy also has its own Billing page.
+pricing, Subscriptions, Billing, Queues (failed WhatsApp messages with Retry,
+webhooks that failed or stuck, job health), open as owner (impersonation). Each
+academy also has its own Billing page.
 
 **Rules**
 

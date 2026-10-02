@@ -44,10 +44,11 @@ export function ToSendActions({ id, phone, body }: { id: string; phone: string; 
   );
 }
 
-export function RetryMessage({ id }: { id: string }) {
+// base: /api/platform/messages on /platform/queues.
+export function RetryMessage({ id, base = "/api/messages" }: { id: string; base?: string }) {
   const a = useAction();
   return (
-    <Button size="sm" variant="outline" disabled={a.busy} onClick={() => void a.run(() => send(`/api/messages/${id}`, "POST", { action: "retry" }))}>
+    <Button size="sm" variant="outline" disabled={a.busy} onClick={() => void a.run(() => send(`${base}/${id}`, "POST", { action: "retry" }))}>
       Retry
     </Button>
   );

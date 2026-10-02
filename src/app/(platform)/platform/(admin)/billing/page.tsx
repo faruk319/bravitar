@@ -1,10 +1,9 @@
 import { Banknote, TriangleAlert, Wallet } from "lucide-react";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { ActivityIcon } from "@/components/activity-icon";
 import { METHOD_LABEL, perCycle, priceNote } from "@/components/billing-text";
+import { AcademyLink, Section } from "@/components/platform/sections";
 import { StatCard } from "@/components/stat-card";
-import { Card, CardHeader } from "@/components/ui/card";
 import { requirePlatformPage } from "@/lib/auth/server";
 import { formatDate, formatDayMonth, todayIn } from "@/lib/dates";
 import { formatPaise } from "@/lib/money/format";
@@ -12,18 +11,12 @@ import { cn } from "@/lib/utils";
 import type { ListedSubscription } from "@/modules/billing/repo";
 import { billingOverview } from "@/modules/billing/service";
 
-const academy = (tenantId: string, name: string) => (
-  <Link href={`/platform/academies/${tenantId}`} className="font-medium text-neutral-900 hover:underline">
-    {name}
-  </Link>
-);
-
 // One branch module of one academy, with something on the right.
 function ModuleRow({ s, right }: { s: ListedSubscription; right: ReactNode }) {
   return (
     <li className="flex items-start justify-between gap-3 py-3">
       <span className="text-body">
-        {academy(s.tenantId, s.academyName)}
+        <AcademyLink id={s.tenantId} name={s.academyName} />
         <span className="block text-caption text-muted-foreground">
           <ActivityIcon name={s.activityIcon} className="mr-1 inline size-3.5 align-[-2px]" />
           {s.activityName} at {s.branchName} · {s.planName}
@@ -31,15 +24,6 @@ function ModuleRow({ s, right }: { s: ListedSubscription; right: ReactNode }) {
       </span>
       <span className="shrink-0 text-right text-caption">{right}</span>
     </li>
-  );
-}
-
-function Section({ id, title, empty, children }: { id: string; title: string; empty: boolean; children: ReactNode }) {
-  return (
-    <Card id={id}>
-      <CardHeader title={title} />
-      {empty ? <p className="text-body text-muted-foreground">None.</p> : <ul className="divide-y divide-neutral-100">{children}</ul>}
-    </Card>
   );
 }
 
@@ -61,7 +45,7 @@ export default async function BillingPage() {
           {o.owed.map((b) => (
             <li key={b.id} className="flex items-start justify-between gap-3 py-3">
               <span className="text-body">
-                {academy(b.tenantId, b.academyName)}
+                <AcademyLink id={b.tenantId} name={b.academyName} />
                 <span className="block text-caption text-muted-foreground">
                   {b.description} · {b.number}
                 </span>
@@ -92,7 +76,7 @@ export default async function BillingPage() {
           {o.payments.map((p) => (
             <li key={p.id} className={cn("flex items-start justify-between gap-3 py-3", p.cancelledAt && "text-muted-foreground")}>
               <span className="text-body">
-                {academy(p.tenantId, p.academyName)}
+                <AcademyLink id={p.tenantId} name={p.academyName} />
                 <span className="block text-caption text-muted-foreground">
                   {p.activityName} at {p.branchName} · {formatDate(p.receivedOn)} · {METHOD_LABEL[p.method]}
                   {p.reference ? ` · ${p.reference}` : ""}

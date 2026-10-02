@@ -3,6 +3,7 @@ import { assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
+import type { PlatformTx } from "@/lib/db/platform";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { tenantOrigin } from "@/lib/tenant/origin";
 import { whatsappMessage, whatsappNumber } from "@/modules/integrations/service";
@@ -209,6 +210,11 @@ export async function messageAction(tx: Tx, ctx: ScopedCtx, id: string, action: 
     if (m.status !== "queued") throw new ConflictError("Only a waiting message can be skipped");
     return updateMessage(tx, id, { status: "skipped", sentBy: ctx.staffId });
   }
+  return requeue(tx, m);
+}
+
+// A failed message back in the queue, due now; also from /platform/queues.
+export async function requeue(tx: Tx | PlatformTx, m: MessageLog): Promise<MessageLog> {
   if (m.status !== "failed") throw new ConflictError("Only a failed message can be tried again");
-  return updateMessage(tx, id, { status: "queued", error: null, sendAfter: new Date() });
+  return updateMessage(tx, m.id, { status: "queued", error: null, sendAfter: new Date() });
 }
