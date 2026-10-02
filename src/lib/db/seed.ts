@@ -38,10 +38,10 @@ const DEV_ADMIN = { email: "admin@bravitar.demo", fullName: "Bravitar Admin", pa
 
 // Demo data for local development. Idempotent by natural key (tenant slug):
 // inserts what is missing, never updates what is there.
-const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string })[] = [
+const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string; extraModule?: string })[] = [
   { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo", phone: "9800000001" }, coach: { name: "Ravi Patil", email: "coach@shivaji-karate.demo" } },
   { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
-  { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" } },
+  { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" }, extraModule: "tuition" },
 ];
 
 // Six students per academy: one family with two siblings, an adult, a paused
@@ -204,7 +204,7 @@ export async function seed(): Promise<SeedResult> {
   console.log(`seed: /platform admin ${DEV_ADMIN.email} / ${DEV_ADMIN.password}, authenticator key ${DEV_ADMIN.secret} (dev only)`);
   const result: SeedResult = { tenantsCreated: [], tenantsPresent: [] };
 
-  for (const { resource, coach, extraBranch, ...input } of DEMO_TENANTS) {
+  for (const { resource, coach, extraBranch, extraModule, ...input } of DEMO_TENANTS) {
     const existing = await platformRead((tx) => findTenantBySlug(tx, input.slug));
     if (existing) {
       result.tenantsPresent.push(input.slug);
@@ -281,6 +281,9 @@ export async function seed(): Promise<SeedResult> {
       await queueReminders(tx); // what the hourly job would queue now
       await seedEnquiries(tx, sctx, programIds.values().next().value ?? "");
     });
+    // A second module waits for its first payment; started after the programs,
+    // since with two modules on each new program names its module.
+    if (extraModule) await withPlatformAdmin({ action: "seed.module", actorType: "system", tenantId: tenant.id }, (tx) => startActivity(tx, { tenantId: tenant.id, branchId: branch.id, activityKey: extraModule, today: todayIn(tenant.timezone), trial: false }));
     console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, two months of invoices, payments spread over them`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
     result.tenantsCreated.push(input.slug);

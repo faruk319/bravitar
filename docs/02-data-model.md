@@ -78,29 +78,39 @@ CREATE TABLE platform_admins (
   is_active     boolean NOT NULL DEFAULT true,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
-
-CREATE TABLE platform_plans (
-  code            text PRIMARY KEY,              -- 'starter' | 'growth' | 'pro'
-  name            text NOT NULL,
-  price_paise     bigint NOT NULL,
-  billing_cycle   text NOT NULL CHECK (billing_cycle IN ('monthly','yearly')),
-  max_students    integer,                       -- NULL = unlimited
-  max_staff       integer,
-  max_branches    integer,
-  included_modules jsonb NOT NULL DEFAULT '{}'::jsonb,
-  is_active       boolean NOT NULL DEFAULT true
-);
-
-CREATE TABLE tenant_subscriptions (           -- what the ACADEMY pays YOU
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
-  plan_code     text NOT NULL REFERENCES platform_plans(code),
-  status        text NOT NULL CHECK (status IN ('trial','active','past_due','suspended','cancelled')),
-  trial_ends_at timestamptz,
-  period_end    timestamptz,
-  created_at    timestamptz NOT NULL DEFAULT now()
-);
 ```
+
+### Bravitar billing (slice 24)
+
+What each academy pays Bravitar. The billed unit is one module (activity) in one
+branch. Exact DDL: migrations 0026–0032; code: `src/modules/billing/`.
+
+Platform tables, edited on `/platform`:
+
+- `activities`: the modules (tuition, karate…): name, icon, status (`active` =
+  offered, `coming_soon`, `retired`) and its own trial days (blank: the default).
+  New ones come only from a developer (registry entry and migration).
+- `activity_plans`: each module's plans: price, `month` or `year`, optional
+  `max_students` and `max_staff` (NULL = no limit), offered or not, one default.
+  `plan_price_history` keeps every price change.
+- `billing_settings`: one row: grace days, default trial days, tax rate (basis
+  points), Bravitar's GSTIN and the "How to pay" text.
+- `billing_invoice_series`: the `BRV/<FY>/00001` counter per financial year.
+
+Per academy (`tenant_id`, RLS), written only by the platform role and read by
+the academy:
+
+- `activity_subscriptions`: one module in one branch: plan, status (`trial`,
+  `pending` = waiting for its first payment, `active`, `paused`, `cancelled`),
+  the price and cycle it started on, anchor day, current period, a waiting
+  downgrade (`next_plan_id`), cancel at period end, and a special price
+  (`override_*`) with reason and until-date.
+- `billing_invoices`: one per subscription per period, billed in advance:
+  subtotal, tax, total, paid, due date (issue + grace days) and `open`, `paid`
+  or `void` (a void bill keeps its number and reason).
+- `billing_payments` and `billing_allocations`: payments recorded by hand on
+  `/platform` (idempotent request id), paying the oldest bills first. A
+  cancelled payment keeps its record and reason.
 
 Keep **your** billing of tenants completely separate from **tenants'** billing of
 students. They share no tables. Conflating them is a classic SaaS mistake.

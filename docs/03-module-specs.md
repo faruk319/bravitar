@@ -13,8 +13,10 @@ refunds or attendance.
 
 **Purpose:** you onboard and support academies.
 
-**Screens:** tenant list, create tenant, tenant detail (plan, modules, limits,
-usage), suspend/reactivate, impersonate (read-only), platform-wide message log.
+**Screens:** academies, create academy, academy detail (each branch's modules
+with plan, usage, bills and payments; features; suspend/restore), Modules &
+pricing, Subscriptions, Billing, impersonate (read-only), platform-wide message
+log. Each academy also has its own Billing page.
 
 **Rules**
 
@@ -25,6 +27,41 @@ usage), suspend/reactivate, impersonate (read-only), platform-wide message log.
   route. It never deletes data.
 - Impersonation is read-only, shows a persistent banner in the tenant UI, and
   writes an audit row containing a typed reason.
+
+**Bravitar billing** (slice 24, built; tables in `02-data-model.md` §2)
+
+- One module in one branch is billed on its own: its plan, limits, bills and
+  pause never touch another branch or module. Plans are rows (price, month or
+  year, optional student and staff limits, offered or not) edited on Modules &
+  pricing; nothing is hardcoded.
+- Limits: students per branch module (active or paused enrollments); staff
+  seats are the live plans' staff limits added up, plus one owner. Over a limit,
+  adding is refused and nobody is removed. A limit edit applies to everyone on
+  the plan; a new price only to new subscriptions.
+- Trial: only the academy's first module, on the plan picked at creation, for
+  the module's trial days (else the default). The platform can add days to one
+  branch module, with a reason, also after the trial ended.
+- Pay first: at the trial's end, and for every new paid module, it waits
+  read-only, with no bill, until its first period is paid. A ₹0 module starts
+  at once.
+- Renewal: billed in advance on the anchor day, monthly or yearly (a
+  subscription keeps its cycle). Unpaid past the grace days, that branch module
+  pauses: read-only, while fees, reading and winding down still work. Bills
+  keep coming; it resumes once nothing is overdue. A ₹0 period has no bill.
+- Plan change: the same cycle at the same price or more applies now, billed
+  from the next bill; less, or another cycle, waits for the period's end if
+  usage fits. Cancel ends it at the period's end and can be undone until then;
+  a module waiting for payment ends at once.
+- Payments are recorded by hand on `/platform` (Razorpay later), one branch
+  module at a time, oldest bill first; more than is owed is refused. A bill can
+  be voided and a payment cancelled, each with a reason, and both keep their
+  record. Free use or a special price applies from the next bill.
+- Bills: `BRV/<FY>/00001`, one per branch module per period; tax from the
+  billing settings (0% until a GSTIN).
+- Owners, on `/billing`: `billing:view` sees modules, usage, bills and how to
+  pay; `billing:manage` changes plans (offered ones only), cancels, starts an
+  offered module and adds a branch with its first module; `settings:manage`
+  renames a branch.
 
 **To plan with Prompt 21** (agreed 2026-09-26, not built)
 
@@ -42,8 +79,8 @@ usage), suspend/reactivate, impersonate (read-only), platform-wide message log.
 - [ ] A new tenant is usable (login → add student → mark attendance) with zero
       manual SQL
 - [ ] Impersonation cannot write, and is visible in the tenant's own audit log
-- [ ] Plan limits (max students/staff/branches) are enforced server-side with a
-      clear error, not a crash
+- [ ] Plan limits (students per branch module, staff seats) are enforced
+      server-side with a clear error, not a crash
 
 ---
 

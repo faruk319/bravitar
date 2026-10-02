@@ -47,7 +47,7 @@ supports it. Do not build it in V1.
 
 | User | Where they log in | What they do |
 |---|---|---|
-| Platform admin (you) | `/platform` | Onboard tenants, set plans, support, impersonate with audit |
+| Platform admin (you) | `/platform` | Onboard tenants, set modules, plans and prices, bill academies, support, impersonate with audit |
 | Academy owner | tenant app | Everything for their academy |
 | Academy staff | tenant app | Whatever their role permits |
 | Teacher / coach | tenant app (mobile) | Today's roster, mark attendance, session notes |
@@ -73,7 +73,7 @@ Staff login is email + password. Indian parents will not maintain an email passw
 12. Owner dashboard: today's attendance, this month's collection, pending dues,
     students at risk of dropping out
 13. Audit log
-14. Platform admin: create tenant, set plan and limits, suspend
+14. Platform admin: create tenant, modules and plans per branch, bills and payments, suspend
 
 ## V1 explicit non-goals
 
