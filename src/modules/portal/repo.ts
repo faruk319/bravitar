@@ -14,7 +14,7 @@ export async function linkedChildren(tx: Tx, guardianId: string): Promise<Portal
     .from(studentGuardians)
     .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
     .innerJoin(students, eq(students.id, studentGuardians.studentId))
-    .where(and(eq(studentGuardians.guardianId, guardianId), eq(guardians.canLogin, true), isNull(guardians.deletedAt), isNull(students.deletedAt)))
+    .where(and(eq(studentGuardians.guardianId, guardianId), isNull(studentGuardians.removedAt), eq(guardians.canLogin, true), isNull(guardians.deletedAt), isNull(students.deletedAt)))
     .orderBy(asc(students.fullName));
 }
 

@@ -1,5 +1,6 @@
 import { boolean, customType, date, inet, integer, jsonb, pgSchema, primaryKey, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { branches, tenants } from "@/modules/tenancy/schema";
+import { RELATIONS } from "./relations";
 
 // Mirrors migrations/0006_students.sql.
 const app = pgSchema("app");
@@ -20,8 +21,7 @@ export const LEFT_REASON_LABELS: Record<LeftReason, string> = {
   other: "Other",
 };
 
-export const RELATIONS = ["father", "mother", "self", "other"] as const;
-export type Relation = (typeof RELATIONS)[number];
+export { RELATIONS, type Relation } from "./relations";
 
 export const CONSENT_KINDS = ["data_processing", "photo", "medical", "waiver"] as const;
 export type ConsentKind = (typeof CONSENT_KINDS)[number];
@@ -83,6 +83,8 @@ export const studentGuardians = app.table(
     studentId: uuid("student_id").notNull().references(() => students.id),
     guardianId: uuid("guardian_id").notNull().references(() => guardians.id),
     relation: text("relation", { enum: RELATIONS }).notNull(),
+    isManager: boolean("is_manager").notNull().default(false), // one per student (migration 0037)
+    removedAt: timestamp("removed_at", { withTimezone: true }), // their access to this student ended
   },
   (t) => [primaryKey({ columns: [t.studentId, t.guardianId] })],
 );

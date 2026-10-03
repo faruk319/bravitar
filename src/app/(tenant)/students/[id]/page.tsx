@@ -13,6 +13,7 @@ import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
+import { AddFamilyMember, FamilyMemberActions } from "@/components/students/family";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
 import { WhatsappOptin } from "@/components/students/whatsapp-optin";
@@ -35,6 +36,7 @@ import { batchChoices, studentBatches } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
 import { discountChoices, installmentsDue, planChoices, studentFees } from "@/modules/fees/service";
 import { familyAccount } from "@/modules/payments/service";
+import { RELATION_LABELS } from "@/modules/students/relations";
 import { studentOverview } from "@/modules/students/service";
 
 const TABS = ["overview", "attendance", "fees", "notes"] as const;
@@ -297,9 +299,11 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 <li key={g.id} className="flex min-h-14 items-center justify-between gap-3">
                   <span className="min-w-0">
                     <span className="block text-body">
-                      {g.fullName} <span className="text-caption text-muted-foreground capitalize">· {g.relation}</span>
+                      {g.fullName} <span className="text-caption text-muted-foreground">· {RELATION_LABELS[g.relation]}</span>
+                      {g.isManager ? <span className="ml-1.5 rounded-full bg-accent-50 px-2 py-0.5 text-caption text-accent-600">Manager</span> : null}
                     </span>
                     <WhatsappOptin guardianId={g.id} on={g.whatsappOptin} canUpdate={canUpdate} />
+                    {canUpdate && !g.isManager ? <FamilyMemberActions studentId={s.id} guardianId={g.id} removable={!g.isPrimary} /> : null}
                   </span>
                   <a href={`tel:${g.phone}`} className="text-body text-accent-600 tabular-nums">
                     {formatPhone(g.phone)}
@@ -307,6 +311,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 </li>
               ))}
             </ul>
+            {canUpdate ? <AddFamilyMember studentId={s.id} /> : null}
             {o.siblings.length ? (
               <p className="mt-2 text-body">
                 Siblings:{" "}

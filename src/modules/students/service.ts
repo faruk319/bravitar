@@ -29,7 +29,8 @@ import {
   updateGuardian,
   updateStudent,
 } from "./repo";
-import { type ConsentKind, type Guardian, type Household, LEFT_REASONS, RELATIONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
+import { FAMILY_RELATIONS } from "./relations";
+import { type ConsentKind, type Guardian, type Household, LEFT_REASONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
 
 export type StudentCtx = ScopedCtx;
 
@@ -51,7 +52,7 @@ export const newStudentSchema = z.object({
     .object({
       fullName: z.string().trim().min(2).max(120),
       phone: phoneSchema,
-      relation: z.enum(RELATIONS.filter((r) => r !== "self") as unknown as ["father", "mother", "other"]),
+      relation: z.enum(FAMILY_RELATIONS),
       email: z.email().trim().toLowerCase().optional(),
     })
     .optional(),

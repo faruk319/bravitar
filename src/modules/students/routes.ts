@@ -1,6 +1,7 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
 import { normalizePhone } from "@/lib/phone";
+import { addFamilyMember, removeFamilyMember, setManager } from "./family";
 import { type ImportRequest, importStudents } from "./import";
 import { searchStudents } from "./repo";
 import { STUDENT_STATUSES, type StudentStatus } from "./schema";
@@ -68,6 +69,21 @@ export const guardianRoute = withStaffRequest("students:update", async (r) => {
   if (typeof whatsappOptin !== "boolean") throw new BadRequestError("Say whether WhatsApp messages are OK");
   const g = await setGuardianWhatsapp(r.tx, studentCtx(r), pathSegment(r.req, 2), whatsappOptin);
   return json({ id: g.id, whatsappOptin: g.whatsappOptin });
+});
+
+// POST /api/students/<id>/family { fullName, phone, relation }: a family member gets access.
+export const addFamilyRoute = withStaffRequest("students:update", async (r) => {
+  const g = await addFamilyMember(r.tx, studentCtx(r), pathSegment(r.req, 2), await readJson(r.req));
+  return json({ id: g.id }, { status: 201 });
+});
+
+// PATCH /api/students/<id>/family/<guardianId> { manager: true }; DELETE ends their access.
+export const familyMemberRoute = withStaffRequest("students:update", async (r) => {
+  const [studentId, guardianId] = [pathSegment(r.req, 2), pathSegment(r.req, 4)];
+  if (r.req.method === "DELETE") await removeFamilyMember(r.tx, studentCtx(r), studentId, guardianId);
+  else if ((await readJson<{ manager?: unknown }>(r.req)).manager === true) await setManager(r.tx, studentCtx(r), studentId, guardianId);
+  else throw new BadRequestError("Say what to change");
+  return json({ ok: true });
 });
 
 export const guardianLookup = withStaffRequest("students:read", async (r) => {

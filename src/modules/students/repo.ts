@@ -70,17 +70,43 @@ export async function updateStudent(tx: Tx, id: string, patch: Partial<typeof st
   return row;
 }
 
+// A student's first family link: that person manages them (migration 0037).
 export async function linkGuardian(tx: Tx, tenantId: string, studentId: string, guardianId: string, relation: Relation): Promise<void> {
-  await tx.insert(studentGuardians).values({ tenantId, studentId, guardianId, relation }).onConflictDoNothing();
+  await tx.insert(studentGuardians).values({ tenantId, studentId, guardianId, relation, isManager: true }).onConflictDoNothing();
 }
 
-export async function guardiansOfStudent(tx: Tx, studentId: string): Promise<(Guardian & { relation: Relation })[]> {
+export type FamilyMember = Guardian & { relation: Relation; isManager: boolean };
+
+// The people with access to a student, the manager first; removed ones aren't.
+export async function guardiansOfStudent(tx: Tx, studentId: string): Promise<FamilyMember[]> {
   const rows = await tx
-    .select({ g: guardians, relation: studentGuardians.relation })
+    .select({ g: guardians, relation: studentGuardians.relation, isManager: studentGuardians.isManager })
     .from(studentGuardians)
     .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
-    .where(and(eq(studentGuardians.studentId, studentId), isNull(guardians.deletedAt)));
-  return rows.map((r) => ({ ...r.g, relation: r.relation }));
+    .where(and(eq(studentGuardians.studentId, studentId), isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
+    .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt));
+  return rows.map((r) => ({ ...r.g, relation: r.relation, isManager: r.isManager }));
+}
+
+// Someone in the family gets access to this student, or gets it back.
+export async function upsertFamilyLink(tx: Tx, link: { tenantId: string; studentId: string; guardianId: string; relation: Relation }): Promise<void> {
+  await tx
+    .insert(studentGuardians)
+    .values(link)
+    .onConflictDoUpdate({ target: [studentGuardians.studentId, studentGuardians.guardianId], set: { relation: link.relation, removedAt: null } });
+}
+
+// Clear, then set: one manager per student.
+export async function moveManager(tx: Tx, studentId: string, guardianId: string): Promise<void> {
+  await tx.update(studentGuardians).set({ isManager: false }).where(and(eq(studentGuardians.studentId, studentId), eq(studentGuardians.isManager, true)));
+  await tx
+    .update(studentGuardians)
+    .set({ isManager: true })
+    .where(and(eq(studentGuardians.studentId, studentId), eq(studentGuardians.guardianId, guardianId), isNull(studentGuardians.removedAt)));
+}
+
+export async function removeFamilyLink(tx: Tx, studentId: string, guardianId: string, at: Date): Promise<void> {
+  await tx.update(studentGuardians).set({ removedAt: at }).where(and(eq(studentGuardians.studentId, studentId), eq(studentGuardians.guardianId, guardianId)));
 }
 
 export type StudentListRow = { student: Student; guardianName: string | null; guardianPhone: string | null };
@@ -103,7 +129,7 @@ export async function searchStudents(tx: Tx, scope: Scope, opts: ListFilter & { 
   return tx
     .selectDistinctOn([students.fullName, students.id], { student: students, guardianName: guardians.fullName, guardianPhone: guardians.phone })
     .from(students)
-    .leftJoin(studentGuardians, eq(studentGuardians.studentId, students.id))
+    .leftJoin(studentGuardians, and(eq(studentGuardians.studentId, students.id), isNull(studentGuardians.removedAt)))
     .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
     .where(listWhere(scope, opts))
     .orderBy(asc(students.fullName), asc(students.id), desc(guardians.isPrimary))
@@ -115,7 +141,7 @@ export async function countStudents(tx: Tx, scope: Scope, opts: ListFilter = {})
   const [row] = await tx
     .select({ n: countDistinct(students.id) })
     .from(students)
-    .leftJoin(studentGuardians, eq(studentGuardians.studentId, students.id))
+    .leftJoin(studentGuardians, and(eq(studentGuardians.studentId, students.id), isNull(studentGuardians.removedAt)))
     .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
     .where(listWhere(scope, opts));
   return row?.n ?? 0;
