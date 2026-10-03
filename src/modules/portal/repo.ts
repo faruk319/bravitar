@@ -5,12 +5,12 @@ import { type Payment, payments } from "@/modules/payments/schema";
 import { sessions } from "@/modules/sessions/schema";
 import { guardians, type Student, studentGuardians, students } from "@/modules/students/schema";
 
-export type PortalChild = Pick<Student, "id" | "fullName" | "code" | "status">;
+export type PortalChild = Pick<Student, "id" | "fullName" | "code" | "status"> & { isManager: boolean };
 
 // The students linked to this guardian, while the guardian may sign in.
 export async function linkedChildren(tx: Tx, guardianId: string): Promise<PortalChild[]> {
   return tx
-    .select({ id: students.id, fullName: students.fullName, code: students.code, status: students.status })
+    .select({ id: students.id, fullName: students.fullName, code: students.code, status: students.status, isManager: studentGuardians.isManager })
     .from(studentGuardians)
     .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
     .innerJoin(students, eq(students.id, studentGuardians.studentId))

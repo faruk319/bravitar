@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import { boolean, char, customType, integer, jsonb, pgSchema, smallint, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import type { FamilyAccess } from "@/modules/portal/access";
 
 // Mirrors migrations/0002_tenants_and_branches.sql and resources in 0003. DDL lives in the migration;
 // this file exists for typed queries and must be kept in step with it.
@@ -34,6 +36,7 @@ export const tenants = app.table("tenants", {
   messageSendHour: smallint("message_send_hour").notNull().default(10),
   absenceSendHour: smallint("absence_send_hour").notNull().default(19),
   messageDailyCap: integer("message_daily_cap").notNull().default(250),
+  familyAccess: text("family_access").array().notNull().default(sql`'{attendance,fees,receipts,pay}'`).$type<FamilyAccess[]>(), // migration 0038
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

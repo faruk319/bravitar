@@ -5,6 +5,7 @@ import { MessagingSettings } from "@/components/messaging/messaging-settings";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
 import { Placeholder } from "@/components/shell/placeholder";
+import { FamilyAccessSettings } from "@/components/students/family";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
@@ -61,6 +62,12 @@ export default async function SettingsPage() {
           <Card>
             <CardHeader title="Messages" />
             <MessagingSettings settings={messages} />
+          </Card>
+        ) : null}
+        {settings ? (
+          <Card>
+            <CardHeader title="Family access" />
+            <FamilyAccessSettings value={tenant?.familyAccess ?? []} />
           </Card>
         ) : null}
         {settings ? <Placeholder title="Academy settings" hint="Name, branches, labels and integrations." action="Edit academy" /> : null}

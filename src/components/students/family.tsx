@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { send } from "@/lib/send";
+import { FAMILY_ACCESS, FAMILY_ACCESS_LABELS, type FamilyAccess } from "@/modules/portal/access";
 import { FAMILY_RELATIONS, RELATION_LABELS } from "@/modules/students/relations";
 
 // A family member gets access to this student (agreed 2026-10-03); signing
@@ -78,5 +79,46 @@ export function FamilyMemberActions({ studentId, guardianId, removable }: { stud
         </span>
       ) : null}
     </span>
+  );
+}
+
+// Settings: what family members who aren't a student's manager see in the portal.
+export function FamilyAccessSettings({ value }: { value: FamilyAccess[] }) {
+  const a = useAction();
+  const [saved, setSaved] = useState(false);
+  return (
+    <form
+      className="flex max-w-md flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const f = new FormData(e.currentTarget);
+        setSaved(false);
+        void a.run(
+          () => send("/api/settings/family-access", "PATCH", { keys: FAMILY_ACCESS.filter((k) => f.get(k) === "on") }),
+          () => {
+            setSaved(true);
+            a.router.refresh();
+          },
+        );
+      }}
+    >
+      <p className="text-caption text-muted-foreground">For family members who aren&apos;t the student&apos;s manager. The manager sees everything.</p>
+      {FAMILY_ACCESS.map((k) => (
+        <label key={k} className="flex min-h-11 items-center gap-3 text-body">
+          <input type="checkbox" name={k} defaultChecked={value.includes(k)} className="size-5 accent-accent-600" /> {FAMILY_ACCESS_LABELS[k]}
+        </label>
+      ))}
+      {a.error ? (
+        <p role="alert" className="text-label text-danger-600">
+          {a.error}
+        </p>
+      ) : null}
+      <div className="mt-1 flex items-center gap-3">
+        <Button type="submit" variant="outline" size="lg" disabled={a.busy}>
+          Save
+        </Button>
+        {saved ? <span className="text-label text-success-600">✓ Saved</span> : null}
+      </div>
+    </form>
   );
 }

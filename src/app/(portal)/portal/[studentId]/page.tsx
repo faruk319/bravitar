@@ -15,7 +15,7 @@ import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import type { Mark } from "@/modules/attendance/schema";
-import { type ChildPage, childPage } from "@/modules/portal/service";
+import { type ChildAttendance, type ChildPage, childPage } from "@/modules/portal/service";
 
 const WEEK = ["S", "M", "T", "W", "T", "F", "S"];
 const WORST: Mark[] = ["absent", "late", "excused", "present"]; // a day with two classes shows the one to notice
@@ -28,12 +28,12 @@ function shiftMonth(month: string, by: number): string {
 
 // docs/07 student-profile look: class days tinted by their mark, with the
 // mark's icon so colour never carries it alone; today ringed.
-function Attendance({ p }: { p: ChildPage }) {
+function Attendance({ p, a }: { p: ChildPage; a: ChildAttendance }) {
   const first = `${p.month}-01`;
   const days = Number(monthEnd(p.month).slice(8));
-  const byDay = new Map<string, ChildPage["attendance"]["days"]>();
-  for (const d of p.attendance.days) byDay.set(d.date, [...(byDay.get(d.date) ?? []), d]);
-  const { present, late, absent } = p.attendance.counts;
+  const byDay = new Map<string, ChildAttendance["days"]>();
+  for (const d of a.days) byDay.set(d.date, [...(byDay.get(d.date) ?? []), d]);
+  const { present, late, absent } = a.counts;
   const nav = "inline-flex size-10 items-center justify-center rounded-lg hover:bg-neutral-50";
   return (
     <Card>
@@ -91,7 +91,7 @@ function Attendance({ p }: { p: ChildPage }) {
         {TILES.map((k) => (
           <div key={k} className={cn("rounded-xl px-3 py-2", MARK_STYLE[k].cls)}>
             <p className="text-label">{MARK_STYLE[k].word}</p>
-            <p className="text-display tabular-nums">{p.attendance.counts[k]}</p>
+            <p className="text-display tabular-nums">{a.counts[k]}</p>
           </div>
         ))}
       </div>
@@ -101,9 +101,9 @@ function Attendance({ p }: { p: ChildPage }) {
             <span>
               {present + late} of {present + late + absent} classes
             </span>
-            <span className="tabular-nums">{p.attendance.percent}%</span>
+            <span className="tabular-nums">{a.percent}%</span>
           </p>
-          <Meter fraction={(p.attendance.percent ?? 0) / 100} />
+          <Meter fraction={(a.percent ?? 0) / 100} />
         </div>
       ) : (
         <p className="mt-4 text-body text-muted-foreground">No classes marked{p.month === p.today.slice(0, 7) ? " yet" : ""}.</p>
@@ -142,46 +142,61 @@ export default async function ChildPortalPage({ params, searchParams }: PageProp
         </Card>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <Attendance p={p} />
+          {p.attendance ? <Attendance p={p} a={p.attendance} /> : null}
 
-          <Card>
-            <CardHeader
-              title="Fees"
-              action={
-                <Link href="/portal/receipts" className="text-label text-accent-600 hover:underline">
-                  Receipts
-                </Link>
-              }
-            />
-            {p.fees.length ? (
-              <ul className="divide-y divide-neutral-100">
-                {p.fees.map((f) => (
-                  <li key={f.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                    <span className="min-w-0">
-                      <span className="block text-body font-medium tabular-nums">{formatPaise(f.duePaise)}</span>
-                      <span className="block text-caption text-muted-foreground">
-                        {f.number ?? "Invoice"} · due {formatDate(f.dueDate)}
-                      </span>
-                      {f.overdue ? (
-                        <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-danger-600/10 px-2 py-0.5 text-caption text-danger-600">
-                          <span aria-hidden>!</span> Overdue
+          {p.fees ? (
+            <Card>
+              <CardHeader
+                title="Fees"
+                action={
+                  p.receipts ? (
+                    <Link href="/portal/receipts" className="text-label text-accent-600 hover:underline">
+                      Receipts
+                    </Link>
+                  ) : undefined
+                }
+              />
+              {p.fees.length ? (
+                <ul className="divide-y divide-neutral-100">
+                  {p.fees.map((f) => (
+                    <li key={f.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                      <span className="min-w-0">
+                        <span className="block text-body font-medium tabular-nums">{formatPaise(f.duePaise)}</span>
+                        <span className="block text-caption text-muted-foreground">
+                          {f.number ?? "Invoice"} · due {formatDate(f.dueDate)}
                         </span>
+                        {f.overdue ? (
+                          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-danger-600/10 px-2 py-0.5 text-caption text-danger-600">
+                            <span aria-hidden>!</span> Overdue
+                          </span>
+                        ) : null}
+                      </span>
+                      {f.payOnline ? (
+                        <Button variant="outline" nativeButton={false} render={<a href={`/portal/pay/${f.id}`} />}>
+                          Pay online
+                        </Button>
                       ) : null}
-                    </span>
-                    {f.payOnline ? (
-                      <Button variant="outline" nativeButton={false} render={<a href={`/portal/pay/${f.id}`} />}>
-                        Pay online
-                      </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="flex items-center gap-2 text-body text-success-600">
-                <CircleCheck className="size-5" aria-hidden /> Nothing pending
-              </p>
-            )}
-          </Card>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="flex items-center gap-2 text-body text-success-600">
+                  <CircleCheck className="size-5" aria-hidden /> Nothing pending
+                </p>
+              )}
+            </Card>
+          ) : p.receipts ? (
+            <Card>
+              <CardHeader
+                title="Receipts"
+                action={
+                  <Link href="/portal/receipts" className="text-label text-accent-600 hover:underline">
+                    See all
+                  </Link>
+                }
+              />
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader title="Class timings" />

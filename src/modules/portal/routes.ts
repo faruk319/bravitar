@@ -1,10 +1,10 @@
 import { readSessionCookie } from "@/lib/auth/cookie";
-import { pathSegment } from "@/lib/auth/route";
+import { json, pathSegment, readJson, scopedCtx, withStaffRequest } from "@/lib/auth/route";
 import { type GuardianSession, getGuardianSessionFromToken } from "@/lib/auth/session";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { switchAcademy } from "@/modules/auth/guardian";
-import { payLink } from "./service";
+import { payLink, saveFamilyAccess } from "./service";
 
 const guardianOf = async (req: Request): Promise<GuardianSession | undefined> => {
   const token = readSessionCookie(req);
@@ -30,3 +30,9 @@ export async function switchHandler(req: Request): Promise<Response> {
   const pass = s ? await switchAcademy(s.phone, slug) : undefined;
   return go(pass?.url ?? "/portal");
 }
+
+// PATCH /api/settings/family-access { keys }: what family members who aren't the manager see.
+export const familyAccessRoute = withStaffRequest("settings:manage", async (r) => {
+  const { keys } = await readJson<{ keys?: unknown }>(r.req);
+  return json({ keys: await saveFamilyAccess(r.tx, scopedCtx(r.session, r.req), keys) });
+});

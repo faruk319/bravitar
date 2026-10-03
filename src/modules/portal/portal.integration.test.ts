@@ -1,6 +1,7 @@
 import { and, asc, eq, lt } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
+import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
@@ -23,7 +24,8 @@ import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice } from "@/modules/messaging/public";
-import { childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt } from "./service";
+import { addFamilyMember } from "@/modules/students/family";
+import { childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt, saveFamilyAccess } from "./service";
 
 // docs/06 Prompt 20, written before the feature: a parent sees their own
 // children and nothing else. Another family's id is a 404, like a missing one.
@@ -132,24 +134,57 @@ describe("the portal", () => {
     );
     for (const month of new Set(marked.map((m) => m.date.slice(0, 7)))) {
       const page = await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? "", { month }));
-      const shown = page.attendance.days.filter((d) => d.mark).map((d) => [d.date, d.mark]);
+      const shown = (page.attendance?.days ?? []).filter((d) => d.mark).map((d) => [d.date, d.mark]);
       expect(shown).toEqual(marked.filter((m) => m.date.startsWith(month)).map((m) => [m.date, m.mark]).sort());
     }
   });
 
   it("fees: what is unpaid on this child's invoices, nothing on a sibling without one", async () => {
     const aarav = await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? ""));
-    expect(aarav.fees.map((f) => [f.duePaise, f.overdue])).toEqual([[80_000n, false]]);
+    expect(aarav.fees?.map((f) => [f.duePaise, f.overdue])).toEqual([[80_000n, false]]);
     expect((await withTenant(T, (tx) => childPage(tx, a, kid.anaya ?? ""))).fees).toEqual([]);
     expect(aarav.timings.map((t) => t.batchName)).toEqual(["Early"]);
   });
 
   it("pay online opens the private page of this family's unpaid invoice, on its own academy only", async () => {
-    const [due] = (await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? ""))).fees;
+    const [due] = (await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? ""))).fees ?? [];
     const link = await withTenant(T, (tx) => payLink(tx, a, due?.id ?? ""));
     const token = link.replace("/i/", "");
     expect((await sharedInvoice(token, `portal-${stamp}`))?.invoice.id).toBe(due?.id);
     expect(await sharedInvoice(token, `other-${stamp}`)).toBeUndefined();
     await expect(withTenant(T, (tx) => payLink(tx, b, due?.id ?? ""))).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("family access (agreed 2026-10-03)", () => {
+  it("a family member who isn't the manager sees what the academy allows: everything by default, then only timings and notices", async () => {
+    const granny = await withTenant(T, (tx) => addFamilyMember(tx, owner, kid.aarav ?? "", { fullName: "Lata Deshmukh", phone: "98733 10003", relation: "grandparent" }));
+    const g: GuardianCtx = { tenantId: T, guardianId: granny.id };
+    const all = await withTenant(T, (tx) => childPage(tx, g, kid.aarav ?? ""));
+    expect(all.attendance).not.toBeNull();
+    expect(all.fees).toHaveLength(1);
+    expect(all.receipts).toBe(true);
+    expect((await withTenant(T, (tx) => familyReceipts(tx, g))).map((r) => r.id)).toContain(receipt.a);
+
+    await withTenant(T, (tx) => saveFamilyAccess(tx, owner, []));
+    const none = await withTenant(T, (tx) => childPage(tx, g, kid.aarav ?? ""));
+    expect(none).toMatchObject({ attendance: null, fees: null, receipts: false });
+    expect(none.timings.map((t) => t.batchName)).toEqual(["Early"]);
+    await expect(withTenant(T, (tx) => familyReceipts(tx, g))).rejects.toMatchObject({ status: 404 });
+    await expect(withTenant(T, (tx) => portalReceipt(tx, g, receipt.a ?? ""))).rejects.toMatchObject({ status: 404 });
+    await expect(withTenant(T, (tx) => payLink(tx, g, all.fees?.[0]?.id ?? ""))).rejects.toMatchObject({ status: 404 });
+
+    // The manager still sees and pays everything.
+    const rekha = await withTenant(T, (tx) => childPage(tx, a, kid.aarav ?? ""));
+    expect(rekha.attendance).not.toBeNull();
+    expect(rekha).toMatchObject({ receipts: true });
+    expect(await withTenant(T, (tx) => payLink(tx, a, rekha.fees?.[0]?.id ?? ""))).toMatch(/^\/i\//);
+  });
+
+  it("the owner's choice is kept to known sections, saved in order and audited", async () => {
+    await expect(withTenant(T, (tx) => saveFamilyAccess(tx, owner, ["everything"]))).rejects.toThrow();
+    expect(await withTenant(T, (tx) => saveFamilyAccess(tx, owner, ["pay", "attendance", "fees", "receipts"]))).toEqual(["attendance", "fees", "receipts", "pay"]);
+    const saved = await withTenant(T, (tx) => tx.select().from(auditLog).where(eq(auditLog.action, "settings.family_access")).orderBy(asc(auditLog.id)));
+    expect(saved.at(-1)?.after).toEqual({ familyAccess: ["attendance", "fees", "receipts", "pay"] });
   });
 });

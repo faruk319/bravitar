@@ -25,7 +25,7 @@ export async function tenantToday(tx: Tx): Promise<string> {
   return todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata");
 }
 
-export async function updateOwnTenant(tx: Tx, id: string, patch: Partial<Pick<Tenant, "gstin" | "proration" | "messageLanguage" | "messageSendHour" | "absenceSendHour" | "messageDailyCap">>): Promise<Tenant> {
+export async function updateOwnTenant(tx: Tx, id: string, patch: Partial<Pick<Tenant, "gstin" | "proration" | "messageLanguage" | "messageSendHour" | "absenceSendHour" | "messageDailyCap" | "familyAccess">>): Promise<Tenant> {
   const [row] = await tx.update(tenants).set(patch).where(eq(tenants.id, id)).returning();
   if (!row) throw new Error("tenant update matched no row");
   return row;
