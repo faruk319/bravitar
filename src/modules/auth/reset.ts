@@ -63,6 +63,8 @@ export async function resetPassword(input: z.input<typeof resetSchema>, opts: { 
     });
   }
   const [first] = reset;
-  if (opts.slug && first) return { session: await withTenant(first.academy.tenantId, (tx) => openSession(tx, first.academy.tenantId, first.staffId, opts.meta ?? {}, "password reset")) };
-  return { academies: await Promise.all(reset.map((a) => handoffTo(a.academy, { staffId: a.staffId }, now))) };
+  // The code proved every account it reset: they link for "Switch academy".
+  const others = (a: (typeof reset)[number]) => reset.filter((o) => o !== a).map((o) => o.academy.tenantId);
+  if (opts.slug && first) return { session: await withTenant(first.academy.tenantId, (tx) => openSession(tx, first.academy.tenantId, first.staffId, opts.meta ?? {}, { via: "password reset", linked: others(first) })) };
+  return { academies: await Promise.all(reset.map((a) => handoffTo(a.academy, { staffId: a.staffId, linkedTenants: others(a), via: "password reset" }, now))) };
 }

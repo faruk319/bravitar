@@ -38,10 +38,10 @@ const DEV_ADMIN = { email: "admin@bravitar.demo", fullName: "Bravitar Admin", pa
 
 // Demo data for local development. Idempotent by natural key (tenant slug):
 // inserts what is missing, never updates what is there.
-const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string; extraModule?: string })[] = [
+const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string; extraModule?: string; alsoCoach?: { name: string; email: string } })[] = [
   { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo", phone: "9800000001" }, coach: { name: "Ravi Patil", email: "coach@shivaji-karate.demo" } },
   { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
-  { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" }, extraModule: "tuition" },
+  { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" }, extraModule: "tuition", alsoCoach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" } },
 ];
 
 // Six students per academy: one family with two siblings, an adult, a paused
@@ -204,7 +204,7 @@ export async function seed(): Promise<SeedResult> {
   console.log(`seed: /platform admin ${DEV_ADMIN.email} / ${DEV_ADMIN.password}, authenticator key ${DEV_ADMIN.secret} (dev only)`);
   const result: SeedResult = { tenantsCreated: [], tenantsPresent: [] };
 
-  for (const { resource, coach, extraBranch, extraModule, ...input } of DEMO_TENANTS) {
+  for (const { resource, coach, extraBranch, extraModule, alsoCoach, ...input } of DEMO_TENANTS) {
     const existing = await platformRead((tx) => findTenantBySlug(tx, input.slug));
     if (existing) {
       result.tenantsPresent.push(input.slug);
@@ -230,6 +230,8 @@ export async function seed(): Promise<SeedResult> {
       const roleId = (name: string) => roles.find((r) => r.name === name)?.id ?? ""; // demo data only
       const staff = await createStaffMember(tx, ctx, { email: coach.email, fullName: coach.name, roleId: roleId("Teacher") });
       await setPassword(tx, ctx, staff.id, DEMO_PASSWORD);
+      // Bright Future's Sana teaches here too, with the same password: the staff academy switcher's demo.
+      if (alsoCoach) await setPassword(tx, ctx, (await createStaffMember(tx, ctx, { email: alsoCoach.email, fullName: alsoCoach.name, roleId: roleId("Teacher") })).id, DEMO_PASSWORD);
       // A front desk hire who hasn't opened their invite yet.
       const desk = await addStaff(tx, ctx, { email: `desk@${input.slug}.demo`, fullName: "Neha Kulkarni", roleId: roleId("Front Desk") });
       invite = `http://${input.slug}.localhost:3000/invite/${desk.token}`;

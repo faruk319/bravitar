@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { NavGroup } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
+import { AcademyMenu } from "./academy-menu";
 import { BranchSwitcher } from "./branch-switcher";
 import { CommandSearch } from "./command-search";
 import { NavLink } from "./nav-link";
-import { useSession, useTenantName } from "./tenant-provider";
+import { useAcademies, useSession, useTenantName } from "./tenant-provider";
 
 const RAIL_KEY = "bravitar.rail";
 const RAIL_EVENT = "bravitar:rail";
@@ -69,6 +70,7 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
 export function AdminShell({ groups, children }: { groups: NavGroup[]; children: ReactNode }) {
   const tenantName = useTenantName();
   const me = useSession().actor.name;
+  const academies = useAcademies();
   const [expanded, toggle] = useRailExpanded();
   const [open, setOpen] = useState(false);
 
@@ -101,6 +103,7 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
           <CommandSearch />
           <div className="flex items-center gap-2 md:ml-auto">
             <SyncBadge />
+            <AcademyMenu academies={academies} action="/switch" />
             <BranchSwitcher />
             <Link href="/me" aria-label="My account" className="rounded-full">
               <Avatar name={me} size="sm" />

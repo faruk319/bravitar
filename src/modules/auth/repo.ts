@@ -26,6 +26,7 @@ export type NewSession = {
   userAgent?: string;
   impersonatedBy?: string;
   impersonationReason?: string;
+  linkedTenants?: string[];
 };
 
 export async function insertSession(tx: Tx, s: NewSession): Promise<SessionRow> {
@@ -105,7 +106,7 @@ export async function guardianAcademiesByPhone(phone: string): Promise<StaffAcad
   return rows.map((r) => ({ tenantId: r.tenant_id, slug: r.slug, name: r.name }));
 }
 
-export type HandoffFor = { staffId: string; impersonatedBy?: string; impersonationReason?: string } | { guardianId: string };
+export type HandoffFor = { staffId: string; impersonatedBy?: string; impersonationReason?: string; linkedTenants?: string[]; via?: string } | { guardianId: string };
 
 export async function insertHandoff(tx: Tx | PlatformTx, row: HandoffFor & { tenantId: string; tokenHash: string; expiresAt: Date }): Promise<void> {
   await tx.insert(loginHandoffs).values({ id: uuidv7(), ...row });
@@ -117,7 +118,21 @@ export async function useHandoff(tx: Tx, tokenHash: string, now: Date): Promise<
     .update(loginHandoffs)
     .set({ usedAt: now })
     .where(and(eq(loginHandoffs.tokenHash, tokenHash), isNull(loginHandoffs.usedAt), gt(loginHandoffs.expiresAt, now)))
-    .returning({ staffId: loginHandoffs.staffId, guardianId: loginHandoffs.guardianId, impersonatedBy: loginHandoffs.impersonatedBy, impersonationReason: loginHandoffs.impersonationReason });
-  if (row?.staffId) return { staffId: row.staffId, ...(row.impersonatedBy ? { impersonatedBy: row.impersonatedBy, impersonationReason: row.impersonationReason ?? "" } : {}) };
+    .returning({
+      staffId: loginHandoffs.staffId,
+      guardianId: loginHandoffs.guardianId,
+      impersonatedBy: loginHandoffs.impersonatedBy,
+      impersonationReason: loginHandoffs.impersonationReason,
+      linkedTenants: loginHandoffs.linkedTenants,
+      via: loginHandoffs.via,
+    });
+  if (row?.staffId) {
+    return {
+      staffId: row.staffId,
+      ...(row.impersonatedBy ? { impersonatedBy: row.impersonatedBy, impersonationReason: row.impersonationReason ?? "" } : {}),
+      ...(row.linkedTenants.length ? { linkedTenants: row.linkedTenants } : {}),
+      ...(row.via ? { via: row.via } : {}),
+    };
+  }
   return row?.guardianId ? { guardianId: row.guardianId } : undefined;
 }

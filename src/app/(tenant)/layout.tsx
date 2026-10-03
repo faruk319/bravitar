@@ -13,6 +13,7 @@ import { shellFor } from "@/lib/auth/shell";
 import { withTenant } from "@/lib/db/with-tenant";
 import { resolveLabels } from "@/lib/tenant/labels";
 import { mainOrigin } from "@/lib/tenant/origin";
+import { linkedAcademies } from "@/modules/auth/service";
 import { lockedActivities } from "@/modules/billing/access";
 import { getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 
@@ -24,6 +25,7 @@ export default async function TenantLayout({ children }: LayoutProps<"/">) {
     locked: await lockedActivities(tx, session.branchIds),
   }));
   if (!tenant) throw new Error("tenant missing");
+  const academies = session.linked.length ? (await linkedAcademies(session)).map((a) => ({ slug: a.slug, name: a.name })) : [];
 
   const allowed = session.branchIds.length ? branches.filter((b) => session.branchIds.includes(b.id)) : branches;
   const wanted = (await cookies()).get(BRANCH_COOKIE)?.value;
@@ -39,7 +41,7 @@ export default async function TenantLayout({ children }: LayoutProps<"/">) {
   );
 
   return (
-    <TenantProvider value={{ session, tenantName: tenant.name, labels, branches: allowed.map((b) => ({ id: b.id, name: b.name })), currentBranchId }}>
+    <TenantProvider value={{ session, tenantName: tenant.name, labels, branches: allowed.map((b) => ({ id: b.id, name: b.name })), currentBranchId, academies }}>
       {shell === "coach" ? <CoachShell items={coachNavFor(session)}>{page}</CoachShell> : <AdminShell groups={navFor(session)}>{page}</AdminShell>}
     </TenantProvider>
   );

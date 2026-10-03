@@ -3,8 +3,10 @@
 import type { ReactNode } from "react";
 import { OfflineBanner, SyncBadge } from "@/components/offline/offline-sync";
 import type { NavItem } from "@/lib/auth/nav";
+import { AcademyMenu } from "./academy-menu";
 import { BranchSwitcher } from "./branch-switcher";
 import { NavLink } from "./nav-link";
+import { useAcademies } from "./tenant-provider";
 
 // docs/07 §3: three items, 56px, icon + label. The primary action of each
 // screen sits above this bar, in the thumb zone.
@@ -13,7 +15,10 @@ export function CoachShell({ items, children }: { items: NavItem[]; children: Re
     <div className="flex min-h-full flex-col">
       <header className="flex h-16 items-center gap-2 border-b border-neutral-100 bg-background px-4">
         <SyncBadge />
-        <BranchSwitcher className="ml-auto" />
+        <div className="ml-auto flex items-center gap-1">
+          <AcademyMenu academies={useAcademies()} action="/switch" />
+          <BranchSwitcher />
+        </div>
       </header>
       <OfflineBanner />
       <main className="flex-1 px-4 pt-4 pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))]">{children}</main>

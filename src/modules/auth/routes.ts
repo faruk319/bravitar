@@ -1,11 +1,11 @@
 import { clearSessionCookieHeader, readSessionCookie, sessionCookieHeader } from "@/lib/auth/cookie";
 import { json, jsonError, readJson, scopedCtx, withStaffRequest } from "@/lib/auth/route";
-import { getGuardianSessionFromToken, getPlatformSessionFromToken, getStaffSessionFromToken } from "@/lib/auth/session";
+import { getGuardianSessionFromToken, getPlatformSessionFromToken, getStaffSession, getStaffSessionFromToken } from "@/lib/auth/session";
 import { getEnv } from "@/lib/env";
 import { platformLogout } from "@/modules/platform/auth";
 import { requestPortalCode, verifyPortalCode } from "./guardian";
 import { requestReset, resetPassword } from "./reset";
-import { login, logout, redeemHandoff, setOwnPhone, signIn } from "./service";
+import { login, logout, redeemHandoff, setOwnPhone, signIn, switchStaffAcademy } from "./service";
 
 // The tenant slug is the request's subdomain (<slug>.<APP_DOMAIN>); a `slug`
 // body field is the fallback for tests and curl.
@@ -62,6 +62,15 @@ export async function signInHandler(req: Request): Promise<Response> {
   } catch (err) {
     return jsonError(err);
   }
+}
+
+// POST /switch (a form) on an academy's address: a pass to another academy
+// this session proved; anything else goes back home.
+export async function staffSwitchHandler(req: Request): Promise<Response> {
+  const session = await getStaffSession(req);
+  const slug = String((await req.formData().catch(() => undefined))?.get("slug") ?? "");
+  const pass = session ? await switchStaffAcademy(session, slug) : undefined;
+  return new Response(null, { status: 303, headers: { location: pass?.url ?? "/", "cache-control": "no-store" } });
 }
 
 // GET /api/auth/handoff?t= on the academy's address: the pass becomes this

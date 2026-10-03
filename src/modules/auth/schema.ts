@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, customType, inet, jsonb, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { staffUsers } from "@/modules/staff/schema";
 import { guardians } from "@/modules/students/schema";
@@ -17,6 +18,7 @@ export const sessionsAuth = app.table("sessions_auth", {
   tenantId: uuid("tenant_id").references(() => tenants.id),
   impersonatedBy: uuid("impersonated_by"),
   impersonationReason: text("impersonation_reason"),
+  linkedTenants: uuid("linked_tenants").array().notNull().default(sql`'{}'`), // academies to switch to (migration 0036)
   cachedContext: jsonb("cached_context"),
   ip: inet("ip"),
   userAgent: text("user_agent"),
@@ -43,6 +45,8 @@ export const loginHandoffs = app.table("login_handoffs", {
   guardianId: uuid("guardian_id").references(() => guardians.id),
   impersonatedBy: uuid("impersonated_by"), // Bravitar support, signing in as this staff member
   impersonationReason: text("impersonation_reason"),
+  linkedTenants: uuid("linked_tenants").array().notNull().default(sql`'{}'`),
+  via: text("via"), // how the pass was made, for the sign-in's audit row
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }),

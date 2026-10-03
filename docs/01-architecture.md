@@ -166,6 +166,13 @@ OTP hashed in the database, 5-minute expiry, single use.
   academies with that number, each through its one-time pass. The session
   (actor `guardian`, 30 days) keeps the phone the code proved, so "Switch
   academy" needs no new code; the guardian is re-read on every request.
+- Staff "Switch academy" (built 2026-10-03): a staff session keeps
+  `linked_tenants`, the other academies its sign-in proved: the same password
+  worked there (main site, or tried on the person's other accounts after a
+  sign-in at an academy's address), or a reset code covered that account.
+  Never by email alone: an owner can add any email and set its password
+  through the invite. Switching makes a one-time pass, refused for Bravitar
+  support's sessions; the new session links back.
 
 **Session payload assembled on login:**
 

@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useContext } from "react";
 import type { SessionContext } from "@/lib/auth/session";
 import type { LabelKey, LabelPack } from "@/lib/tenant/labels";
+import type { AcademyChoice } from "./academy-menu";
 
 export type BranchOption = { id: string; name: string };
 
@@ -12,6 +13,7 @@ export type TenantState = {
   labels: LabelPack;
   branches: BranchOption[]; // the ones this staff member may pick
   currentBranchId: string | "all";
+  academies: AcademyChoice[]; // linked academies to switch to
 };
 
 const Ctx = createContext<TenantState | undefined>(undefined);
@@ -32,6 +34,10 @@ export function useSession(): SessionContext {
 
 export function useTenantName(): string {
   return useTenantState().tenantName;
+}
+
+export function useAcademies(): AcademyChoice[] {
+  return useTenantState().academies;
 }
 
 // docs/07: the screen says "Coach" or "Teacher"; the code always says staff.

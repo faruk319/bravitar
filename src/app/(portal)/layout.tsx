@@ -1,5 +1,5 @@
-import { ChevronDown } from "lucide-react";
 import Link from "next/link";
+import { AcademyMenu } from "@/components/shell/academy-menu";
 import { SignOutButton } from "@/components/shell/sign-out";
 import { requireGuardianPage } from "@/lib/auth/server";
 import { otherAcademies } from "@/modules/auth/guardian";
@@ -17,23 +17,7 @@ export default async function PortalLayout({ children }: LayoutProps<"/">) {
             {session.tenant.name}
           </Link>
           <div className="flex shrink-0 items-center gap-1">
-            {others.length ? (
-              <details className="relative">
-                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-lg px-3 text-label text-neutral-700 hover:bg-neutral-50">
-                  Switch<span className="hidden sm:inline"> academy</span> <ChevronDown className="size-4" aria-hidden />
-                </summary>
-                <div className="absolute right-0 mt-1 w-64 rounded-xl border border-neutral-100 bg-card p-1 shadow-card">
-                  {others.map((a) => (
-                    <form key={a.slug} method="post" action="/portal/switch">
-                      <input type="hidden" name="slug" value={a.slug} />
-                      <button type="submit" className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-body hover:bg-neutral-50">
-                        {a.name}
-                      </button>
-                    </form>
-                  ))}
-                </div>
-              </details>
-            ) : null}
+            <AcademyMenu academies={others} action="/portal/switch" />
             <SignOutButton variant="ghost" />
           </div>
         </div>

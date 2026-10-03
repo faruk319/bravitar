@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type AccessContext, assertCan, ForbiddenError } from "@/lib/auth/can";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/cookie";
 import { dummyPasswordHash, hashPassword, passwordSchema, verifyPassword } from "@/lib/auth/password";
-import { buildSessionContext, type GuardianContext, type Impersonation, type SessionContext } from "@/lib/auth/session";
+import { buildSessionContext, type GuardianContext, type Impersonation, type SessionContext, type StaffSession } from "@/lib/auth/session";
 import { hashToken, newToken } from "@/lib/auth/token";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
@@ -36,9 +36,13 @@ export type Meta = { ip?: string | undefined; userAgent?: string | undefined };
 export const IMPERSONATION_SECONDS = 2 * 60 * 60; // Bravitar support as an owner (Prompt 21)
 export type OpenedSession = { token: string; sessionId: string; context: SessionContext };
 
+// via: for the audit row; linked: the academies this sign-in also proved.
+export type OpenOptions = { via?: string | undefined; impersonation?: Impersonation | undefined; linked?: string[] | undefined };
+
 // A new 30-day session for a staff member, audited as a login; 2 hours when
 // Bravitar support signs in as them.
-export async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, via?: string, impersonation?: Impersonation): Promise<OpenedSession> {
+export async function openSession(tx: Tx, tenantId: string, staffId: string, meta: Meta, opts: OpenOptions = {}): Promise<OpenedSession> {
+  const { via, impersonation, linked } = opts;
   const token = newToken();
   const context = await buildSessionContext(tx, staffId);
   const session = await insertSession(tx, {
@@ -49,6 +53,7 @@ export async function openSession(tx: Tx, tenantId: string, staffId: string, met
     cachedContext: context,
     expiresAt: new Date(Date.now() + (impersonation ? IMPERSONATION_SECONDS : SESSION_MAX_AGE_SECONDS) * 1000),
     ...(impersonation ? { impersonatedBy: impersonation.by, impersonationReason: impersonation.reason } : {}),
+    ...(linked?.length && !impersonation ? { linkedTenants: linked } : {}),
     ...(meta.ip !== undefined ? { ip: meta.ip } : {}),
     ...(meta.userAgent !== undefined ? { userAgent: meta.userAgent } : {}),
   });
@@ -95,7 +100,8 @@ export async function login(input: LoginInput): Promise<OpenedSession> {
   const attempt = { tenantId: tenant.id, email: data.email, succeeded: Boolean(staff && ok), ...(data.ip !== undefined ? { ip: data.ip } : {}) };
   await withTenant(tenant.id, (tx) => recordLoginAttempt(tx, attempt));
   if (!staff || !ok) throw new UnauthorizedError(BAD_CREDENTIALS);
-  return withTenant(tenant.id, (tx) => openSession(tx, tenant.id, staff.id, data));
+  const linked = await samePasswordAcademies(data.email, data.password, tenant.id);
+  return withTenant(tenant.id, (tx) => openSession(tx, tenant.id, staff.id, data, { linked }));
 }
 
 // ---- one login page on the main site (agreed 2026-09-25)
@@ -118,7 +124,7 @@ export async function handoffTo(academy: StaffAcademy, who: HandoffFor, now: Dat
 export async function signIn(input: z.input<typeof signInSchema>, opts: { now?: Date } = {}): Promise<Academy[]> {
   const data = signInSchema.parse(input);
   const now = opts.now ?? new Date();
-  const found: Academy[] = [];
+  const matched: { academy: StaffAcademy; staffId: string }[] = [];
   const candidates = await staffAcademiesByEmail(data.email);
   if (!candidates.length) await verifyPassword(await dummyPasswordHash(), data.password);
   for (const t of candidates) {
@@ -127,10 +133,46 @@ export async function signIn(input: z.input<typeof signInSchema>, opts: { now?: 
     const staff = await withTenant(t.tenantId, (tx) => findActiveStaffByEmail(tx, data.email));
     const ok = Boolean(staff) && (await verifyPassword(staff?.passwordHash ?? "", data.password));
     await withTenant(t.tenantId, (tx) => recordLoginAttempt(tx, { tenantId: t.tenantId, email: data.email, succeeded: ok, ...(data.ip !== undefined ? { ip: data.ip } : {}) }));
-    if (staff && ok) found.push(await handoffTo(t, { staffId: staff.id }, now));
+    if (staff && ok) matched.push({ academy: t, staffId: staff.id });
   }
-  if (!found.length) throw new UnauthorizedError(`${BAD_CREDENTIALS}. After ${LOGIN_MAX_FAILURES} wrong tries, wait ${LOGIN_WINDOW_MINUTES} minutes.`);
-  return found;
+  if (!matched.length) throw new UnauthorizedError(`${BAD_CREDENTIALS}. After ${LOGIN_MAX_FAILURES} wrong tries, wait ${LOGIN_WINDOW_MINUTES} minutes.`);
+  // Each pass links the other academies the same password opened.
+  const ids = matched.map((m) => m.academy.tenantId);
+  return Promise.all(matched.map((m) => handoffTo(m.academy, { staffId: m.staffId, linkedTenants: ids.filter((id) => id !== m.academy.tenantId) }, now)));
+}
+
+// The person's other academies where this password works too, after it worked
+// here; not sign-in attempts there, so nothing is recorded.
+async function samePasswordAcademies(email: string, password: string, except: string): Promise<string[]> {
+  const linked: string[] = [];
+  for (const t of await staffAcademiesByEmail(email)) {
+    if (t.tenantId === except) continue;
+    const staff = await withTenant(t.tenantId, (tx) => findActiveStaffByEmail(tx, email));
+    if (staff && (await verifyPassword(staff.passwordHash, password))) linked.push(t.tenantId);
+  }
+  return linked;
+}
+
+// The academies this session may switch to without signing in again (agreed
+// 2026-10-02): only those its sign-in proved, never on Bravitar support's.
+async function switchable(session: StaffSession): Promise<{ email: string; academies: StaffAcademy[] }> {
+  if (!session.linked.length || session.impersonation) return { email: "", academies: [] };
+  const email = (await withTenant(session.tenant.id, (tx) => getStaff(tx, session.actor.id)))?.email ?? "";
+  return { email, academies: email ? (await staffAcademiesByEmail(email)).filter((a) => session.linked.includes(a.tenantId)) : [] };
+}
+
+export async function linkedAcademies(session: StaffSession): Promise<StaffAcademy[]> {
+  return (await switchable(session)).academies;
+}
+
+// "Switch academy": a pass to one of them; the new session links back here.
+export async function switchStaffAcademy(session: StaffSession, slug: string, now = new Date()): Promise<Academy | undefined> {
+  const { email, academies } = await switchable(session);
+  const there = academies.find((a) => a.slug === slug);
+  const staff = there ? await withTenant(there.tenantId, (tx) => findActiveStaffByEmail(tx, email)) : undefined;
+  if (!there || !staff) return undefined;
+  const linkedTenants = [...session.linked.filter((id) => id !== there.tenantId), session.tenant.id];
+  return handoffTo(there, { staffId: staff.id, linkedTenants, via: "academy switcher" }, now);
 }
 
 // On the academy's own address: a live pass for this academy opens a session,
@@ -143,7 +185,8 @@ export async function redeemHandoff(slug: string | undefined, token: string, met
     if (who && "staffId" in who) {
       const staff = await getStaff(tx, who.staffId);
       const impersonation = who.impersonatedBy ? { by: who.impersonatedBy, reason: who.impersonationReason ?? "" } : undefined;
-      return staff?.isActive ? { token: (await openSession(tx, tenant.id, staff.id, meta, impersonation ? "Bravitar support" : "main site", impersonation)).token, home: "/" } : undefined;
+      const via = impersonation ? "Bravitar support" : (who.via ?? "main site");
+      return staff?.isActive ? { token: (await openSession(tx, tenant.id, staff.id, meta, { via, impersonation, linked: who.linkedTenants })).token, home: "/" } : undefined;
     }
     const guardian = who ? await getGuardian(tx, who.guardianId) : undefined;
     return guardian?.canLogin ? { token: (await openGuardianSession(tx, guardian.id, guardian.phone, meta, "main site")).token, home: "/portal" } : undefined;
