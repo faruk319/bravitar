@@ -47,3 +47,6 @@ next-env.d.ts
 # supabase local stack
 supabase/.temp
 supabase/.branches
+
+# superpowers SDD scratch (ledger, briefs, review packages)
+.superpowers/
