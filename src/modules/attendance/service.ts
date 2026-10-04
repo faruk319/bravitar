@@ -29,7 +29,7 @@ async function timeZone(tx: Tx): Promise<string> {
   return (await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata";
 }
 
-export type ClassCard = ClassRow & { students: number; marked: number };
+export type ClassCard = ClassRow & { students: number; marked: number; coachName: string | null };
 
 export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } = {}): Promise<{ date: string; timeZone: string; classes: ClassCard[] }> {
   assertCan(ctx, "sessions:read");
@@ -38,6 +38,9 @@ export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
   const rows = await classesOn(tx, date, scopeOf(ctx));
   const roster = await onRoster(tx, [...new Set(rows.map((r) => r.session.batchId))], date);
   const marks = await marksFor(tx, rows.map((r) => r.session.id));
+  // A substitute on the session takes the class; otherwise the batch's coach.
+  const coachIds = [...new Set(rows.map((r) => r.session.coachId ?? r.batchCoachId).filter((id): id is string => id !== null))];
+  const names = await staffNames(tx, coachIds);
   return {
     date,
     timeZone: tz,
@@ -45,6 +48,7 @@ export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
       ...r,
       students: roster.filter((e) => e.batchId === r.session.batchId && !e.paused).length,
       marked: marks.filter((m) => m.sessionId === r.session.id).length,
+      coachName: names.get(r.session.coachId ?? r.batchCoachId ?? "") ?? null,
     })),
   };
 }

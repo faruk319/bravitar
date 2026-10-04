@@ -39,9 +39,9 @@ const student = async (name: string) =>
   (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: name, guardian: { fullName: `Parent of ${name}`, phone: `+9197${String(10_000_000 + ++phone)}`, relation: "mother" }, consents: { dataProcessing: true } }))).student.id;
 let batchNo = 0;
 // Batch straight through the repo, with classes generated from 1 Oct 2026.
-const batch = async (coachId: string | null) => {
+const batch = async (coachId: string | null, capacity?: number) => {
   const id = await withTenant(T, async (tx) => {
-    const b = await insertBatch(tx, { tenantId: T, branchId: branch, programId: program, name: `Batch ${++batchNo}`, startDate: "2026-10-01", coachId });
+    const b = await insertBatch(tx, { tenantId: T, branchId: branch, programId: program, name: `Batch ${++batchNo}`, startDate: "2026-10-01", coachId, capacity });
     await insertRules(tx, T, b.id, MWF, "2026-10-01");
     return b.id;
   });
@@ -232,5 +232,30 @@ describe("reading attendance back", () => {
     expect(r.recent.map((c) => [c.date, c.mark])).toEqual([["2026-10-09", null], ["2026-10-07", "late"], ["2026-10-05", "absent"], ["2026-10-02", "present"]]);
     const all = await withTenant(T, (tx) => tx.select().from(attendance).where(inArray(attendance.studentId, [s])));
     expect(all.length).toBe(3);
+  });
+});
+
+describe("today's class card", () => {
+  const today = () => withTenant(T, (tx) => todaysClasses(tx, owner, { now: at("2026-10-05T06:00:00Z") }));
+
+  it("carries the batch capacity and the effective coach, null when capacity is unset", async () => {
+    const [capped, open] = [await batch(teacherA.staffId, 15), await batch(null)];
+    await join(await student(`Cap ${stamp}`), capped);
+    const cards = (await today()).classes;
+    const c = cards.find((x) => x.session.batchId === capped);
+    expect(c).toMatchObject({ capacity: 15, students: 1 });
+    expect(c?.coachName).toBeTypeOf("string");
+    expect(cards.find((x) => x.session.batchId === open)).toMatchObject({ capacity: null, coachName: null });
+  });
+
+  it("a substitute on the session takes the class over the batch's coach", async () => {
+    const id = await batch(teacherA.staffId, 10);
+    const session = await classOn(id, "2026-10-05");
+    const before = (await today()).classes.find((x) => x.session.id === session)?.coachName;
+    await withTenant(T, (tx) => tx.update(sessions).set({ coachId: teacherB.staffId }).where(eq(sessions.id, session)));
+    const after = (await today()).classes.find((x) => x.session.id === session)?.coachName;
+    expect(before).toBeTypeOf("string");
+    expect(after).toBeTypeOf("string");
+    expect(after).not.toBe(before);
   });
 });

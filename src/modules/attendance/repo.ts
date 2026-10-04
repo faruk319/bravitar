@@ -9,7 +9,7 @@ import { students } from "@/modules/students/schema";
 import { resources } from "@/modules/tenancy/schema";
 import { type AttendanceRow, attendance, type Mark } from "./schema";
 
-export type ClassRow = { session: Session; batchName: string; programName: string; roomName: string | null; batchCoachId: string | null };
+export type ClassRow = { session: Session; batchName: string; programName: string; roomName: string | null; batchCoachId: string | null; capacity: number | null };
 export type ClassScope = { branchIds: string[]; coachId?: string };
 
 // A substitute (sessions.coach_id) takes the class; otherwise the batch's coach.
@@ -22,7 +22,7 @@ function inScope(scope: ClassScope): SQL | undefined {
 
 async function classRows(tx: Tx, where: SQL | undefined): Promise<ClassRow[]> {
   const rows = await tx
-    .select({ session: sessions, batchName: batches.name, programName: programs.name, roomName: resources.name, batchCoachId: batches.coachId })
+    .select({ session: sessions, batchName: batches.name, programName: programs.name, roomName: resources.name, batchCoachId: batches.coachId, capacity: batches.capacity })
     .from(sessions)
     .innerJoin(batches, eq(batches.id, sessions.batchId))
     .innerJoin(programs, eq(programs.id, batches.programId))
