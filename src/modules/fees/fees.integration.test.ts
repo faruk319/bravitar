@@ -13,15 +13,18 @@ import { roundHalfUp, sum } from "@/lib/money/paise";
 import { addProgram, createBatch, editBatch } from "@/modules/batches/service";
 import { enrollments } from "@/modules/enrollments/schema";
 import { enroll, leaveEnrollment, pauseEnrollment, setEnrollmentPlan, transferEnrollment } from "@/modules/enrollments/service";
+import { allocateNumber } from "@/modules/numbering/repo";
 import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { createHousehold } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
+import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { addMonths } from "./billing";
 import { generateInvoices } from "./invoicing";
 import { runInvoicesGenerate } from "./job";
-import { linesOf } from "./repo";
+import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { type Invoice, invoices } from "./schema";
 import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
@@ -416,5 +419,46 @@ describe("a student's plan", () => {
     await withTenant(T, (tx) => setPlanActive(tx, owner, plan.advanced ?? "", false));
     await expect(withTenant(T, (tx) => setEnrollmentPlan(tx, owner, ep, { feePlanId: plan.advanced ?? null }))).rejects.toThrow("Fee plan not found");
     expect(await planOf(await join(q.ids[0] ?? "", "Karate Adv", M1))).toBeNull(); // an archived batch plan isn't handed out
+  });
+});
+
+describe("the owed summary", () => {
+  let branch = "";
+  let empty = "";
+  let families = 0;
+
+  // An issued invoice for a family of its own, due on `due`, with `paid` rupees already on it.
+  const bill = (branchId: string, rupees: number, due: string, paid = 0) =>
+    withTenant(T, async (tx) => {
+      const household = await createHousehold(tx, { tenantId: T, name: `Dues family ${++families}` });
+      const total = BigInt(rupees) * 100n;
+      const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId: household.id, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+      const fy = financialYear(today);
+      return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", fy), fy, status: paid ? "part_paid" : "issued", paidPaise: BigInt(paid) * 100n, issuedAt: new Date() });
+    });
+
+  beforeAll(async () => {
+    // Fresh branches, so nothing else in the academy leaks into these figures.
+    branch = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Dues branch" }))).id;
+    empty = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Empty branch" }))).id;
+    await bill(branch, 1000, addDays(today, -3), 250); // overdue, with ₹750 still owed
+    await bill(branch, 300, today); // due today is not overdue yet
+    await bill(branch, 100, today); // two of them, so counting today as tomorrow would show
+    await bill(branch, 500, addDays(today, 1)); // the one due tomorrow
+    await bill(branch, 2000, addDays(today, 2));
+  });
+
+  it("totals what is owed and what is overdue, and counts the invoices due tomorrow", async () => {
+    expect(await withTenant(T, (tx) => owedSummary(tx, [branch], today))).toEqual({
+      invoices: 5,
+      owedPaise: 365_000n, // 750 + 300 + 100 + 500 + 2,000 rupees
+      overdueFamilies: 1,
+      overduePaise: 75_000n, // only the overdue invoice, and only what is left on it
+      dueTomorrow: 1,
+    });
+  });
+
+  it("is all zeroes for a branch with nothing owed", async () => {
+    expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overdueFamilies: 0, overduePaise: 0n, dueTomorrow: 0 });
   });
 });

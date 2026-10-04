@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, type SQL, sql } from "drizzle-orm";
+import { addDays } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
@@ -364,15 +365,24 @@ export async function familiesOverdue(tx: Tx, branchIds: string[], today: string
   return rows.map((r) => ({ householdId: r.householdId, overdue: r.overdue, owedPaise: BigInt(r.owed) }));
 }
 
-// What is owed now, and how many families have something past its due date.
-export async function owedSummary(tx: Tx, branchIds: string[], today: string): Promise<{ invoices: number; owedPaise: bigint; overdueFamilies: number }> {
+// What is owed now, how much of it and how many families are past due, and how many invoices fall due tomorrow.
+export async function owedSummary(tx: Tx, branchIds: string[], today: string): Promise<{ invoices: number; owedPaise: bigint; overdueFamilies: number; overduePaise: bigint; dueTomorrow: number }> {
+  const tomorrow = addDays(today, 1);
   const [r] = await tx
     .select({
       invoices: sql<number>`count(*)::int`,
       owed: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}), 0)::text`,
       overdueFamilies: sql<number>`count(DISTINCT ${invoices.householdId}) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
+      overdue: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}) FILTER (WHERE ${invoices.dueDate} < ${today}), 0)::text`,
+      dueTomorrow: sql<number>`count(*) FILTER (WHERE ${invoices.dueDate} = ${tomorrow})::int`,
     })
     .from(invoices)
     .where(and(inArray(invoices.status, [...OWED]), invoiceScope(branchIds)));
-  return { invoices: r?.invoices ?? 0, owedPaise: BigInt(r?.owed ?? "0"), overdueFamilies: r?.overdueFamilies ?? 0 };
+  return {
+    invoices: r?.invoices ?? 0,
+    owedPaise: BigInt(r?.owed ?? "0"),
+    overdueFamilies: r?.overdueFamilies ?? 0,
+    overduePaise: BigInt(r?.overdue ?? "0"),
+    dueTomorrow: r?.dueTomorrow ?? 0,
+  };
 }
