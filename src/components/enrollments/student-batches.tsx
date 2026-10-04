@@ -62,7 +62,7 @@ export function PlanSelect({ enrollmentId, current, plans }: { enrollmentId: str
         defaultValue={current?.id ?? ""}
         disabled={a.busy}
         onChange={(e) => void a.run(() => send(`/api/enrollments/${enrollmentId}`, "POST", { action: "plan", feePlanId: e.target.value || null }))}
-        className="h-10 rounded-lg border border-border bg-background px-2 text-label text-foreground"
+        className="h-10 rounded-lg border border-border bg-background px-2 text-base text-foreground"
       >
         <option value="">None</option>
         {options.map((p) => (

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 
-const control = "h-12 rounded-lg border border-input bg-background px-3 text-body";
+const control = "h-12 rounded-lg border border-input bg-background px-3 text-base";
 
 // Batch and month for the register; the page is rendered from the URL.
 export function RegisterPicker({ batches, batchId, month }: { batches: { id: string; label: string }[]; batchId: string; month: string }) {

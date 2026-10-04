@@ -11,7 +11,7 @@ export function InviteLink({ token, name }: { token: string; name: string }) {
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-neutral-50 p-4">
       <p className="text-label">Send this link to {name}. It works once and expires in 7 days.</p>
-      <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} className="h-12 rounded-lg border border-input bg-background px-3 text-caption" aria-label="Invite link" />
+      <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} className="h-12 rounded-lg border border-input bg-background px-3 text-base" aria-label="Invite link" />
       <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"
