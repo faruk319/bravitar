@@ -225,6 +225,18 @@ export async function collectedOn(tx: Tx, branchIds: string[], day: string): Pro
   return { count: r?.count ?? 0, total: r?.total ?? 0n };
 }
 
+// The revenue chart: one row per calendar month in [from, to], by recorded date.
+export async function collectedByMonth(tx: Tx, branchIds: string[], from: string, to: string): Promise<{ month: string; count: number; total: Paise }[]> {
+  const month = sql<string>`to_char(${payments.recordedOn}, 'YYYY-MM')`;
+  const rows = await tx
+    .select({ month, count: sql<number>`count(*)::int`, total: sql<string>`sum(${payments.amountPaise})::text` })
+    .from(payments)
+    .where(and(gte(payments.recordedOn, from), lte(payments.recordedOn, to), inArray(payments.status, ["confirmed", "refunded"]), paymentScope(branchIds)))
+    .groupBy(month)
+    .orderBy(asc(month));
+  return rows.map((r) => ({ month: r.month, count: r.count, total: BigInt(r.total) }));
+}
+
 export type InvoiceReceipt = Pick<Payment, "receiptNumber" | "receivedOn" | "method"> & { paymentId: string; net: Paise };
 
 // The payments that have money on an invoice now, oldest first.

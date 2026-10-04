@@ -18,6 +18,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
+import { collectedByMonth, insertPayment } from "./repo";
 import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
 import { cancelPayment, collectedToday, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
@@ -699,5 +700,58 @@ describe("payments", () => {
       const numbers = rows.map((r) => Number(r.n.split("/").at(-1))).sort((a, b) => a - b);
       expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, i) => i + 1));
     });
+  });
+});
+
+// ---- collection by calendar month: the dashboard's revenue chart
+
+describe("collection by month", () => {
+  const M = { tenant: "", branch: "", other: "", owner: "", household: "" };
+  let n = 0;
+
+  // A payment recorded on a chosen day, straight into the table.
+  const pay = (branchId: string, day: string, amountPaise: bigint, extra: Partial<typeof payments.$inferInsert> = {}) =>
+    withTenant(M.tenant, (tx) =>
+      insertPayment(tx, { tenantId: M.tenant, branchId, householdId: M.household, receiptNumber: `RCT/TEST/${++n}`, fy: "2026-27", method: "cash", amountPaise, receivedOn: day, recordedOn: day, receivedBy: M.owner, ...extra }),
+    );
+  const byMonth = (branchIds: string[], from = "2026-06-01", to = "2026-08-31") => withTenant(M.tenant, (tx) => collectedByMonth(tx, branchIds, from, to));
+
+  beforeAll(async () => {
+    const t = await academy("months");
+    Object.assign(M, { tenant: t.tenant.id, branch: t.branch.id, owner: t.owner.id });
+    M.other = (await withTenant(M.tenant, (tx) => createBranch(tx, { tenantId: M.tenant, name: "Second branch" }))).id;
+    M.household = (await withTenant(M.tenant, (tx) => createHousehold(tx, { tenantId: M.tenant, name: "Deshmukh" }))).id;
+
+    // Out of date order on purpose. July has nothing; June has two that count and three that don't.
+    await pay(M.branch, "2026-08-01", 250_000n);
+    await pay(M.other, "2026-06-12", 300_000n);
+    await pay(M.branch, "2026-06-05", 150_000n);
+    await pay(M.branch, "2026-06-30", 80_050n, { status: "refunded" }); // fully refunded, but the money was taken in
+    await pay(M.branch, "2026-06-10", 11_100n, { status: "pending" });
+    await pay(M.branch, "2026-06-11", 22_200n, { status: "failed" });
+    await pay(M.branch, "2026-06-12", 33_300n, { status: "cancelled", cancelledAt: new Date(), cancelledBy: M.owner, cancelReason: "Typed the wrong family" });
+  });
+
+  it("totals the confirmed and refunded payments of each month, oldest first, with no row for an empty month", async () => {
+    expect(await byMonth([M.branch])).toEqual([
+      { month: "2026-06", count: 2, total: 230_050n },
+      { month: "2026-08", count: 1, total: 250_000n },
+    ]);
+  });
+
+  it("takes every branch when none is named, and only the named one otherwise", async () => {
+    expect(await byMonth([])).toEqual([
+      { month: "2026-06", count: 3, total: 530_050n },
+      { month: "2026-08", count: 1, total: 250_000n },
+    ]);
+    expect(await byMonth([M.other])).toEqual([{ month: "2026-06", count: 1, total: 300_000n }]);
+  });
+
+  it("includes the window's first and last day, and an empty window is empty", async () => {
+    expect(await byMonth([M.branch], "2026-06-30", "2026-08-01")).toEqual([
+      { month: "2026-06", count: 1, total: 80_050n },
+      { month: "2026-08", count: 1, total: 250_000n },
+    ]);
+    expect(await byMonth([], "2026-07-01", "2026-07-31")).toEqual([]);
   });
 });
