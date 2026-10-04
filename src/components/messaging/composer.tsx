@@ -64,7 +64,7 @@ function DraftCard({ draft, many, onChange }: { draft: Draft; many: boolean; onC
     <div className="flex flex-col gap-2">
       {many ? <p className="text-label">{draft.about}</p> : null}
       {draft.to.length > 1 ? (
-        <select aria-label="Send to" value={to} onChange={(e) => setTo(Number(e.target.value))} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+        <select aria-label="Send to" value={to} onChange={(e) => setTo(Number(e.target.value))} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
           {draft.to.map((r, i) => (
             <option key={r.phone} value={i}>
               {r.name} · {formatPhone(r.phone)}
@@ -78,7 +78,7 @@ function DraftCard({ draft, many, onChange }: { draft: Draft; many: boolean; onC
       ) : (
         <p className="text-caption text-muted-foreground">No phone saved: copy the text and send it yourself.</p>
       )}
-      <textarea aria-label="Message" value={draft.text} onChange={(e) => onChange(e.target.value)} rows={6} className="rounded-lg border border-border bg-background px-3 py-2 text-body" />
+      <textarea aria-label="Message" value={draft.text} onChange={(e) => onChange(e.target.value)} rows={6} className="rounded-lg border border-border bg-background px-3 py-2 text-base" />
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"

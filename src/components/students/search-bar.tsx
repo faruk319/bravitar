@@ -31,7 +31,7 @@ export function StudentSearchBar() {
         <Search className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />
         <Input name="q" defaultValue={q} placeholder="Name or phone" aria-label="Search" inputMode="search" className="pl-10" />
       </div>
-      <select aria-label="Status" value={status} onChange={(e) => push({ status: e.target.value })} className="h-12 rounded-lg border border-input bg-background px-3 text-body">
+      <select aria-label="Status" value={status} onChange={(e) => push({ status: e.target.value })} className="h-12 rounded-lg border border-input bg-background px-3 text-base">
         <option value="">All statuses</option>
         <option value="active">Active</option>
         <option value="paused">Paused</option>

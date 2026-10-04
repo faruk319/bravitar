@@ -31,7 +31,7 @@ export function TemplateEditor({ t }: { t: TemplateView }) {
           </label>
         }
       />
-      <textarea aria-label={`${t.label} wording`} value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-body" />
+      <textarea aria-label={`${t.label} wording`} value={body} onChange={(e) => setBody(e.target.value)} rows={4} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-base" />
       <p className="mt-1 text-caption text-muted-foreground">{t.variables.map((v) => `{{${v}}}`).join(" ")}</p>
       {a.error ? (
         <p role="alert" className="mt-2 text-label text-danger-600">

@@ -10,7 +10,7 @@ import type { CoachOption } from "@/modules/batches/repo";
 import { emptySchedule, ScheduleEditor, type ScheduleValue, toSlots } from "./schedule-editor";
 
 const NEW = "__new";
-const selectClass = "h-12 rounded-lg border border-border bg-background px-3 text-body";
+const selectClass = "h-12 rounded-lg border border-border bg-background px-3 text-base";
 
 // New students get this plan; each student's can be changed on their page.
 export function FeePlanField({ plans, value }: { plans: { id: string; name: string }[]; value?: string | null }) {

@@ -136,7 +136,7 @@ export function ImportWizard() {
                 aria-label={`Use ${h || `column ${i + 1}`} as`}
                 value={columns[i] ?? ""}
                 onChange={(e) => setColumns(columns.map((c, j) => (j === i ? (e.target.value as ImportField | "") : c)))}
-                className="h-12 w-full rounded-lg border border-border bg-background px-3 text-body md:w-64"
+                className="h-12 w-full rounded-lg border border-border bg-background px-3 text-base md:w-64"
               >
                 <option value="">{"Don't import"}</option>
                 {IMPORT_FIELDS.map((f) => (
@@ -150,7 +150,7 @@ export function ImportWizard() {
         </ul>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Parent is usually" id="relation">
-            <select id="relation" value={relation} onChange={(e) => setRelation(e.target.value as Relation)} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+            <select id="relation" value={relation} onChange={(e) => setRelation(e.target.value as Relation)} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
               <option value="father">Father</option>
               <option value="mother">Mother</option>
               <option value="other">Other</option>
@@ -158,7 +158,7 @@ export function ImportWizard() {
           </Field>
           {branches.length > 1 ? (
             <Field label="Branch when the file has none" id="branch">
-              <select id="branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+              <select id="branch" value={branchId} onChange={(e) => setBranchId(e.target.value)} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}

@@ -21,7 +21,7 @@ export function BranchSwitcher({ className }: { className?: string }) {
         setBusy(false);
         router.refresh();
       }}
-      className={`h-12 rounded-lg border border-border bg-background px-3 text-body ${className ?? ""}`}
+      className={`h-12 rounded-lg border border-border bg-background px-3 text-base ${className ?? ""}`}
     >
       <option value="all">All branches</option>
       {branches.map((b) => (
