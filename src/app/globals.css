@@ -16,19 +16,22 @@
   --color-black: #000000;
 
   --color-neutral-0: #ffffff;
-  --color-neutral-50: #f7f7f6;
-  --color-neutral-100: #ededea;
-  --color-neutral-300: #c9c9c4;
-  --color-neutral-500: #77776f;
-  --color-neutral-700: #464642;
-  --color-neutral-900: #1a1a18;
+  --color-neutral-50: #f7f8fa;
+  --color-neutral-100: #f3f4f6;
+  --color-neutral-300: #e5e7eb;
+  --color-neutral-500: #6b7280;
+  --color-neutral-700: #374151;
+  --color-neutral-900: #111827;
 
-  --color-accent-50: #eef3fd;
-  --color-accent-600: #2b5fd9;
+  --color-accent-50: #eff6ff;
+  --color-accent-600: #2563eb;
 
-  --color-success-600: #1f7a46;
-  --color-danger-600: #c1392b;
-  --color-warning-600: #a9640a;
+  --color-success-600: #16a34a;
+  --color-success-700: #15803d;
+  --color-danger-600: #ef4444;
+  --color-danger-700: #b91c1c;
+  --color-warning-600: #f59e0b;
+  --color-warning-700: #b45309;
 
   --font-weight-*: initial;
   --font-weight-normal: 400;
@@ -42,7 +45,7 @@
   --text-heading: 1.125rem;
   --text-heading--line-height: 1.4;
   --text-heading--font-weight: 600;
-  --text-body: 1rem;
+  --text-body: 0.875rem;
   --text-body--line-height: 1.5;
   --text-body--font-weight: 400;
   --text-label: 0.875rem;
@@ -57,15 +60,15 @@
   /* 13px is the floor; shadcn components use text-xs */
   --text-xs: 0.8125rem;
 
-  /* radius: 8px controls, 12px small panels, 16px cards */
+  /* radius: 10px controls, 12px small panels, 16px cards */
   --radius-*: initial;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.5rem;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.625rem;
   --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
-  --radius-3xl: 1rem;
-  --radius-4xl: 1rem;
+  --radius-2xl: 0.75rem;
+  --radius-3xl: 0.75rem;
+  --radius-4xl: 0.75rem;
   --radius-full: 9999px;
 
   /* cards sit on the canvas with a faint lift; sheets and popovers use shadow-lg */
@@ -111,28 +114,6 @@
   --color-sidebar-accent-foreground: var(--color-accent-600);
   --color-sidebar-border: var(--color-neutral-300);
   --color-sidebar-ring: var(--color-accent-600);
-}
-
-/*
- * The accent by academy type (agreed 2026-09-26), from <html data-vertical>.
- * Status colours never change; each accent was checked against them, which is
- * why deeniyat is masjid-tile turquoise, not green (green means present).
- */
-[data-vertical="deeniyat"] {
-  --color-accent-600: #0c6b8a;
-  --color-accent-50: #e7f3f7;
-}
-[data-vertical="karate"] {
-  --color-accent-600: #7f1d1d;
-  --color-accent-50: #fbefef;
-}
-[data-vertical="dance"] {
-  --color-accent-600: #7c3aed;
-  --color-accent-50: #f5f3ff;
-}
-[data-vertical="sports"] {
-  --color-accent-600: #0369a1;
-  --color-accent-50: #f0f9ff;
 }
 
 /* Dark mode ships after V1: add a `.dark` block that re-points these vars. */
