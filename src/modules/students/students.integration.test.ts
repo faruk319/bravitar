@@ -5,10 +5,12 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { addProgram, createBatch } from "@/modules/batches/service";
+import { enroll, leaveEnrollment } from "@/modules/enrollments/service";
 import { listRoles } from "@/modules/staff/repo";
 import type { StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
-import { countByStatus, countStudents, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
+import { countByStatus, countStudents, countWithoutBatch, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
 import { guardians, students } from "@/modules/students/schema";
 import {
   archiveStudent,
@@ -198,5 +200,34 @@ describe("archive", () => {
     await expect(withTenant(T, (tx) => requireStudent(tx, ownerCtx, r.student.id))).rejects.toMatchObject({ status: 404 });
     const [row] = await platformDb.select({ d: students.deletedAt }).from(students).where(eq(students.id, r.student.id));
     expect(row?.d).not.toBeNull();
+  });
+});
+
+describe("waiting for a batch", () => {
+  const waiting = (branchIds: string[]) => withTenant(T, (tx) => countWithoutBatch(tx, { branchIds }));
+  const counts = async () => [await waiting([]), await waiting([mainBranch]), await waiting([otherBranch])] as const;
+  const child = (fullName: string, phone: number) =>
+    withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName, branchId: mainBranch, guardian: { fullName: `Parent of ${fullName}`, phone: P(phone), relation: "mother" }, consents }));
+
+  it("counts active students with no active enrollment, and respects branch scope", async () => {
+    const [all, main, other] = await counts();
+    await child("Unenrolled Child", 871);
+    expect(await counts()).toEqual([all + 1, main + 1, other]); // one more overall and in its branch, none in the other
+  });
+
+  it("leaves out students in a batch, paused or archived, and takes back one who has left it", async () => {
+    const base = await waiting([mainBranch]);
+    const [inBatch, paused, archived] = [await child("Batch Child", 872), await child("Paused Child", 873), await child("Archived Child", 874)];
+    expect(await waiting([mainBranch])).toBe(base + 3);
+
+    const program = await withTenant(T, (tx) => addProgram(tx, ownerCtx, { name: "Karate" }));
+    const batch = await withTenant(T, (tx) => createBatch(tx, ownerCtx, { name: "Karate A", programId: program.id, slots: [{ weekday: 1, startTime: "17:00", endTime: "18:00" }] }));
+    const joined = await withTenant(T, (tx) => enroll(tx, ownerCtx, { studentId: inBatch.student.id, batchId: batch.id }));
+    await withTenant(T, (tx) => setStudentStatus(tx, ownerCtx, paused.student.id, { status: "paused" }));
+    await withTenant(T, (tx) => archiveStudent(tx, ownerCtx, archived.student.id));
+    expect(await waiting([mainBranch])).toBe(base);
+
+    await withTenant(T, (tx) => leaveEnrollment(tx, ownerCtx, joined.id));
+    expect(await waiting([mainBranch])).toBe(base + 1);
   });
 });

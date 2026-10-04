@@ -1,6 +1,7 @@
-import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, or, type SQL } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
+import { enrollments } from "@/modules/enrollments/schema";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
 
 // Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
@@ -179,6 +180,22 @@ export async function currentConsents(tx: Tx, studentId: string): Promise<Partia
 export async function countJoinedSince(tx: Tx, scope: Scope, from: string): Promise<number> {
   const [row] = await tx.select({ n: count() }).from(students).where(and(isNull(students.deletedAt), inScope(scope), gte(students.joinedOn, from)));
   return row?.n ?? 0;
+}
+
+// Waiting for a batch: on the roll, but in nothing yet.
+export async function countWithoutBatch(tx: Tx, scope: Scope): Promise<number> {
+  const [r] = await tx
+    .select({ n: count() })
+    .from(students)
+    .where(
+      and(
+        eq(students.status, "active"),
+        isNull(students.deletedAt),
+        inScope(scope),
+        sql`NOT EXISTS (SELECT 1 FROM ${enrollments} WHERE ${enrollments.studentId} = ${students.id} AND ${enrollments.status} = 'active')`,
+      ),
+    );
+  return r?.n ?? 0;
 }
 
 export type StudentMove = Pick<Student, "id" | "fullName" | "code" | "leftReason"> & { on: string };
