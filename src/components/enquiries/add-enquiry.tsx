@@ -118,7 +118,7 @@ export function AddEnquiry({ programs, batches, staff, me, tomorrow }: { program
               </select>
             </Field>
             <Field label="Note" id="enq-notes">
-              <textarea id="enq-notes" name="notes" rows={2} className="rounded-lg border border-border bg-background px-3 py-2 text-body" />
+              <textarea id="enq-notes" name="notes" rows={2} className="rounded-lg border border-border bg-background px-3 py-2 text-base" />
             </Field>
           </div>
         </details>

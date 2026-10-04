@@ -104,7 +104,7 @@ export function NewRole({ roles }: { roles: Option[] }) {
             <Input id="new-role" name="name" required placeholder="e.g. Front Desk Manager" autoFocus />
           </Field>
           <Field label="Start from" id="copy-from">
-            <select id="copy-from" name="copyFrom" className="h-12 rounded-lg border border-input bg-background px-3 text-body">
+            <select id="copy-from" name="copyFrom" className="h-12 rounded-lg border border-input bg-background px-3 text-base">
               <option value="">Nothing ticked</option>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>

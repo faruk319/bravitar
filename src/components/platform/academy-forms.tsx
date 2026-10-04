@@ -476,7 +476,7 @@ export function BillingSettingsForm({ v: fresh }: { v: SettingsData }) {
       </Field>
       <div className="col-span-full">
         <Field label="How to pay (UPI, bank)" id="howToPay">
-          <textarea id="howToPay" name="howToPay" rows={3} defaultValue={v.howToPay} className="rounded-lg border border-border bg-background px-3 py-2 text-body" />
+          <textarea id="howToPay" name="howToPay" rows={3} defaultValue={v.howToPay} className="rounded-lg border border-border bg-background px-3 py-2 text-base" />
         </Field>
       </div>
       <div className="col-span-full flex items-center gap-3">

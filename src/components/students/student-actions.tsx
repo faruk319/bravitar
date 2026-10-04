@@ -106,7 +106,7 @@ export function EditStudentSheet({ student, canUpdate }: { student: Student; can
           <F label="Name" id="fullName"><Input id="fullName" name="fullName" defaultValue={student.fullName} required /></F>
           <F label="Date of birth" id="dateOfBirth"><Input id="dateOfBirth" name="dateOfBirth" type="date" defaultValue={student.dateOfBirth ?? ""} /></F>
           <F label="Gender" id="gender">
-            <select id="gender" name="gender" defaultValue={student.gender ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+            <select id="gender" name="gender" defaultValue={student.gender ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
               <option value="">—</option><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
             </select>
           </F>

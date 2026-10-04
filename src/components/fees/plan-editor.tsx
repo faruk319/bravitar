@@ -11,7 +11,7 @@ import { parseRupees, sum } from "@/lib/money/paise";
 import { send } from "@/lib/send";
 import type { Installment } from "@/modules/fees/schema";
 
-export const selectClass = "h-12 rounded-lg border border-border bg-background px-3 text-body";
+export const selectClass = "h-12 rounded-lg border border-border bg-background px-3 text-base";
 
 // Paise travel as digit strings; inputs show plain rupees ("1,500.50").
 export const rupeesInput = (paise: string | number) => (String(paise) === "0" ? "" : formatPaise(BigInt(paise)).slice(1));

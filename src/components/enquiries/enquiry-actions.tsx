@@ -11,7 +11,7 @@ import { LOST_REASON_LABELS, LOST_REASONS, SOURCE_LABELS, SOURCES } from "@/modu
 import type { EnquiryRow } from "@/modules/enquiries/repo";
 import type { BatchOption, Option } from "./add-enquiry";
 
-const areaClass = "rounded-lg border border-border bg-background px-3 py-2 text-body";
+const areaClass = "rounded-lg border border-border bg-background px-3 py-2 text-base";
 const KINDS = [
   ["call", "Call"],
   ["whatsapp", "WhatsApp"],

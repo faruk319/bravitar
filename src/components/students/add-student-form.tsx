@@ -71,7 +71,7 @@ export function AddStudentForm() {
         <Input id="dateOfBirth" name="dateOfBirth" type="date" />
       </Field>
       <Field label="Gender" htmlFor="gender">
-        <select id="gender" name="gender" className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+        <select id="gender" name="gender" className="h-12 rounded-lg border border-border bg-background px-3 text-base">
           <option value="">—</option>
           <option value="male">Male</option>
           <option value="female">Female</option>
@@ -97,7 +97,7 @@ export function AddStudentForm() {
             <Input id="guardianPhone" name="guardianPhone" type="tel" inputMode="tel" required onBlur={(e) => onPhoneBlur(e.target.value)} />
           </Field>
           <Field label="Relation" htmlFor="relation">
-            <select id="relation" name="relation" className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+            <select id="relation" name="relation" className="h-12 rounded-lg border border-border bg-background px-3 text-base">
               <option value="father">Father</option>
               <option value="mother">Mother</option>
               <option value="other">Other</option>
@@ -131,7 +131,7 @@ export function AddStudentForm() {
 
       {branches.length > 1 ? (
         <Field label="Branch" htmlFor="branchId">
-          <select id="branchId" name="branchId" defaultValue={currentBranchId === "all" ? "" : currentBranchId} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+          <select id="branchId" name="branchId" defaultValue={currentBranchId === "all" ? "" : currentBranchId} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
             {branches.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.name}

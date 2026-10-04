@@ -13,7 +13,7 @@ export type BatchChoice = { id: string; label: string };
 function BatchSelect({ id, choices }: { id: string; choices: BatchChoice[] }) {
   return (
     <Field label="Batch" id={id}>
-      <select id={id} name="batchId" className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+      <select id={id} name="batchId" className="h-12 rounded-lg border border-border bg-background px-3 text-base">
         {choices.map((c) => (
           <option key={c.id} value={c.id}>
             {c.label}

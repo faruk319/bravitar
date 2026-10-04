@@ -47,7 +47,7 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
           </Field>
           {branches.length > 1 ? (
             <Field label="Branch" id="branchId">
-              <select id="branchId" name="branchId" defaultValue={allBranches ? "" : (branches[0]?.id ?? "")} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+              <select id="branchId" name="branchId" defaultValue={allBranches ? "" : (branches[0]?.id ?? "")} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
                 {allBranches ? <option value="">All branches</option> : null}
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>

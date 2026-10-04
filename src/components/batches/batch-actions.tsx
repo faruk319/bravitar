@@ -70,7 +70,7 @@ export function EditBatch({ batch, coaches, rooms, plans }: { batch: BatchLite; 
           <Input id="name" name="name" defaultValue={batch.name} required />
         </Field>
         <Field label={staff} id="coachId">
-          <select id="coachId" name="coachId" defaultValue={batch.coachId ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+          <select id="coachId" name="coachId" defaultValue={batch.coachId ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
             <option value="">Not decided</option>
             {branchCoaches.map((c) => (
               <option key={c.id} value={c.id}>
@@ -84,7 +84,7 @@ export function EditBatch({ batch, coaches, rooms, plans }: { batch: BatchLite; 
             <Input id="capacity" name="capacity" type="number" inputMode="numeric" min={1} defaultValue={batch.capacity ?? ""} placeholder="No limit" />
           </Field>
           <Field label="Room" id="resourceId">
-            <select id="resourceId" name="resourceId" defaultValue={batch.resourceId ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-body">
+            <select id="resourceId" name="resourceId" defaultValue={batch.resourceId ?? ""} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
               <option value="">—</option>
               {rooms
                 .filter((r) => r.branchId === batch.branchId)
