@@ -6,10 +6,11 @@ const greeting = (hour: number) => (hour < 12 ? "Good morning" : hour < 17 ? "Go
 
 // `hour` is the tenant-local hour, computed by the page.
 export function DashboardHeader({ name, hour, date, canAddStudent, canCollect }: { name: string; hour: number; date: string; canAddStudent: boolean; canCollect: boolean }) {
+  const first = name.trim().split(/\s+/)[0] ?? "";
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
-        <h1 className="text-display">{`${greeting(hour)}, ${name.split(" ")[0]} 👋`}</h1>
+        <h1 className="text-display">{`${greeting(hour)}${first ? `, ${first}` : ""} 👋`}</h1>
         <p className="text-caption text-muted-foreground">{date}</p>
       </div>
       <div className="flex flex-wrap gap-2">

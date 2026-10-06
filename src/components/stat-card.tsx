@@ -5,7 +5,8 @@ import { cn } from "@/lib/utils";
 
 // docs/07 §6: every number links to the list behind it.
 export function StatCard({ label, value, icon: Icon, href, note, trend }: { label: string; value: number | string; icon: LucideIcon; href: string; note?: string; trend?: number | null | undefined }) {
-  const hasTrend = trend !== null && trend !== undefined;
+  // Flat is not a rise: zero shows no chip.
+  const hasTrend = trend !== null && trend !== undefined && trend !== 0;
   return (
     <Link href={href} className="flex flex-col gap-2 rounded-2xl border border-neutral-100 bg-card p-4 shadow-card hover:border-neutral-300 md:p-5">
       <span className="flex items-center justify-between gap-2 text-label text-neutral-700">
