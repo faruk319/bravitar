@@ -10,17 +10,12 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 // From the YYYY-MM string; no Date, so no timezone shift.
 const tick = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
 
-export function RevenueOverview({ months, collected, pending, overdue }: { months: Month[]; collected: bigint; pending: bigint; overdue: bigint }) {
+export function RevenueOverview({ months }: { months: Month[] }) {
   // bigint becomes number only here, in rupees, for the bar scale; exact paise ride along for the tooltip.
   const data: Datum[] = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n), paise: m.totalPaise }));
   // Only the peak month is labelled; the rest show theirs in the tooltip.
   const peak = data.reduce((best, d, i) => (d.rupees > (data[best]?.rupees ?? -1) ? i : best), 0);
   const peakPaise = data[peak]?.paise ?? 0n;
-  const figures = [
-    { label: "Collected", value: collected },
-    { label: "Pending", value: pending },
-    { label: "Overdue", value: overdue },
-  ];
   return (
     <div>
       {data.length ? (
@@ -37,7 +32,7 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
                 formatter={(_value, _name, item) => [formatPaise((item.payload as Datum).paise), "Collected"]}
                 contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "none", fontSize: 13 }}
               />
-              <Bar dataKey="rupees" fill="var(--color-accent-600)" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+              <Bar dataKey="rupees" fill="var(--color-accent-600)" maxBarSize={48} radius={[4, 4, 0, 0]} isAnimationActive={false}>
                 <LabelList
                   dataKey="rupees"
                   content={({ x, y, width, index }) =>
@@ -55,14 +50,6 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
       ) : (
         <p className="text-body text-muted-foreground">No collection yet.</p>
       )}
-      <dl className="mt-4 grid grid-cols-3 gap-2">
-        {figures.map((f) => (
-          <div key={f.label}>
-            <dt className="text-caption text-muted-foreground">{f.label}</dt>
-            <dd className="text-number text-neutral-900">{formatPaise(f.value)}</dd>
-          </div>
-        ))}
-      </dl>
     </div>
   );
 }

@@ -31,7 +31,9 @@ export default async function DashboardPage() {
 
   const att = today?.attendance;
   const seen = att ? att.present + att.absent + att.notMarked : 0;
-  const pct = att && seen ? Math.round((att.present / seen) * 100) : null;
+  // Nothing marked yet is not 0%: show a dash.
+  const marked = att ? att.present + att.absent : 0;
+  const pct = att && marked ? Math.round((att.present / seen) * 100) : null;
 
   const owed = money?.owed;
   const collected = money?.thisMonth;
@@ -68,7 +70,7 @@ export default async function DashboardPage() {
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {roll ? <StatCard label="Active students" value={roll.active} note={`+${roll.joinedThisMonth} this month`} icon={UsersRound} href="/students" /> : null}
-            {att ? <StatCard label="Today's attendance" value={pct === null ? "—" : `${pct}%`} note={seen ? `${att.present} / ${seen}` : "No classes today"} icon={ClipboardCheck} href="/attendance" /> : null}
+            {att ? <StatCard label="Today's attendance" value={pct === null ? "—" : `${pct}%`} note={marked ? `${att.present} / ${seen}` : seen ? "Not marked yet" : "No classes today"} icon={ClipboardCheck} href="/attendance" /> : null}
             {owed ? <StatCard label="Fees due" value={formatPaise(owed.owedPaise)} note={count(owed.invoices, "invoice", "invoices")} icon={Wallet} href="/invoices?view=unpaid" /> : null}
             {collected ? <StatCard label="This month" value={formatPaise(collected.total)} trend={trend} note={trend === null || trend === undefined ? count(collected.count, "receipt", "receipts") : "so far vs all of last month"} icon={IndianRupee} href="/payments" /> : null}
           </div>
@@ -89,7 +91,7 @@ export default async function DashboardPage() {
             {money?.byMonth && fees ? (
               <Card>
                 <CardHeader title="Revenue" />
-                <RevenueOverview months={money.byMonth} {...fees} />
+                <RevenueOverview months={money.byMonth} />
               </Card>
             ) : null}
             {fees ? (
