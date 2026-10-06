@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type AccessContext, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
+import { todayIn } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
@@ -150,7 +151,7 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
     dateOfBirth: data.dateOfBirth ?? null,
     gender: data.gender ?? null,
     phone: data.adultPhone ?? null,
-    joinedOn: data.joinedOn ?? new Date().toISOString().slice(0, 10),
+    joinedOn: data.joinedOn ?? todayIn(tenant.timezone),
     metadata: data.programInterest ? { programInterest: data.programInterest } : {},
   });
   await linkGuardian(tx, ctx.tenantId, student.id, guardian.id, data.guardian ? data.guardian.relation : "self");

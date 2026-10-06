@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { todayIn } from "@/lib/dates";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
@@ -35,9 +36,9 @@ let ownerCtx: StudentCtx;
 const P = (n: number) => `+919${String(100_000_000 + n).padStart(9, "0")}`;
 const consents = { dataProcessing: true };
 
-const ctxFor = async (staffId: string): Promise<StudentCtx> => {
-  const base = await withTenant(T, (tx) => loadAccessContext(tx, staffId));
-  const branchIds = await withTenant(T, async (tx) => (await import("@/modules/staff/repo")).staffBranchIds(tx, staffId));
+const ctxFor = async (staffId: string, tenantId = T): Promise<StudentCtx> => {
+  const base = await withTenant(tenantId, (tx) => loadAccessContext(tx, staffId));
+  const branchIds = await withTenant(tenantId, async (tx) => (await import("@/modules/staff/repo")).staffBranchIds(tx, staffId));
   return { ...base, branchIds };
 };
 
@@ -229,5 +230,21 @@ describe("waiting for a batch", () => {
 
     await withTenant(T, (tx) => leaveEnrollment(tx, ownerCtx, joined.id));
     expect(await waiting([mainBranch])).toBe(base + 1);
+  });
+});
+
+describe("join date", () => {
+  it("defaults to the academy's local day, not the UTC day", async () => {
+    // Of UTC+14 and UTC-12, one is always on a different calendar day than UTC.
+    const timezone = todayIn("Pacific/Kiritimati") !== todayIn("UTC") ? "Pacific/Kiritimati" : "Etc/GMT+12";
+    expect(todayIn(timezone)).not.toBe(todayIn("UTC"));
+    const t = await testAcademy({ name: `Tz Test ${stamp}`, slug: `tz-${stamp}`, timezone, owner: { name: "Owner", email: `tz-owner-${stamp}@example.test` } });
+    try {
+      const ctx = await ctxFor(t.owner.id, t.tenant.id);
+      const r = await withTenant(t.tenant.id, (tx) => createStudent(tx, ctx, { fullName: "Zoya Khan", dateOfBirth: "1998-01-01", adultPhone: "98765 00077", consents }));
+      expect(r.student.joinedOn).toBe(todayIn(timezone));
+    } finally {
+      await deleteTenantsCompletely([t.tenant.id]);
+    }
   });
 });
