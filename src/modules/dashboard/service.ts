@@ -67,14 +67,12 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
       nearCapacity: t.classes.filter((c) => c.capacity !== null && c.capacity > 0 && c.students / c.capacity >= 0.9).length,
     };
     if (allows(ctx, "attendance:read")) {
-      const marks = await marksFor(tx, t.classes.map((c) => c.session.id));
-      out.today.present = { here: marks.filter((m) => m.status === "present" || m.status === "late").length, marked: marks.length };
-      const roster = t.classes.reduce((n, c) => n + c.students, 0);
-      out.today.attendance = {
-        present: marks.filter((m) => m.status === "present" || m.status === "late").length,
-        absent: marks.filter((m) => m.status === "absent").length,
-        notMarked: Math.max(0, roster - marks.length),
-      };
+      // A cancelled class was never held: no roster, no marks.
+      const marks = await marksFor(tx, held.map((c) => c.session.id));
+      const here = marks.filter((m) => m.status === "present" || m.status === "late").length;
+      out.today.present = { here, marked: marks.length };
+      const roster = held.reduce((n, c) => n + c.students, 0);
+      out.today.attendance = { present: here, absent: marks.filter((m) => m.status === "absent").length, notMarked: Math.max(0, roster - marks.length) };
     }
   }
 

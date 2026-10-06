@@ -19,6 +19,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
+import { setSessionStatus } from "@/modules/sessions/repo";
 import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
@@ -157,6 +158,22 @@ describe("the dashboard", () => {
     const after = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
     expect(after.today?.attendance).toEqual({ present: 2, absent: 1, notMarked: 1 });
     expect(after.roll?.waitingForBatch).toBe(0);
+  });
+
+  it("a cancelled class contributes nothing to attendance", async () => {
+    const todays = (name: string) => withTenant(T, async (tx) => (await tx.select({ id: sessions.id }).from(sessions).innerJoin(batches, eq(batches.id, sessions.batchId)).where(and(eq(batches.name, name), eq(sessions.sessionDate, today))))[0]?.id ?? "");
+    const [morning, early] = [await todays("Morning"), await todays("Early")];
+    const cancel = (ids: string[], status: "cancelled" | "scheduled") => withTenant(T, (tx) => setSessionStatus(tx, ids, status, status === "cancelled" ? "test" : null));
+    try {
+      await cancel([morning], "cancelled"); // Kiran's unmarked class
+      expect((await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }))).today?.attendance).toEqual({ present: 2, absent: 1, notMarked: 0 });
+      await cancel([early], "cancelled"); // cancelled after its marks were taken
+      const d = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
+      expect(d.today?.attendance).toEqual({ present: 0, absent: 0, notMarked: 0 });
+      expect(d.today?.present).toEqual({ here: 0, marked: 0 });
+    } finally {
+      await cancel([morning, early], "scheduled");
+    }
   });
 
   it("gives a Teacher the roll and the day, but no money, attendance counts or pipeline", async () => {
