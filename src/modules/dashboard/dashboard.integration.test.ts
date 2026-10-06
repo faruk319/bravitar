@@ -164,14 +164,20 @@ describe("the dashboard", () => {
     const todays = (name: string) => withTenant(T, async (tx) => (await tx.select({ id: sessions.id }).from(sessions).innerJoin(batches, eq(batches.id, sessions.batchId)).where(and(eq(batches.name, name), eq(sessions.sessionDate, today))))[0]?.id ?? "");
     const [morning, early] = [await todays("Morning"), await todays("Early")];
     const cancel = (ids: string[], status: "cancelled" | "scheduled") => withTenant(T, (tx) => setSessionStatus(tx, ids, status, status === "cancelled" ? "test" : null));
+    const earlyBatch = (await withTenant(T, (tx) => tx.select({ id: batches.id }).from(batches).where(eq(batches.name, "Early"))))[0]?.id ?? "";
+    const setEarlyCapacity = (capacity: number | null) => withTenant(T, (tx) => tx.update(batches).set({ capacity }).where(eq(batches.id, earlyBatch)));
     try {
+      await setEarlyCapacity(3); // 3 of 3: near capacity while it runs
       await cancel([morning], "cancelled"); // Kiran's unmarked class
+      expect((await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }))).today?.nearCapacity).toBe(1);
       expect((await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }))).today?.attendance).toEqual({ present: 2, absent: 1, notMarked: 0 });
       await cancel([early], "cancelled"); // cancelled after its marks were taken
       const d = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
       expect(d.today?.attendance).toEqual({ present: 0, absent: 0, notMarked: 0 });
       expect(d.today?.present).toEqual({ here: 0, marked: 0 });
+      expect(d.today?.nearCapacity).toBe(0); // the full class was cancelled
     } finally {
+      await setEarlyCapacity(null);
       await cancel([morning, early], "scheduled");
     }
   });

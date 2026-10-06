@@ -64,7 +64,7 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
       marked: held.filter((c) => c.marked > 0).length,
       notMarked: held.filter((c) => c.marked === 0 && c.session.startsAt <= now).length,
       // Only batches that declare a capacity can be near it.
-      nearCapacity: t.classes.filter((c) => c.capacity !== null && c.capacity > 0 && c.students / c.capacity >= 0.9).length,
+      nearCapacity: held.filter((c) => c.capacity !== null && c.capacity > 0 && c.students / c.capacity >= 0.9).length,
     };
     if (allows(ctx, "attendance:read")) {
       // A cancelled class was never held: no roster, no marks.
