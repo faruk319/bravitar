@@ -1,4 +1,4 @@
-import { CalendarClock, ClipboardCheck, IndianRupee, TrendingDown, UserPlus, UserX, UsersRound, Wallet } from "lucide-react";
+import { CalendarClock, ClipboardCheck, IndianRupee, TrendingDown, UserX, UsersRound, Wallet } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { AttendanceOverview } from "@/components/dashboard/attendance-overview";
 import { type Alert, AttentionRequired } from "@/components/dashboard/attention-required";
@@ -33,7 +33,9 @@ export default async function DashboardPage() {
   const seen = att ? att.present + att.absent + att.notMarked : 0;
   // Nothing marked yet is not 0%: show a dash.
   const marked = att ? att.present + att.absent : 0;
-  const pct = att && marked ? Math.round((att.present / seen) * 100) : null;
+  // marked > 0 is the only way into the division, so it cannot divide by zero.
+  const pct = att && marked > 0 ? Math.round((att.present / marked) * 100) : null;
+  const attNote = !att || !seen ? "No classes today" : !marked ? "Not marked yet" : att.notMarked > 0 ? `${marked} of ${seen} marked` : `${att.present} / ${seen}`;
 
   const owed = money?.owed;
   const collected = money?.thisMonth;
@@ -42,7 +44,6 @@ export default async function DashboardPage() {
   const alerts: Alert[] = [];
   if (money?.dueTomorrow !== undefined) alerts.push({ key: "due", n: money.dueTomorrow, text: `${count(money.dueTomorrow, "invoice", "invoices")} due tomorrow`, href: "/invoices?view=unpaid", icon: CalendarClock, tone: "warning" });
   if (today) alerts.push({ key: "capacity", n: today.nearCapacity, text: `${count(today.nearCapacity, "batch", "batches")} near capacity today`, href: "/today", icon: UsersRound, tone: "warning" });
-  if (pipeline) alerts.push({ key: "enquiries", n: pipeline.month.received, text: `${count(pipeline.month.received, "new enquiry", "new enquiries")} this month`, href: "/enquiries?view=report", icon: UserPlus, tone: "muted" });
   if (roll) alerts.push({ key: "waiting", n: roll.waitingForBatch, text: `${count(roll.waitingForBatch, "student", "students")} waiting for a batch`, href: "/students", icon: UsersRound, tone: "warning" });
   if (atRisk?.attendance != null) alerts.push({ key: "risk-att", n: atRisk.attendance, text: `${count(atRisk.attendance, "student", "students")} under ${AT_RISK.below}% attendance`, href: "/reports/at-risk", icon: UserX, tone: "danger" });
   if (atRisk?.unpaid != null) alerts.push({ key: "risk-fees", n: atRisk.unpaid, text: `${count(atRisk.unpaid, "student", "students")} with ${AT_RISK.overdue}+ invoices overdue`, href: "/reports/at-risk", icon: TrendingDown, tone: "danger" });
@@ -63,14 +64,17 @@ export default async function DashboardPage() {
     <>
       <DashboardHeader name={session.actor.name} hour={hour} date={formatDate(d.date)} canAddStudent={allows(ctx, "students:create")} canCollect={allows(ctx, "fees:collect")} />
       {empty ? (
-        <Card>
-          <EmptyState title="Nothing to show for your role yet" hint="Ask the owner to give your role the parts of the app you use." />
-        </Card>
+        <div className="space-y-5">
+          <Card>
+            <EmptyState title="Nothing to show for your role yet" hint="Ask the owner to give your role the parts of the app you use." />
+          </Card>
+          <QuickActions actions={actions} />
+        </div>
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {roll ? <StatCard label="Active students" value={roll.active} note={`+${roll.joinedThisMonth} this month`} icon={UsersRound} href="/students" /> : null}
-            {att ? <StatCard label="Today's attendance" value={pct === null ? "—" : `${pct}%`} note={marked ? `${att.present} / ${seen}` : seen ? "Not marked yet" : "No classes today"} icon={ClipboardCheck} href="/attendance" /> : null}
+            {att ? <StatCard label="Today's attendance" value={pct === null ? "—" : `${pct}%`} note={attNote} icon={ClipboardCheck} href="/attendance" /> : null}
             {owed ? <StatCard label="Fees due" value={formatPaise(owed.owedPaise)} note={count(owed.invoices, "invoice", "invoices")} icon={Wallet} href="/invoices?view=unpaid" /> : null}
             {collected ? <StatCard label="This month" value={formatPaise(collected.total)} trend={trend} note={trend === null || trend === undefined ? count(collected.count, "receipt", "receipts") : "so far vs all of last month"} icon={IndianRupee} href="/payments" /> : null}
           </div>
@@ -88,7 +92,7 @@ export default async function DashboardPage() {
                 <AttendanceOverview data={att} />
               </Card>
             ) : null}
-            {money?.byMonth && fees ? (
+            {money?.byMonth ? (
               <Card>
                 <CardHeader title="Revenue" />
                 <RevenueOverview months={money.byMonth} />
