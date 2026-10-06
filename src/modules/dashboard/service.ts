@@ -7,11 +7,12 @@ import { marksFor } from "@/modules/attendance/repo";
 import { type ClassCard, todaysClasses } from "@/modules/attendance/service";
 import { type EnquiryRow, type Funnel, funnel, statusCounts } from "@/modules/enquiries/repo";
 import { myFollowUps } from "@/modules/enquiries/service";
+import { addMonths } from "@/modules/fees/billing";
 import { owedSummary } from "@/modules/fees/repo";
-import { collectedByDay } from "@/modules/payments/repo";
+import { collectedByDay, collectedByMonth } from "@/modules/payments/repo";
 import { atRisk } from "@/modules/reports/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
-import { countJoinedSince } from "@/modules/students/repo";
+import { countByStatus, countJoinedSince, countWithoutBatch } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 
 type Collected = { count: number; total: Paise };
@@ -20,12 +21,26 @@ type Collected = { count: number; total: Paise };
 // see some of it, and each number only if they may see the list behind it.
 export type Dashboard = {
   date: string;
-  today?: { timeZone: string; classes: ClassCard[]; held: number; marked: number; notMarked: number; present?: { here: number; marked: number } };
+  roll?: { active: number; joinedThisMonth: number; waitingForBatch: number };
+  today?: {
+    timeZone: string;
+    classes: ClassCard[];
+    held: number;
+    marked: number;
+    notMarked: number;
+    present?: { here: number; marked: number };
+    attendance?: { present: number; absent: number; notMarked: number };
+    nearCapacity: number;
+  };
   money?: {
     collectedToday?: Collected;
     thisMonth?: Collected;
     last30?: { from: string; to: string; byDay: { key: string; count: number; totalPaise: Paise }[] };
+    byMonth?: { month: string; count: number; totalPaise: Paise }[];
+    trendPct?: number | null;
     owed?: { invoices: number; owedPaise: Paise; overdueFamilies: number };
+    overduePaise?: Paise;
+    dueTomorrow?: number;
     admissions?: number;
   };
   atRisk?: { attendance: number | null; unpaid: number | null };
@@ -48,11 +63,28 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
       held: held.length,
       marked: held.filter((c) => c.marked > 0).length,
       notMarked: held.filter((c) => c.marked === 0 && c.session.startsAt <= now).length,
+      // Only batches that declare a capacity can be near it.
+      nearCapacity: t.classes.filter((c) => c.capacity !== null && c.capacity > 0 && c.students / c.capacity >= 0.9).length,
     };
     if (allows(ctx, "attendance:read")) {
       const marks = await marksFor(tx, t.classes.map((c) => c.session.id));
       out.today.present = { here: marks.filter((m) => m.status === "present" || m.status === "late").length, marked: marks.length };
+      const roster = t.classes.reduce((n, c) => n + c.students, 0);
+      out.today.attendance = {
+        present: marks.filter((m) => m.status === "present" || m.status === "late").length,
+        absent: marks.filter((m) => m.status === "absent").length,
+        notMarked: Math.max(0, roster - marks.length),
+      };
     }
+  }
+
+  if (allows(ctx, "students:read")) {
+    const byStatus = await countByStatus(tx, { branchIds: ctx.branchIds });
+    out.roll = {
+      active: byStatus.active,
+      joinedThisMonth: await countJoinedSince(tx, { branchIds: ctx.branchIds }, monthStart),
+      waitingForBatch: await countWithoutBatch(tx, { branchIds: ctx.branchIds }),
+    };
   }
 
   if (allows(ctx, "payments:read") || allows(ctx, "invoices:read")) {
@@ -65,8 +97,19 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
       money.collectedToday = total(days.filter((d) => d.day === today));
       money.thisMonth = total(days.filter((d) => d.day >= monthStart));
       money.last30 = { from, to: today, byDay: days.filter((d) => d.day >= from).map((d) => ({ key: d.day, count: d.count, totalPaise: d.total })) };
+      // Eight months for the revenue chart; last month feeds the trend.
+      const months = await collectedByMonth(tx, ctx.branchIds, addMonths(monthStart, -7), today);
+      money.byMonth = months.map((m) => ({ month: m.month, count: m.count, totalPaise: m.total }));
+      const last = months.find((m) => m.month === addMonths(monthStart, -1).slice(0, 7))?.total ?? 0n;
+      // Percent to one decimal; the bigint difference is only narrowed after dividing down.
+      money.trendPct = last === 0n ? null : Number(((money.thisMonth.total - last) * 1000n) / last) / 10;
     }
-    if (allows(ctx, "invoices:read")) money.owed = await owedSummary(tx, ctx.branchIds, today);
+    if (allows(ctx, "invoices:read")) {
+      const owed = await owedSummary(tx, ctx.branchIds, today);
+      money.owed = { invoices: owed.invoices, owedPaise: owed.owedPaise, overdueFamilies: owed.overdueFamilies };
+      money.overduePaise = owed.overduePaise;
+      money.dueTomorrow = owed.dueTomorrow;
+    }
     if (allows(ctx, "students:read")) money.admissions = await countJoinedSince(tx, { branchIds: ctx.branchIds }, monthStart);
     out.money = money;
   }

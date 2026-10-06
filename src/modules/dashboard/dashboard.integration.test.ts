@@ -8,10 +8,12 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
+import { batches } from "@/modules/batches/schema";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { createEnquiry, markLost } from "@/modules/enquiries/service";
 import { bookTrial } from "@/modules/enquiries/trials";
 import { enroll } from "@/modules/enrollments/service";
+import { addMonths } from "@/modules/fees/billing";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { recordPayment } from "@/modules/payments/service";
@@ -20,6 +22,7 @@ import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { students } from "@/modules/students/schema";
 import { createHousehold } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
@@ -123,9 +126,103 @@ describe("the dashboard", () => {
   it("each number only for those who may see its list, in their branches", async () => {
     const d = await withTenant(T, (tx) => dashboardData(tx, desk, { now: noon }));
     expect(d.today).toBeUndefined(); // no sessions:read
-    expect(Object.keys(d.money ?? {}).sort()).toEqual(["admissions", "owed"]); // fees, not the day's cash
+    expect(Object.keys(d.money ?? {}).sort()).toEqual(["admissions", "dueTomorrow", "overduePaise", "owed"]); // fees, not the day's cash
     expect(d.atRisk).toEqual({ attendance: null, unpaid: 1 });
     const elsewhere = await withTenant(T, (tx) => dashboardData(tx, { ...owner, branchIds: [other] }, { now: noon }));
     expect([elsewhere.today?.held, elsewhere.money?.collectedToday?.count, elsewhere.money?.owed?.invoices, elsewhere.atRisk]).toEqual([0, 0, 0, { attendance: 0, unpaid: 0 }]);
+  });
+
+  it("counts the roll, splits today's attendance and flags near-full batches", async () => {
+    const batchIds = (await withTenant(T, (tx) => tx.select({ id: batches.id, name: batches.name }).from(batches))).reduce<Record<string, string>>((m, b) => ({ ...m, [b.name]: b.id }), {});
+    const setCapacity = (name: string, capacity: number | null) => withTenant(T, (tx) => tx.update(batches).set({ capacity }).where(eq(batches.id, batchIds[name] ?? "")));
+    // Early holds 3 of 3 and Evening 0 of 10; Morning declares none.
+    await setCapacity("Early", 3);
+    await setCapacity("Evening", 10);
+    try {
+      const d = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
+      expect(d.roll).toEqual({ active: 4, joinedThisMonth: 4, waitingForBatch: 1 }); // Kiran is in no batch
+      expect(d.today?.attendance).toEqual({ present: 2, absent: 1, notMarked: 0 }); // Asha and Bina here, Chetan absent
+      expect(d.today?.nearCapacity).toBe(1);
+      expect(d.money?.overduePaise).toBe(100_000n); // Kiran's 400 + 600
+      expect(d.money?.dueTomorrow).toBe(0); // Mehta's invoice is due in five days
+    } finally {
+      for (const name of ["Early", "Morning", "Evening"]) await setCapacity(name, null);
+    }
+    const none = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
+    expect(none.today?.nearCapacity).toBe(0); // no capacity declared, none counted
+
+    // Kiran joins Morning, whose class has no marks yet: one on the roster, unmarked.
+    const kiran = (await withTenant(T, (tx) => tx.select({ id: students.id }).from(students).where(eq(students.fullName, "Kiran"))))[0]?.id ?? "";
+    await withTenant(T, (tx) => enroll(tx, owner, { studentId: kiran, batchId: batchIds["Morning"] ?? "", startDate: today }));
+    const after = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
+    expect(after.today?.attendance).toEqual({ present: 2, absent: 1, notMarked: 1 });
+    expect(after.roll?.waitingForBatch).toBe(0);
+  });
+
+  it("gives a Teacher the roll and the day, but no money, attendance counts or pipeline", async () => {
+    const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
+    const teacher = await ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `teacher-${stamp}@example.test`, fullName: "Teacher", roleId: roles["Teacher"] ?? "" }))).id);
+    const d = await withTenant(T, (tx) => dashboardData(tx, teacher, { now: noon }));
+    expect(d.today).toBeDefined();
+    expect(d.today?.attendance).toBeUndefined();
+    expect(d.today?.present).toBeUndefined();
+    expect(d.roll?.active).toBe(4);
+    expect([d.money, d.atRisk, d.pipeline]).toEqual([undefined, undefined, undefined]);
+  });
+
+  it("builds eight months of history, the trend and the overdue split", async () => {
+    const t = await testAcademy({ name: `Hist ${stamp}`, slug: `hist-${stamp}`, verticalPreset: "general", owner: { name: "Owner", email: `hist-${stamp}@example.test` } });
+    try {
+      const ctx = await (async () => {
+        const [base, branchIds] = await withTenant(t.tenant.id, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);
+        return { ...base, branchIds };
+      })();
+      const day = await withTenant(t.tenant.id, tenantToday);
+      const start = `${day.slice(0, 7)}-01`;
+      const house = (await withTenant(t.tenant.id, (tx) => createHousehold(tx, { tenantId: t.tenant.id, name: "Rao family" }))).id;
+      const receive = (rupees: number, on: string) =>
+        withTenant(t.tenant.id, (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), householdId: house, branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
+      const inMonth = (back: number) => `${addMonths(start, -back).slice(0, 7)}-10`;
+      await receive(900, inMonth(8)); // before the window
+      await receive(100, inMonth(7)); // first month in the window
+      await receive(300, inMonth(1));
+      await receive(100, inMonth(1));
+      await receive(600, day);
+      const bill = (rupees: number, due: string) =>
+        withTenant(t.tenant.id, async (tx) => {
+          const total = BigInt(rupees) * 100n;
+          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+          return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, t.tenant.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
+        });
+      await bill(250, addDays(day, -2));
+      await bill(700, addDays(day, 1));
+
+      const d = await withTenant(t.tenant.id, (tx) => dashboardData(tx, ctx, { now: localToUtc(day, "12:00", TZ) }));
+      expect(d.money?.byMonth).toEqual([
+        { month: addMonths(start, -7).slice(0, 7), count: 1, totalPaise: 10_000n },
+        { month: addMonths(start, -1).slice(0, 7), count: 2, totalPaise: 40_000n },
+        { month: start.slice(0, 7), count: 1, totalPaise: 60_000n },
+      ]);
+      expect(d.money?.trendPct).toBe(50); // 600 against last month's 400
+      expect(d.money?.overduePaise).toBe(25_000n);
+      expect(d.money?.dueTomorrow).toBe(1);
+    } finally {
+      await deleteTenantsCompletely([t.tenant.id]);
+    }
+  });
+});
+
+describe("an academy with nothing in it", () => {
+  it("returns zeros and a null trend, never NaN", async () => {
+    const t = await testAcademy({ name: `Empty ${stamp}`, slug: `empty-${stamp}`, verticalPreset: "general", owner: { name: "Owner", email: `empty-${stamp}@example.test` } });
+    try {
+      const [base, branchIds] = await withTenant(t.tenant.id, async (tx) => [await loadAccessContext(tx, t.owner.id), await staffBranchIds(tx, t.owner.id)] as const);
+      const d = await withTenant(t.tenant.id, (tx) => dashboardData(tx, { ...base, branchIds }));
+      expect(d.roll).toEqual({ active: 0, joinedThisMonth: 0, waitingForBatch: 0 });
+      expect(d.today).toMatchObject({ attendance: { present: 0, absent: 0, notMarked: 0 }, nearCapacity: 0 });
+      expect(d.money).toMatchObject({ byMonth: [], trendPct: null, overduePaise: 0n, dueTomorrow: 0 });
+    } finally {
+      await deleteTenantsCompletely([t.tenant.id]);
+    }
   });
 });
