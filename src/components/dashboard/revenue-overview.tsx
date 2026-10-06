@@ -15,6 +15,7 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
   const data: Datum[] = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n), paise: m.totalPaise }));
   // Only the peak month is labelled; the rest show theirs in the tooltip.
   const peak = data.reduce((best, d, i) => (d.rupees > (data[best]?.rupees ?? -1) ? i : best), 0);
+  const peakPaise = data[peak]?.paise ?? 0n;
   const figures = [
     { label: "Collected", value: collected },
     { label: "Pending", value: pending },
@@ -28,7 +29,7 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
           className="h-44"
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 20, right: 0, bottom: 0, left: 0 }}>
+            <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 8 }}>
               <XAxis dataKey="tick" tickLine={false} axisLine={false} tick={{ fontSize: 13, fill: "var(--color-neutral-500)" }} />
               <Tooltip
                 cursor={false}
@@ -40,9 +41,9 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
                 <LabelList
                   dataKey="rupees"
                   content={({ x, y, width, index }) =>
-                    index === peak && data[peak] ? (
+                    index === peak && peakPaise > 0n ? (
                       <text x={Number(x) + Number(width) / 2} y={Number(y) - 6} textAnchor="middle" fontSize={13} fill="var(--color-neutral-500)">
-                        {formatPaise(data[peak].paise)}
+                        {formatPaise(peakPaise)}
                       </text>
                     ) : null
                   }

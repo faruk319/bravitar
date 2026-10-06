@@ -2,7 +2,8 @@ import { Check, Minus, X } from "lucide-react";
 
 type Split = { present: number; absent: number; notMarked: number };
 
-// The bar is decorative; the legend is the accessible text. Status is never colour alone: each segment also has an icon and its count in the legend.
+// The bar is decorative; the legend is the accessible text.
+// Status is never colour alone.
 const ROWS = [
   { key: "present", label: "Present", icon: Check, fill: "bg-success-600", text: "text-success-700" },
   { key: "absent", label: "Absent", icon: X, fill: "bg-danger-600", text: "text-danger-700" },
@@ -14,11 +15,11 @@ export function AttendanceOverview({ data }: { data: Split }) {
   return (
     <div>
       {total > 0 ? (
-        <figure aria-hidden="true" className="flex h-3 gap-0.5 overflow-hidden rounded-full">
+        <div aria-hidden="true" className="flex h-3 gap-0.5 overflow-hidden rounded-full">
           {ROWS.filter((r) => data[r.key] > 0).map((r) => (
             <div key={r.key} className={r.fill} style={{ width: `${(data[r.key] / total) * 100}%` }} />
           ))}
-        </figure>
+        </div>
       ) : null}
       <ul className="mt-3">
         {ROWS.map((r) => {
