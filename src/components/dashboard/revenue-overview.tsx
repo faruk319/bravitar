@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatPaise } from "@/lib/money/format";
 
 type Month = { month: string; totalPaise: bigint };
@@ -13,6 +13,8 @@ const tick = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
 export function RevenueOverview({ months, collected, pending, overdue }: { months: Month[]; collected: bigint; pending: bigint; overdue: bigint }) {
   // bigint becomes number only here, in rupees, for the bar scale; exact paise ride along for the tooltip.
   const data: Datum[] = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n), paise: m.totalPaise }));
+  // Only the peak month is labelled; the rest show theirs in the tooltip.
+  const peak = data.reduce((best, d, i) => (d.rupees > (data[best]?.rupees ?? -1) ? i : best), 0);
   const figures = [
     { label: "Collected", value: collected },
     { label: "Pending", value: pending },
@@ -26,7 +28,7 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
           className="h-44"
         >
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <BarChart data={data} margin={{ top: 20, right: 0, bottom: 0, left: 0 }}>
               <XAxis dataKey="tick" tickLine={false} axisLine={false} tick={{ fontSize: 13, fill: "var(--color-neutral-500)" }} />
               <Tooltip
                 cursor={false}
@@ -34,7 +36,18 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
                 formatter={(_value, _name, item) => [formatPaise((item.payload as Datum).paise), "Collected"]}
                 contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "none", fontSize: 13 }}
               />
-              <Bar dataKey="rupees" fill="var(--color-accent-600)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="rupees" fill="var(--color-accent-600)" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                <LabelList
+                  dataKey="rupees"
+                  content={({ x, y, width, index }) =>
+                    index === peak && data[peak] ? (
+                      <text x={Number(x) + Number(width) / 2} y={Number(y) - 6} textAnchor="middle" fontSize={13} fill="var(--color-neutral-500)">
+                        {formatPaise(data[peak].paise)}
+                      </text>
+                    ) : null
+                  }
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </figure>
