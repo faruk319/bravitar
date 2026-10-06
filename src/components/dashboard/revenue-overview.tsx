@@ -4,14 +4,15 @@ import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatPaise } from "@/lib/money/format";
 
 type Month = { month: string; totalPaise: bigint };
+type Datum = { tick: string; rupees: number; paise: bigint };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // From the YYYY-MM string; no Date, so no timezone shift.
 const tick = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
 
 export function RevenueOverview({ months, collected, pending, overdue }: { months: Month[]; collected: bigint; pending: bigint; overdue: bigint }) {
-  // bigint becomes number only here, in rupees, for the chart scale.
-  const data = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n) }));
+  // bigint becomes number only here, in rupees, for the bar scale; exact paise ride along for the tooltip.
+  const data: Datum[] = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n), paise: m.totalPaise }));
   const figures = [
     { label: "Collected", value: collected },
     { label: "Pending", value: pending },
@@ -30,7 +31,7 @@ export function RevenueOverview({ months, collected, pending, overdue }: { month
               <Tooltip
                 cursor={false}
                 isAnimationActive={false}
-                formatter={(value) => [formatPaise(BigInt(Math.round(Number(value))) * 100n), "Collected"]}
+                formatter={(_value, _name, item) => [formatPaise((item.payload as Datum).paise), "Collected"]}
                 contentStyle={{ background: "var(--color-card)", border: "1px solid var(--color-border)", borderRadius: 10, boxShadow: "none", fontSize: 13 }}
               />
               <Bar dataKey="rupees" fill="var(--color-accent-600)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
