@@ -28,6 +28,7 @@ import { generateInvoices, resolvePayers } from "./invoicing";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
+import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoices } from "./schema";
 import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
@@ -474,6 +475,26 @@ describe("the owed summary", () => {
 
   it("is all zeroes for a branch with nothing owed", async () => {
     expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overdueFamilies: 0, overduePaise: 0n, dueTomorrow: 0 });
+  });
+});
+
+describe("one payment for siblings' invoices", () => {
+  it("settles three siblings' invoices from one run, with what is over kept as advance", async () => {
+    const f = await family("Pay One", "Pay Two", "Pay Three");
+    const es = await Promise.all(f.ids.map((id) => join(id, "Karate A", M0)));
+    expect(await gen(M1, es)).toEqual({ invoices: 3, lines: 3, skipped: [] });
+    const drafts = await invoicesOf(f.householdId);
+    const issued = await withTenant(T, (tx) => issueInvoices(tx, owner, drafts.map((d) => d.id), { now: at(M1) }));
+    const branchId = issued[0]?.branchId ?? "";
+    const payment = await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "250000" }));
+
+    const after = await invoicesOf(f.householdId);
+    // Three invoices of 80000 each; a per-family balance bug would pay one invoice or none.
+    expect(after.map((i) => [i.status, i.paidPaise])).toEqual([["paid", 80000n], ["paid", 80000n], ["paid", 80000n]]);
+    const rows = await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, payment.id)));
+    expect(rows.map((r) => r.invoiceId).sort()).toEqual(after.map((i) => i.id).sort());
+    expect(sum(rows.map((r) => r.amountPaise))).toBe(240000n);
+    expect((await withTenant(T, (tx) => familyAccount(tx, owner, f.householdId, branchId))).advancePaise).toBe(10000n);
   });
 });
 

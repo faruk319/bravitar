@@ -455,8 +455,8 @@ invoice creation, bulk invoice generation preview.
 **Rules**
 
 - The nightly job generates invoices for cycles starting that day, one invoice per
-  household per cycle, with one line per active enrollment. Family invoicing is
-  the default because families pay once for all their children.
+  member per payer per cycle, with one line per active enrollment. A parent with
+  three children gets three invoices a month; one payment can still settle them all.
 - Discounts apply at the line level, before summing. Round half up to whole paise.
 - Admission fee appears as a separate line on the first invoice only.
 - Late fee is added by a job after `due_date + grace_days`, as its own line, and
@@ -470,8 +470,8 @@ invoice creation, bulk invoice generation preview.
 
 - Plans: recurring (monthly, quarterly, half-yearly, yearly), term (installments in
   `metadata`, docs/04 format) and one-time. Package is stored, not billed (V2).
-- `invoices.generate` runs at 02:00 IST and makes **drafts**: one per family,
-  branch and billing day; each term installment gets its own. Cycles that began in
+- `invoices.generate` runs at 02:00 IST and makes **drafts**: one per member,
+  payer, branch and billing day; each term installment gets its own. Cycles that began in
   the last 7 days are caught up; a billing key per charge means nothing is billed
   twice. "Generate now" runs it on demand.
 - To review shows the drafts' count and total; the owner issues them, and only then
@@ -493,8 +493,8 @@ invoice creation, bulk invoice generation preview.
 
 **Acceptance**
 
-- [ ] A family with two children in different programs gets one invoice with two
-      lines and a correct sibling discount
+- [ ] A family with two children in different programs gets an invoice each,
+      with a correct sibling discount on the second child's
 - [ ] Totals reconcile exactly: lines − discount + tax = total, in paise
 - [ ] Re-running generation for the same period creates no duplicates
 - [ ] A voided invoice keeps its number and never reappears in dues
