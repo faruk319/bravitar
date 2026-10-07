@@ -193,8 +193,8 @@ export function ImportWizard() {
       <h2 className="text-heading">{done ? `Added ${result.studentsCreated} ${students}` : "Ready to import"}</h2>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <Tile label={`New ${students}`} value={result.studentsCreated} />
-        <Tile label="New families" value={result.householdsCreated} />
-        <Tile label="Join existing families" value={result.linkedToExisting} />
+        <Tile label="New guardians" value={result.guardiansCreated} />
+        <Tile label="Linked to a guardian" value={result.linkedToExisting} />
         <Tile label="Already here" value={result.skipped} />
         <Tile label="Can't import" value={result.errors.length} tone={result.errors.length ? "danger" : undefined} />
         <Tile label="Warnings" value={result.warnings.length} tone={result.warnings.length ? "warning" : undefined} />

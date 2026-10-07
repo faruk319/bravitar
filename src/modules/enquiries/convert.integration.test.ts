@@ -99,11 +99,11 @@ describe("converting an enquiry", () => {
     await expect(convert(desk, e.id, { guardian: { fullName: "Again", relation: "father" } })).rejects.toThrow("Already joined");
   });
 
-  it("a phone already on a family asks first, then joins that family", async () => {
+  it("a phone already on a guardian asks first, then joins that guardian", async () => {
     const existing = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Riya Sharma", guardian: { fullName: "Sunita Sharma", phone: "98711 00002", relation: "mother" }, consents: { dataProcessing: true } }));
     const e = await enquiry("Kabir Sharma", "98711 00002");
-    await expect(convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" } })).rejects.toMatchObject({ status: 409, details: { householdId: existing.household.id } });
-    const done = await convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" }, householdId: existing.household.id });
+    await expect(convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" } })).rejects.toMatchObject({ status: 409, details: { guardianId: existing.guardian.id, fullName: "Sunita Sharma", members: [{ fullName: "Riya Sharma" }] } });
+    const done = await convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" }, linkGuardianId: existing.guardian.id });
     const [kabir] = await withTenant(T, (tx) => tx.select().from(students).where(eq(students.id, done.studentId)));
     expect(kabir?.householdId).toBe(existing.household.id);
   });

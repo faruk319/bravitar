@@ -72,7 +72,7 @@ describe("adding an enquiry", () => {
     const onEnquiry = await withTenant(T, (tx) => phoneMatches(tx, desk, "98765 22222"));
     expect(onEnquiry.enquiries.map((m) => m.name).sort()).toEqual(["Riya", "Riya again"]);
     const onFamily = await withTenant(T, (tx) => phoneMatches(tx, desk, "+919876533333"));
-    expect(onFamily.family).toMatchObject({ guardianName: "Sunita Sharma", students: ["Kabir"] });
+    expect(onFamily.family).toMatchObject({ fullName: "Sunita Sharma", hidden: 0, members: [{ fullName: "Kabir", relation: "mother" }] });
   });
 });
 

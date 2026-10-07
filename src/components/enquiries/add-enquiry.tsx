@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { selectClass } from "@/components/fees/plan-editor";
 import { Field, SheetForm, useAction } from "@/components/sheet-form";
+import { knownLine } from "@/components/students/known-guardian";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
@@ -62,7 +63,7 @@ export function AddEnquiry({ programs, batches, staff, me, tomorrow }: { program
                 Already an enquiry: {m.name}
               </Link>
             ))}
-            {match.family ? <span className="block">This number belongs to {match.family.guardianName} ({match.family.students.join(", ") || match.family.householdName})</span> : null}
+            {match.family ? <span className="block">{knownLine(match.family)}</span> : null}
           </p>
         ) : null}
         <Field label="Program" id="enq-program">

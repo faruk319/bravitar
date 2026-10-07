@@ -10,8 +10,8 @@ export type ImportResult = {
   dryRun: boolean;
   rows: number;
   studentsCreated: number;
-  householdsCreated: number;
-  linkedToExisting: number;
+  guardiansCreated: number; // rows whose phone had no guardian yet: a new one was made
+  linkedToExisting: number; // rows whose phone was a guardian from before this file: the student joined them
   skipped: number;
   errors: ImportIssue[];
   warnings: ImportIssue[];

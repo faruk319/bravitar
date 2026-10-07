@@ -278,7 +278,7 @@ export async function seed(): Promise<SeedResult> {
       invite = `http://${input.slug}.localhost:3000/invite/${desk.token}`;
 
       const sctx: StudentCtx = { ...ctx, branchIds: [] };
-      const families = new Map<string, string>(); // guardian phone -> household id
+      const guardianOf = new Map<string, string>(); // guardian phone -> guardian id
       const studentIds = new Map<string, string>();
       const toPause: string[] = [];
       let siblingId = "";
@@ -291,10 +291,10 @@ export async function seed(): Promise<SeedResult> {
         const months = joinedMonthsAgo ?? (input.verticalPreset === "karate" ? 7 : undefined);
         if (months !== undefined) joinedOn.set(student.fullName, addMonths(thisMonth, -months));
         const phone = student.guardian?.phone ?? student.adultPhone ?? "";
-        const householdId = families.get(phone);
+        const linkGuardianId = guardianOf.get(phone);
         const joined = joinedOn.get(student.fullName);
-        const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}), ...(joined ? { joinedOn: joined } : {}) });
-        families.set(phone, created.household.id);
+        const created = await createStudent(tx, sctx, { ...student, ...(linkGuardianId ? { linkGuardianId } : {}), ...(joined ? { joinedOn: joined } : {}) });
+        guardianOf.set(phone, created.guardian.id);
         studentIds.set(student.fullName, created.student.id);
         if (paused) toPause.push(created.student.id);
         if (sibling) siblingId = created.student.id;

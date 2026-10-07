@@ -57,11 +57,13 @@ const family = async (...names: string[]) => {
   const guardianPhone = `+9197${String(10_000_000 + ++phone)}`;
   const ids: string[] = [];
   let householdId = "";
+  let linkGuardianId = "";
   for (const fullName of names) {
     const r = await withTenant(T, (tx) =>
-      createStudent(tx, owner, { fullName, guardian: { fullName: `Parent ${names[0]}`, phone: guardianPhone, relation: "mother" }, consents: { dataProcessing: true }, ...(householdId ? { householdId } : {}) }),
+      createStudent(tx, owner, { fullName, guardian: { fullName: `Parent ${names[0]}`, phone: guardianPhone, relation: "mother" }, consents: { dataProcessing: true }, ...(linkGuardianId ? { linkGuardianId } : {}) }),
     );
     householdId = r.household.id;
+    linkGuardianId = r.guardian.id;
     ids.push(r.student.id);
   }
   return { ids, householdId };
@@ -569,9 +571,9 @@ describe("an invoice carries its payer and the name it was issued with", () => {
 
   it("three siblings with the same payer get an invoice each, never one combined, in one run or across runs", async () => {
     const a = await one("Sib One", "Mother Sibs");
-    const b = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Two", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, householdId: a.household.id, consents: { dataProcessing: true } }));
+    const b = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Two", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, linkGuardianId: a.guardian.id, consents: { dataProcessing: true } }));
     expect(b.guardian.id).toBe(a.guardian.id);
-    const c = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Three", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, householdId: a.household.id, consents: { dataProcessing: true } }));
+    const c = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Three", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, linkGuardianId: a.guardian.id, consents: { dataProcessing: true } }));
     const [ea, eb, ec] = [await join(a.student.id, "Karate A", M0), await join(b.student.id, "Karate A", M0), await join(c.student.id, "Karate A", M0)];
     for (const e of [ea, eb, ec]) await setPayer(e, a.guardian.id);
     expect(await gen(M1, [ea])).toEqual({ invoices: 1, lines: 1, skipped: [] });

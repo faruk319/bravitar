@@ -59,7 +59,7 @@ const FIXTURE = [
   '"Shah, Riya",,Amit Shah,98765 99999,2016-09-09,F,,,', // 18 quoted comma
 ].join("\r\n");
 const MAPPING = { firstName: 0, lastName: 1, guardianName: 2, guardianPhone: 3, dateOfBirth: 4, gender: 5, branch: 6, joinedOn: 7, photoConsent: 8 };
-const EXPECTED = { rows: 16, studentsCreated: 10, householdsCreated: 6, linkedToExisting: 1, skipped: 2, errors: [6, 7, 10, 17], warnings: [8, 9, 14, 15, 16] };
+const EXPECTED = { rows: 16, studentsCreated: 10, guardiansCreated: 6, linkedToExisting: 1, skipped: 2, errors: [6, 7, 10, 17], warnings: [8, 9, 14, 15, 16] };
 
 beforeAll(async () => {
   const created = await testAcademy({ name: `Import Test ${stamp}`, slug: `imp-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `owner-${stamp}@example.test` } });
@@ -153,7 +153,7 @@ describe("student CSV import", () => {
   it("re-running the same file creates nothing", async () => {
     const before = await counts();
     const r = await run(ownerCtx, FIXTURE, MAPPING, false);
-    expect(summary(r)).toEqual({ dryRun: false, rows: 16, studentsCreated: 0, householdsCreated: 0, linkedToExisting: 0, skipped: 12, errors: [6, 7, 10, 17], warnings: [] });
+    expect(summary(r)).toEqual({ dryRun: false, rows: 16, studentsCreated: 0, guardiansCreated: 0, linkedToExisting: 0, skipped: 12, errors: [6, 7, 10, 17], warnings: [] });
     const after = await counts();
     expect(after.students).toBe(before.students);
     expect(after.nextCode).toBe(before.nextCode);
@@ -165,6 +165,19 @@ describe("student CSV import", () => {
     expect(first.studentsCreated).toBe(1);
     const again = await run(ownerCtx, "Name,Parent,Phone,DOB\nज़ोया खान,Imran Khan,91234 00001,2016-01-01\n", m, false);
     expect(again).toMatchObject({ studentsCreated: 0, skipped: 1 });
+  });
+
+  it("a row on a guardian whose members are all at branches the importer cannot see is an error row, not a link", async () => {
+    const far = await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Far" }));
+    await withTenant(T, (tx) =>
+      createStudent(tx, ownerCtx, { fullName: "Hidden Kid", branchId: far.id, guardian: { fullName: "Hidden Parent", phone: "98123 00001", relation: "father" }, consents: { dataProcessing: true } }),
+    );
+    const csv = "Name,Parent,Phone,DOB\nSibling Kid,Hidden Parent,98123 00001,2016-01-01\n";
+    const m = { fullName: 0, guardianName: 1, guardianPhone: 2, dateOfBirth: 3 };
+    const seen = await run({ ...ownerCtx, branchIds: [mainBranch] }, csv, m, true);
+    expect(seen).toMatchObject({ studentsCreated: 0, linkedToExisting: 0, guardiansCreated: 0 });
+    expect(seen.errors.map((e) => e.message)).toEqual(["This number is used at another branch"]);
+    expect(await run(ownerCtx, csv, m, true)).toMatchObject({ studentsCreated: 1, linkedToExisting: 1, guardiansCreated: 0, errors: [] });
   });
 
   it("builds an error CSV that opens back as the failed rows plus reasons", async () => {
@@ -231,8 +244,8 @@ describe("concurrency and size", () => {
     const real = await run(ownerCtx, csv, m, false);
     const realMs = Math.round(performance.now() - t);
     console.log(`500-row import: dry run ${dryMs} ms, commit ${realMs} ms`);
-    expect(dry).toMatchObject({ studentsCreated: 500, householdsCreated: 250, errors: [] });
-    expect(real).toMatchObject({ studentsCreated: 500, householdsCreated: 250, errors: [] });
+    expect(dry).toMatchObject({ studentsCreated: 500, guardiansCreated: 250, errors: [] });
+    expect(real).toMatchObject({ studentsCreated: 500, guardiansCreated: 250, errors: [] });
   }, 120_000);
 });
 

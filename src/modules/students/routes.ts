@@ -8,7 +8,7 @@ import { STUDENT_STATUSES, type StudentStatus } from "./schema";
 import {
   archiveStudent,
   createStudent,
-  lookupGuardian,
+  lookupKnownGuardian,
   setConsent,
   setGuardianWhatsapp,
   setStudentCode,
@@ -89,7 +89,7 @@ export const familyMemberRoute = withStaffRequest("students:update", async (r) =
 export const guardianLookup = withStaffRequest("students:read", async (r) => {
   const phone = normalizePhone(new URL(r.req.url).searchParams.get("phone") ?? "");
   if (!phone) return json({ found: null });
-  return json({ found: (await lookupGuardian(r.tx, phone)) ?? null });
+  return json({ found: (await lookupKnownGuardian(r.tx, studentCtx(r), phone)) ?? null });
 });
 
 // Dry run unless the body says dryRun: false.

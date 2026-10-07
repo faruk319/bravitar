@@ -21,7 +21,6 @@ import {
   getHousehold,
   getStudent,
   type GuardianLink,
-  guardiansOfHouseholdMembers,
   guardiansOfStudent,
   insertStudent,
   linkGuardian,
@@ -60,20 +59,10 @@ export const newStudentSchema = z.object({
       email: z.email().trim().toLowerCase().optional(),
     })
     .optional(),
-  householdId: z.uuid().optional(), // link to an existing family instead of creating one
   linkGuardianId: z.uuid().optional(), // staff's answer when that number is a known guardian: the same person, link them
   consents: z.object({ dataProcessing: z.boolean(), photo: z.boolean().optional(), whatsapp: z.boolean().optional() }), // whatsapp: the guardian's opt-in
 });
 export type NewStudentInput = z.input<typeof newStudentSchema>;
-
-export type HouseholdSuggestion = { householdId: string; householdName: string; guardianName: string; students: string[] };
-
-// 409 carrying the family to link to (docs/03 §3 "offer link to existing family").
-export class DuplicateGuardianError extends ConflictError {
-  constructor(readonly suggestion: HouseholdSuggestion) {
-    super(`This phone number already belongs to ${suggestion.guardianName}`, suggestion);
-  }
-}
 
 // A number already in this academy: who it is and who they are linked to, for staff to say
 // whether it is the same person. `linked`: they already have access to the member asked about.
@@ -103,13 +92,6 @@ export async function lookupKnownGuardian(tx: Tx, ctx: StudentCtx, phone: string
   return g ? describeGuardian(tx, ctx, g, studentId) : undefined;
 }
 
-export async function lookupGuardian(tx: Tx, phone: string): Promise<HouseholdSuggestion | undefined> {
-  const g = await findGuardianByPhone(tx, phone);
-  if (!g) return undefined;
-  const [household, kids] = await Promise.all([getHousehold(tx, g.householdId), studentsOfGuardian(tx, g.id)]);
-  return { householdId: g.householdId, householdName: household?.name ?? "", guardianName: g.fullName, students: kids.map((s) => s.fullName) };
-}
-
 function householdNameFor(guardianName: string): string {
   const last = guardianName.trim().split(/\s+/).at(-1) ?? guardianName;
   return `${last} family`;
@@ -135,34 +117,18 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   const contactPhone = data.guardian?.phone ?? data.adultPhone ?? "";
   const branchId = await pickBranch(tx, ctx.branchIds, data.branchId);
 
-  // Household and guardian: reuse the family when the phone is known.
+  // A known number is a question: the same person is linked on staff's say-so, never refused or linked silently.
   let household: Household;
   let guardian: Guardian;
   const existing = await findGuardianByPhone(tx, contactPhone);
-  if (data.householdId) {
-    const h = await getHousehold(tx, data.householdId);
+  if (existing) {
+    const known = await describeGuardian(tx, ctx, existing);
+    if (data.linkGuardianId !== existing.id || !known.guardianId) throw new KnownGuardianError(known);
+    const h = await getHousehold(tx, existing.householdId);
     if (!h) throw new NotFoundError("Family");
-    // Already in the family chosen is the same person; anyone else is for staff to decide.
-    if (existing && !(await guardiansOfHouseholdMembers(tx, h.id)).some((m) => m.id === existing.id)) {
-      const known = await describeGuardian(tx, ctx, existing);
-      if (data.linkGuardianId !== existing.id || !known.guardianId) throw new KnownGuardianError(known);
-    }
     household = h;
-    guardian =
-      existing ??
-      (await createGuardian(tx, {
-        tenantId: ctx.tenantId,
-        householdId: h.id,
-        fullName: data.guardian?.fullName ?? data.fullName,
-        phone: contactPhone,
-        isPrimary: (await guardiansOfHouseholdMembers(tx, h.id)).length === 0,
-        ...(data.guardian?.email ? { email: data.guardian.email } : {}),
-      }));
+    guardian = existing;
   } else {
-    if (existing) {
-      const suggestion = await lookupGuardian(tx, contactPhone);
-      if (suggestion) throw new DuplicateGuardianError(suggestion);
-    }
     household = await createHousehold(tx, { tenantId: ctx.tenantId, name: data.guardian ? householdNameFor(data.guardian.fullName) : data.fullName });
     guardian = await createGuardian(tx, {
       tenantId: ctx.tenantId,

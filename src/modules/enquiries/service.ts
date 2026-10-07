@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assertCan } from "@/lib/auth/can";
+import { allows, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
@@ -8,7 +8,7 @@ import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { getBatch, getProgram } from "@/modules/batches/repo";
 import { getStaff } from "@/modules/staff/repo";
-import { type HouseholdSuggestion, lookupGuardian } from "@/modules/students/service";
+import { type KnownGuardian, lookupKnownGuardian } from "@/modules/students/service";
 import { pickBranch } from "@/modules/tenancy/branch-access";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
@@ -96,13 +96,13 @@ export async function createEnquiry(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
 }
 
 // The add form's note: this phone is already on an open enquiry, or a family.
-export type PhoneMatch = { enquiries: { id: string; name: string }[]; family: HouseholdSuggestion | undefined };
+export type PhoneMatch = { enquiries: { id: string; name: string }[]; family: KnownGuardian | undefined };
 
 export async function phoneMatches(tx: Tx, ctx: ScopedCtx, phone: string, except?: string): Promise<PhoneMatch> {
   assertCan(ctx, "enquiries:read");
   const p = phoneSchema.safeParse(phone);
   if (!p.success) return { enquiries: [], family: undefined };
-  return { enquiries: await openByPhone(tx, p.data, except), family: await lookupGuardian(tx, p.data) };
+  return { enquiries: await openByPhone(tx, p.data, except), family: allows(ctx, "students:read") ? await lookupKnownGuardian(tx, ctx, p.data) : undefined };
 }
 
 // ---- the board

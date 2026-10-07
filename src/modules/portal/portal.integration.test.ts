@@ -56,10 +56,10 @@ beforeAll(async () => {
   const start = addDays(today, -10);
 
   // The Deshmukhs have two children here; the Shaikhs one.
-  const child = (fullName: string, parent: string, phone: string, householdId?: string) =>
-    withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: parent, phone, relation: "mother" }, ...(householdId ? { householdId } : {}), consents: { dataProcessing: true } }));
+  const child = (fullName: string, parent: string, phone: string, linkGuardianId?: string) =>
+    withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: parent, phone, relation: "mother" }, ...(linkGuardianId ? { linkGuardianId } : {}), consents: { dataProcessing: true } }));
   const aarav = await child("Aarav Deshmukh", "Rekha Deshmukh", "98733 10001");
-  const anaya = await child("Anaya Deshmukh", "Rekha Deshmukh", "98733 10001", aarav.household.id);
+  const anaya = await child("Anaya Deshmukh", "Rekha Deshmukh", "98733 10001", aarav.guardian.id);
   const zoya = await child("Zoya Shaikh", "Sana Shaikh", "98733 10002");
   Object.assign(kid, { aarav: aarav.student.id, anaya: anaya.student.id, zoya: zoya.student.id });
   a = { tenantId: T, guardianId: aarav.guardian.id };

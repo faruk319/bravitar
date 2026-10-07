@@ -33,13 +33,13 @@ import {
   upsertFamilyLink,
 } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
+import { uuidv7 } from "@/lib/ids";
 import { guardians, students } from "@/modules/students/schema";
 import {
   archiveStudent,
   createStudent,
-  DuplicateGuardianError,
   KnownGuardianError,
-  lookupGuardian,
+  lookupKnownGuardian,
   requireStudent,
   setStudentCode,
   setStudentStatus,
@@ -60,6 +60,13 @@ const P = (n: number) => `+919${String(100_000_000 + n).padStart(9, "0")}`;
 let phoneSeq = 0;
 const freshPhone = () => P(1_000_000 + ++phoneSeq);
 const consents = { dataProcessing: true };
+// createStudent no longer builds a household with two guardians; the backfill test needs that legacy shape.
+const intoHousehold = async (c: { guardian: { id: string }; student: { id: string } }, household: string) => {
+  await withTenant(T, async (tx) => {
+    await updateGuardian(tx, c.guardian.id, { householdId: household });
+    await updateStudent(tx, c.student.id, { householdId: household });
+  });
+};
 
 const ctxFor = async (staffId: string, tenantId = T): Promise<StudentCtx> => {
   const base = await withTenant(tenantId, (tx) => loadAccessContext(tx, staffId));
@@ -97,18 +104,21 @@ describe("families", () => {
     expect(o.consents).toEqual({ data_processing: true, photo: true });
   });
 
-  it("a second child with the same phone and no householdId gets a 409 with the family to link to", async () => {
-    const attempt = withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", guardian: { fullName: "Rakesh Deshmukh", phone: "+91 98765 00001", relation: "father" }, consents }));
-    await expect(attempt).rejects.toBeInstanceOf(DuplicateGuardianError);
-    await expect(attempt).rejects.toMatchObject({ status: 409, suggestion: { householdName: "Deshmukh family", guardianName: "Rakesh Deshmukh", students: ["Aarav Deshmukh"] } });
-    expect(await withTenant(T, (tx) => lookupGuardian(tx, "+919876500001"))).toMatchObject({ guardianName: "Rakesh Deshmukh" });
+  it("a second child with a known phone gets a 409 saying who it is, and nothing is created", async () => {
+    const attempt = () => withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", guardian: { fullName: "Rakesh Deshmukh", phone: "+91 98765 00001", relation: "father" }, consents }));
+    const err = await attempt().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KnownGuardianError);
+    expect(err).toMatchObject({ status: 409, known: { fullName: "Rakesh Deshmukh", linked: false, hidden: 0, members: [{ fullName: "Aarav Deshmukh", relation: "father" }] } });
+    expect(await withTenant(T, (tx) => lookupKnownGuardian(tx, ownerCtx, "+919876500001"))).toMatchObject({ fullName: "Rakesh Deshmukh" });
+    expect(await withTenant(T, (tx) => tx.select().from(students).where(eq(students.fullName, "Anaya Deshmukh")))).toHaveLength(0);
   });
 
-  it("linking to the household reuses the guardian row: no duplicate guardian", async () => {
-    const s = await withTenant(T, (tx) => lookupGuardian(tx, "+919876500001"));
+  it("linking the guardian reuses the row: no duplicate guardian, and the children are siblings", async () => {
+    const s = await withTenant(T, (tx) => lookupKnownGuardian(tx, ownerCtx, "+919876500001"));
     const r = await withTenant(T, (tx) =>
-      createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", householdId: s?.householdId ?? "", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, consents }),
+      createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", linkGuardianId: s?.guardianId ?? "", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, consents }),
     );
+    expect(r.guardian.id).toBe(s?.guardianId);
     const [gs, kids] = await withTenant(T, async (tx) => [await guardiansOfHouseholdMembers(tx, r.household.id), await studentsOfHousehold(tx, r.household.id)]);
     expect(gs).toHaveLength(1);
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Aarav Deshmukh", "Anaya Deshmukh"]);
@@ -280,7 +290,8 @@ describe("payer backfill (migration 0039)", () => {
     const own = postgres(getEnv().DATABASE_URL_MIGRATOR ?? "", { max: 1, onnotice: () => {} });
     try {
       const a = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Imran Sheikh", dateOfBirth: "2014-01-01", guardian: { fullName: "Rafiq Sheikh", phone: P(901), relation: "father" }, consents }));
-      const b = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Zara Sheikh", dateOfBirth: "2016-01-01", householdId: a.household.id, guardian: { fullName: "Sana Sheikh", phone: P(902), relation: "mother" }, consents }));
+      const b = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Zara Sheikh", dateOfBirth: "2016-01-01", guardian: { fullName: "Sana Sheikh", phone: P(902), relation: "mother" }, consents }));
+      await intoHousehold(b, a.household.id);
       const c = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Omar Pathan", dateOfBirth: "2014-01-01", guardian: { fullName: "Latif Pathan", phone: P(903), relation: "father" }, consents }));
       const program = await withTenant(T, (tx) => addProgram(tx, ownerCtx, { name: "Backfill" }));
       const batch = await withTenant(T, (tx) => createBatch(tx, ownerCtx, { name: "Backfill A", programId: program.id, slots: [{ weekday: 2, startTime: "17:00", endTime: "18:00" }] }));
@@ -304,14 +315,16 @@ describe("payer backfill (migration 0039)", () => {
       };
       // Household 3: a soft-deleted primary, older, beside a live guardian: the live one must win.
       const d = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Ansari", dateOfBirth: "2014-01-01", guardian: { fullName: "Live Ansari", phone: P(904), relation: "mother" }, consents }));
-      const dOld = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dawood Ansari", dateOfBirth: "2015-01-01", householdId: d.household.id, guardian: { fullName: "Gone Ansari", phone: P(905), relation: "father" }, consents }));
+      const dOld = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dawood Ansari", dateOfBirth: "2015-01-01", guardian: { fullName: "Gone Ansari", phone: P(905), relation: "father" }, consents }));
+      await intoHousehold(dOld, d.household.id);
       await own`UPDATE app.guardians SET is_primary = (id = ${dOld.guardian.id}), created_at = CASE WHEN id = ${dOld.guardian.id} THEN created_at - interval '1 day' ELSE created_at END,
         deleted_at = CASE WHEN id = ${dOld.guardian.id} THEN now() END WHERE household_id = ${d.household.id}`;
       // Households 4 and 5: two live guardians with the same flags and created_at; the lower id wins.
       // Rewrite them in opposite orders so neither storage order lets a missing id tiebreak pass.
       const tied = async (n: number, lowerLast: boolean) => {
         const x = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} One`, dateOfBirth: "2014-01-01", guardian: { fullName: `Tie${n} One`, phone: P(910 + n * 2), relation: "mother" }, consents }));
-        const y = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} Two`, dateOfBirth: "2015-01-01", householdId: x.household.id, guardian: { fullName: `Tie${n} Two`, phone: P(911 + n * 2), relation: "father" }, consents }));
+        const y = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} Two`, dateOfBirth: "2015-01-01", guardian: { fullName: `Tie${n} Two`, phone: P(911 + n * 2), relation: "father" }, consents }));
+        await intoHousehold(y, x.household.id);
         const [lower = "", higher = ""] = [x.guardian.id, y.guardian.id].sort();
         for (const id of lowerLast ? [higher, lower] : [lower, higher]) await own`UPDATE app.guardians SET is_primary = false, created_at = '2026-01-01T00:00:00Z' WHERE id = ${id}`;
         return { household: x.household.id, lower };
@@ -421,7 +434,7 @@ describe("student_guardians is the only family link", () => {
   it("addFamilyMember asks the join table: a guardian linked to another member is asked about, whatever household_id says", async () => {
     const a = await mk("Dina Row", "Esha Row", P(211));
     const b = await mk("Dev Row", "Farid Row", P(212));
-    const b2 = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Row", dateOfBirth: "2016-03-12", householdId: b.household.id, guardian: { fullName: "Farid Row", phone: P(212), relation: "father" }, consents }));
+    const b2 = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Row", dateOfBirth: "2016-03-12", linkGuardianId: b.guardian.id, guardian: { fullName: "Farid Row", phone: P(212), relation: "father" }, consents }));
     // Esha's row points at household A, but she is linked to Dev in household B.
     await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "cousin" }));
     const add = (linkGuardianId?: string) => withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b2.student.id, { fullName: "Esha Row", phone: P(211), relation: "cousin", ...(linkGuardianId ? { linkGuardianId } : {}) }));
@@ -445,15 +458,31 @@ describe("student_guardians is the only family link", () => {
     expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Gita Decoy", "Gus Decoy"]);
   });
 
-  it("createStudent into a chosen family asks about a known number from elsewhere, and links on the answer", async () => {
+  it("createStudent asks about a known number, and links on the answer", async () => {
     const a = await mk("Kiran Ask", "Laxmi Ask", P(215));
-    const b = await mk("Kabir Ask", "Mohan Ask", P(216));
     const make = (linkGuardianId?: string) =>
-      withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Kavya Ask", dateOfBirth: "2017-03-12", householdId: b.household.id, guardian: { fullName: "Laxmi Ask", phone: P(215), relation: "other" }, consents, ...(linkGuardianId ? { linkGuardianId } : {}) }));
+      withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Kavya Ask", dateOfBirth: "2017-03-12", guardian: { fullName: "Laxmi Ask", phone: P(215), relation: "other" }, consents, ...(linkGuardianId ? { linkGuardianId } : {}) }));
     await expect(make()).rejects.toBeInstanceOf(KnownGuardianError);
+    await expect(make(uuidv7())).rejects.toBeInstanceOf(KnownGuardianError);
     const made = await make(a.guardian.id);
     expect(made.guardian.id).toBe(a.guardian.id);
     expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Kavya Ask", "Kiran Ask"]);
+  });
+
+  it("createStudent shows a restricted staff member only the members they may see, and never links a guardian they cannot see", async () => {
+    const far = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Far Kid", branchId: otherBranch, guardian: { fullName: "Far Parent", phone: P(217), relation: "father" }, consents }));
+    await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Near Kid", branchId: mainBranch, guardian: { fullName: "Far Parent", phone: P(217), relation: "father" }, linkGuardianId: far.guardian.id, consents }));
+    const make = (ctx: StudentCtx, branchId: string, linkGuardianId?: string) =>
+      withTenant(T, (tx) => createStudent(tx, ctx, { fullName: "New Kid", branchId, guardian: { fullName: "Far Parent", phone: P(217), relation: "father" }, consents, ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    const mainOnly = { ...ownerCtx, branchIds: [mainBranch] };
+    const partly = await make(mainOnly, mainBranch).catch((e: unknown) => e);
+    expect((partly as KnownGuardianError).known).toMatchObject({ guardianId: far.guardian.id, hidden: 1, members: [{ fullName: "Near Kid" }] });
+    const otherOnly = { ...ownerCtx, branchIds: [otherBranch] };
+    await withTenant(T, (tx) => updateStudent(tx, far.student.id, { branchId: mainBranch }));
+    const none = await make(otherOnly, otherBranch, far.guardian.id).catch((e: unknown) => e);
+    expect((none as KnownGuardianError).known).toMatchObject({ guardianId: "", hidden: 2, members: [] });
+    expect(JSON.stringify((none as KnownGuardianError).known)).not.toMatch(/Far Parent|Far Kid|Near Kid/);
+    expect((none as KnownGuardianError).message).toBe("This number is used at another branch");
   });
 
   describe("siblings share a guardian", () => {

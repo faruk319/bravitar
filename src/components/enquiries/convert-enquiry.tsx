@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { formatPhone } from "@/lib/phone";
-import type { HouseholdSuggestion } from "@/modules/students/service";
+import { KnownGuardianChoice } from "@/components/students/known-guardian";
+import type { KnownGuardian } from "@/modules/students/service";
 
 type Props = { id: string; name: string; phone: string; contactName: string | null; batches: { id: string; label: string }[]; batchId: string | null; today: string };
 
@@ -19,7 +20,7 @@ export function ConvertEnquiry({ id, name, phone, contactName, batches, batchId,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [adult, setAdult] = useState(false);
-  const [family, setFamily] = useState<HouseholdSuggestion>();
+  const [known, setKnown] = useState<KnownGuardian>();
   const [linkTo, setLinkTo] = useState<string>();
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -33,16 +34,16 @@ export function ConvertEnquiry({ id, name, phone, contactName, batches, batchId,
       dateOfBirth: str("dateOfBirth"),
       batchId: str("batchId"),
       startDate: str("startDate"),
-      ...(linkTo ? { householdId: linkTo } : {}),
+      ...(linkTo ? { linkGuardianId: linkTo } : {}),
       consents: { dataProcessing: f.get("dataProcessing") === "on", photo: f.get("photo") === "on", whatsapp: f.get("whatsapp") === "on" },
     };
     setBusy(true);
     setError(undefined);
     const res = await fetch(`/api/enquiries/${id}/convert`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const out = (await res.json().catch(() => ({}))) as { studentId?: string; error?: string; details?: HouseholdSuggestion; issues?: { message: string }[] };
+    const out = (await res.json().catch(() => ({}))) as { studentId?: string; error?: string; details?: KnownGuardian; issues?: { message: string }[] };
     setBusy(false);
     if (res.ok && out.studentId) return router.push(`/students/${out.studentId}`);
-    if (res.status === 409 && out.details?.householdId) return setFamily(out.details);
+    if (res.status === 409 && out.details && "guardianId" in out.details) return setKnown(out.details);
     setError(out.issues?.[0]?.message ?? out.error ?? "Could not convert");
   }
 
@@ -74,15 +75,7 @@ export function ConvertEnquiry({ id, name, phone, contactName, batches, batchId,
             </Field>
           </>
         )}
-        {family ? (
-          <div className="rounded-xl bg-neutral-50 p-3 text-body">
-            This number belongs to <span className="font-medium">{family.guardianName}</span> ({family.householdName}
-            {family.students.length ? ` · ${family.students.join(", ")}` : ""}).
-            <Button type="button" size="sm" className="mt-2 block" variant={linkTo ? "default" : "outline"} onClick={() => setLinkTo(linkTo ? undefined : family.householdId)}>
-              {linkTo ? "Added to this family" : "Add to this family"}
-            </Button>
-          </div>
-        ) : null}
+        {known ? <KnownGuardianChoice known={known} linked={!!linkTo} onLink={() => setLinkTo(linkTo ? undefined : known.guardianId)} /> : null}
         <Field label={adult ? "Date of birth" : "Date of birth (optional)"} id="cv-dob">
           <Input id="cv-dob" name="dateOfBirth" type="date" required={adult} />
         </Field>

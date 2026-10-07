@@ -6,8 +6,8 @@ import { useBranch, useLabel } from "@/components/shell/tenant-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-type Suggestion = { householdId: string; householdName: string; guardianName: string; students: string[] };
+import type { KnownGuardian } from "@/modules/students/service";
+import { KnownGuardianChoice } from "./known-guardian";
 
 // One column, labels above, phone keypad for phones, submit under the fields
 // (docs/07 §6). Target: done in under 60 seconds (docs/03 §3).
@@ -18,14 +18,14 @@ export function AddStudentForm() {
   const [adult, setAdult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [suggestion, setSuggestion] = useState<Suggestion | undefined>();
+  const [known, setKnown] = useState<KnownGuardian | undefined>();
   const [linkTo, setLinkTo] = useState<string | undefined>();
 
   async function onPhoneBlur(phone: string) {
     if (phone.replace(/\D/g, "").length < 10) return;
     const res = await fetch(`/api/guardians/lookup?phone=${encodeURIComponent(phone)}`);
-    const body = (await res.json()) as { found: Suggestion | null };
-    setSuggestion(body.found ?? undefined);
+    const body = (await res.json()) as { found: KnownGuardian | null };
+    setKnown(body.found ?? undefined);
     setLinkTo(undefined);
   }
 
@@ -44,17 +44,17 @@ export function AddStudentForm() {
       ...(adult
         ? { adultPhone: str("adultPhone") }
         : { guardian: { fullName: str("guardianName"), phone: str("guardianPhone"), relation: str("relation") ?? "father" } }),
-      ...(linkTo ? { householdId: linkTo } : {}),
+      ...(linkTo ? { linkGuardianId: linkTo } : {}),
       consents: { dataProcessing: f.get("dataProcessing") === "on", photo: f.get("photo") === "on", whatsapp: f.get("whatsapp") === "on" },
     };
     const res = await fetch("/api/students", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    const body = (await res.json().catch(() => ({}))) as { error?: string; details?: Suggestion; student?: { id: string } };
+    const body = (await res.json().catch(() => ({}))) as { error?: string; details?: KnownGuardian; student?: { id: string } };
     if (res.status === 201 && body.student) {
       router.push(`/students/${body.student.id}`);
       return;
     }
-    if (res.status === 409 && body.details?.householdId) {
-      setSuggestion(body.details);
+    if (res.status === 409 && body.details && "guardianId" in body.details) {
+      setKnown(body.details);
       setError(undefined);
     } else {
       setError(body.error ?? "Could not save");
@@ -106,23 +106,17 @@ export function AddStudentForm() {
         </>
       )}
 
-      {suggestion ? (
-        <div className="rounded-xl bg-neutral-50 p-4">
-          <p className="text-body">
-            This number belongs to <span className="font-medium">{suggestion.guardianName}</span> ({suggestion.householdName}
-            {suggestion.students.length ? ` · ${suggestion.students.join(", ")}` : ""}).
-          </p>
-          <div className="mt-3 flex gap-2">
-            <Button type="button" size="sm" variant={linkTo ? "default" : "outline"} onClick={() => setLinkTo(suggestion.householdId)}>
-              {linkTo ? "Linked to this family" : "Link to this family"}
-            </Button>
-            {linkTo ? (
-              <Button type="button" size="sm" variant="ghost" onClick={() => setLinkTo(undefined)}>
-                Undo
-              </Button>
-            ) : null}
-          </div>
-        </div>
+      {known ? (
+        <KnownGuardianChoice
+          known={known}
+          linked={!!linkTo}
+          onLink={() => setLinkTo(linkTo ? undefined : known.guardianId)}
+          onOther={() => {
+            setKnown(undefined);
+            setLinkTo(undefined);
+            (document.getElementById(adult ? "adultPhone" : "guardianPhone") as HTMLInputElement | null)?.select();
+          }}
+        />
       ) : null}
 
       <Field label="Interested in" htmlFor="programInterest">

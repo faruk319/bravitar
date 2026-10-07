@@ -153,7 +153,7 @@ function rowMessage(e: unknown): string {
   return "Could not save this row";
 }
 
-type RowOutcome = { kind: "skipped" } | { kind: "created"; householdId: string; existingHouseholdId?: string };
+type RowOutcome = { kind: "skipped" } | { kind: "created"; guardianId: string; existingGuardianId?: string };
 
 // Dry run and import are the same code: a dry run rolls the savepoint back.
 export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportRequest, opts: { dryRun: boolean }): Promise<ImportResult> {
@@ -175,8 +175,8 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
   if (req.options.defaultBranchId && !branches.some((b) => b.id === req.options.defaultBranchId)) throw new NotFoundError("Branch");
   const branchByName = new Map(branches.map((b) => [nameKey(b.name), b.id]));
 
-  const result: ImportResult = { dryRun: opts.dryRun, rows: 0, studentsCreated: 0, householdsCreated: 0, linkedToExisting: 0, skipped: 0, errors: [], warnings: [] };
-  const newHouseholds = new Set<string>();
+  const result: ImportResult = { dryRun: opts.dryRun, rows: 0, studentsCreated: 0, guardiansCreated: 0, linkedToExisting: 0, skipped: 0, errors: [], warnings: [] };
+  const newGuardians = new Set<string>(); // made by this file, so a later row on the same phone is not "existing"
   const today = new Date();
 
   const run = async (sp: Tx) => {
@@ -210,7 +210,7 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
             ...(plan.joinedOn ? { joinedOn: plan.joinedOn } : {}),
             ...(plan.programInterest ? { programInterest: plan.programInterest } : {}),
             ...(branchId ? { branchId } : {}),
-            ...(existing ? { householdId: existing.householdId } : {}),
+            ...(existing ? { linkGuardianId: existing.id } : {}),
             consents: { dataProcessing: true, ...(plan.photo !== undefined ? { photo: plan.photo } : {}), ...(plan.whatsapp ? { whatsapp: true } : {}) },
           };
           let studentInput: NewStudentInput;
@@ -234,17 +234,17 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
             studentInput = { ...base, guardian: { fullName: guardianName, phone: c.phone, relation: c.relation }, ...(c.studentPhone ? { adultPhone: c.studentPhone } : {}) };
           }
           const created = await createStudent(rowTx, ctx, studentInput, { consentMethod: "paper", source: "csv_import" });
-          return { kind: "created", householdId: created.household.id, ...(existing ? { existingHouseholdId: existing.householdId } : {}) };
+          return { kind: "created", guardianId: created.guardian.id, ...(existing ? { existingGuardianId: existing.id } : {}) };
         });
         if (outcome.kind === "skipped") {
           result.skipped++;
           continue;
         }
         result.studentsCreated++;
-        if (!outcome.existingHouseholdId) {
-          result.householdsCreated++;
-          newHouseholds.add(outcome.householdId);
-        } else if (!newHouseholds.has(outcome.existingHouseholdId)) {
+        if (!outcome.existingGuardianId) {
+          result.guardiansCreated++;
+          newGuardians.add(outcome.guardianId);
+        } else if (!newGuardians.has(outcome.existingGuardianId)) {
           result.linkedToExisting++;
         }
         for (const message of warnings) result.warnings.push({ row, message });

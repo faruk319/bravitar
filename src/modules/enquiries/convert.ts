@@ -24,7 +24,7 @@ export const convertSchema = z.object({
   adult: z.boolean().default(false), // their own contact: the phone is theirs
   guardian: z.object({ fullName: z.string().trim().min(2, "Add the parent's name").max(120), relation: z.enum(["father", "mother", "other"]) }).optional(),
   dateOfBirth: isoDate.optional(),
-  householdId: z.uuid().optional(), // the family already on this phone
+  linkGuardianId: z.uuid().optional(), // staff said the guardian already on this phone is the same person
   batchId: z.uuid("Pick a batch"),
   startDate: isoDate.optional(),
   consents: z.object({ dataProcessing: z.boolean(), photo: z.boolean().optional(), whatsapp: z.boolean().optional() }),
@@ -53,7 +53,7 @@ export async function convertEnquiry(tx: Tx, ctx: ScopedCtx, id: string, input: 
     joinedOn: today,
     ...(d.dateOfBirth ? { dateOfBirth: d.dateOfBirth } : {}),
     ...(d.guardian && !d.adult ? { guardian: { ...d.guardian, phone: e.phone } } : { adultPhone: e.phone }),
-    ...(d.householdId ? { householdId: d.householdId } : {}),
+    ...(d.linkGuardianId ? { linkGuardianId: d.linkGuardianId } : {}),
     consents: d.consents,
   });
   const enrollment = await enroll(tx, ctx, { studentId: student.id, batchId: batch.id, startDate: d.startDate ?? today });

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ConvertEnquiry } from "@/components/enquiries/convert-enquiry";
 import { BookTrial, CancelTrial, EditEnquiry, LogActivity, MarkLost, Reopen } from "@/components/enquiries/enquiry-actions";
 import { PageHeader } from "@/components/page-header";
+import { knownLine } from "@/components/students/known-guardian";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -113,7 +114,7 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
                   Also an enquiry: {m.name}
                 </a>
               ))}
-              {matches.family ? <span className="block">This number belongs to {matches.family.guardianName} ({matches.family.students.join(", ") || matches.family.householdName})</span> : null}
+              {matches.family ? <span className="block">{knownLine(matches.family)}</span> : null}
             </p>
           ) : null}
           <dl className="mt-3 divide-y divide-neutral-100">

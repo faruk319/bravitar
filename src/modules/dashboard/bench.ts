@@ -60,7 +60,7 @@ async function build(T: string, ownerId: string): Promise<void> {
   for (let from = 0; from < STUDENTS; from += 100) {
     await withTenant(T, async (tx) => {
       const ctx = await as(tx);
-      let household = "";
+      let guardian = "";
       for (let i = from; i < from + 100; i++) {
         const head = i % 4 === 3 ? i - 1 : i;
         const joined = i % 25 === 24 ? today : start;
@@ -68,10 +68,10 @@ async function build(T: string, ownerId: string): Promise<void> {
           fullName: `Student ${i + 1}`,
           joinedOn: joined,
           guardian: { fullName: `Parent ${head + 1}`, phone: `98${String(10_000_000 + head).slice(-8)}`, relation: "mother" },
-          ...(head !== i && household ? { householdId: household } : {}),
+          ...(head !== i && guardian ? { linkGuardianId: guardian } : {}),
           consents: { dataProcessing: true, whatsapp: true },
         });
-        household = s.household.id;
+        guardian = s.guardian.id;
         await enroll(tx, ctx, { studentId: s.student.id, batchId: batchIds[i % BATCHES] ?? "", startDate: joined });
       }
     });

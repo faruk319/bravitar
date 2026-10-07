@@ -71,7 +71,7 @@ beforeAll(async () => {
   const first = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Riya", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, consents: { dataProcessing: true } }));
   householdId = first.household.id;
   riya = first.student.id;
-  kabir = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Kabir", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, householdId, consents: { dataProcessing: true } }))).student.id;
+  kabir = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Kabir", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, linkGuardianId: first.guardian.id, consents: { dataProcessing: true } }))).student.id;
   const joined = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: riya, batchId, startDate: "2026-10-01" })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: kabir, batchId, startDate: "2026-10-01" }))];
   await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: at("2026-10-01T04:00:00Z"), enrollmentIds: joined.map((e) => e.id) }));
   // One invoice per child; the test follows Riya's.
