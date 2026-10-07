@@ -54,13 +54,13 @@ type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean;
 // Name, year of birth, months since joining: the batches take them in this order.
 const KARATE_ROLL: [string, number, number][] = [
   ["Vivaan Kulkarni", 2014, 7], ["Diya Pawar", 2015, 6], ["Reyansh Jadhav", 2013, 6], ["Myra Gokhale", 2016, 5], ["Kabir Naik", 2014, 4], ["Saanvi Bhosale", 2015, 4],
-  ["Arjun Salunkhe", 2012, 3], ["Tara Chavan", 2016, 3], ["Advik More", 2013, 2], ["Ira Kamble", 2017, 1], ["Yash Gaikwad", 2014, 1],
+  ["Arjun Salunkhe", 2012, 3], ["Tara Chavan", 2016, 3], ["Advik More", 2013, 2], ["Ira Kamble", 2017, 1], ["Yash Gaikwad", 2014, 0],
   ["Rudra Sawant", 2012, 5], ["Navya Deshpande", 2013, 3], ["Om Thorat", 2014, 2],
-  ["Pranav Kale", 2011, 4], ["Siya Raut", 2012, 2], ["Atharv Wagh", 2011, 1],
+  ["Pranav Kale", 2011, 4], ["Siya Raut", 2012, 2], ["Atharv Wagh", 2011, 0],
 ];
 const karateRoll = (consents: NewStudentInput["consents"]): DemoStudent[] => [
   ...KARATE_ROLL.map(([fullName, year, joinedMonthsAgo], i): DemoStudent => ({ fullName, dateOfBirth: `${year}-0${1 + (i % 9)}-15`, gender: i % 2 ? "female" : "male", guardian: { fullName: `Parent of ${fullName.split(" ")[0]}`, phone: `98765002${String(i).padStart(2, "0")}`, relation: "father" }, programInterest: "Beginners", consents, joinedMonthsAgo })),
-  { fullName: "Neel Phadke", dateOfBirth: "2015-12-02", gender: "male", guardian: { fullName: "Sunil Phadke", phone: "9876500299", relation: "father" }, programInterest: "Beginners", consents },
+  { fullName: "Neel Phadke", dateOfBirth: "2015-12-02", gender: "male", guardian: { fullName: "Sunil Phadke", phone: "9876500299", relation: "father" }, programInterest: "Beginners", consents, joinedMonthsAgo: 0 },
 ];
 function demoStudents(vertical: string): DemoStudent[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
@@ -284,15 +284,18 @@ export async function seed(): Promise<SeedResult> {
       let siblingId = "";
       const behind = new Set<string>(); // household ids
       const oftenAbsent = new Set<string>(); // student ids
-      const joinedOn = new Map<string, string>(); // student name -> enrolment start, where they joined later
+      const joinedOn = new Map<string, string>(); // student name -> join date, also their enrolment start
       const thisMonth = `${todayIn(tenant.timezone).slice(0, 7)}-01`;
       for (const { paused, behindOnFees, oftenAbsent: absent, sibling, joinedMonthsAgo, ...student } of demoStudents(input.verticalPreset ?? "general")) {
+        // Karate's original six joined when the history starts; the rest on their own month.
+        const months = joinedMonthsAgo ?? (input.verticalPreset === "karate" ? 7 : undefined);
+        if (months !== undefined) joinedOn.set(student.fullName, addMonths(thisMonth, -months));
         const phone = student.guardian?.phone ?? student.adultPhone ?? "";
         const householdId = families.get(phone);
-        const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}) });
+        const joined = joinedOn.get(student.fullName);
+        const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}), ...(joined ? { joinedOn: joined } : {}) });
         families.set(phone, created.household.id);
         studentIds.set(student.fullName, created.student.id);
-        if (joinedMonthsAgo !== undefined) joinedOn.set(student.fullName, addMonths(thisMonth, -joinedMonthsAgo));
         if (paused) toPause.push(created.student.id);
         if (sibling) siblingId = created.student.id;
         if (behindOnFees) behind.add(created.household.id);
