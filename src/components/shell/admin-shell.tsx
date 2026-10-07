@@ -117,7 +117,8 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
   );
 }
 
-// The desktop rail: 72px reserved forever, the panel overlays the page.
+// The desktop rail: hover expansion overlays the page; pinning widens the
+// column so content makes room.
 function Rail({ groups }: { groups: NavGroup[] }) {
   const tenantName = useTenantName();
   const me = useSession().actor.name;
@@ -163,7 +164,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
   );
 
   return (
-    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 md:block print:hidden", !canHover && pinned ? "w-[248px]" : "w-[72px]")}>
+    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 md:block print:hidden", pinned ? "w-[248px]" : "w-[72px]")}>
       <aside
         data-expanded={open}
         onPointerEnter={(e) => {
@@ -180,7 +181,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
         }}
         className={cn(
           "absolute inset-y-0 left-0 flex flex-col border-r border-neutral-100 bg-sidebar p-2 transition-[width,box-shadow] duration-200 ease-out motion-reduce:transition-none",
-          open ? "w-[248px] shadow-lg" : "w-[72px]",
+          open ? "w-[248px]" : "w-[72px]", open && !pinned && "shadow-lg",
         )}
       >
         <div className={cn("mb-4 flex h-12 shrink-0 items-center", open ? "justify-between pl-3" : "justify-center")}>
