@@ -5,6 +5,7 @@ import { platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform"
 import { sql as runtimeSql } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addDays, todayIn } from "@/lib/dates";
+import { addMonths } from "@/modules/fees/billing";
 import { ConflictError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { split } from "@/lib/money/paise";
@@ -46,8 +47,21 @@ const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string;
 
 // Six students per academy: one family with two siblings, an adult, a paused
 // one, a family behind on fees and a child who often misses class (the at-risk
-// list). All but the Shaikhs said yes to WhatsApp messages.
-type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean; oftenAbsent?: boolean; sibling?: boolean };
+// list). All but the Shaikhs said yes to WhatsApp messages. The karate academy
+// has a fuller roll that joined over eight months, and one still waiting for a batch.
+type DemoStudent = NewStudentInput & { paused?: boolean; behindOnFees?: boolean; oftenAbsent?: boolean; sibling?: boolean; joinedMonthsAgo?: number };
+
+// Name, year of birth, months since joining: the batches take them in this order.
+const KARATE_ROLL: [string, number, number][] = [
+  ["Vivaan Kulkarni", 2014, 7], ["Diya Pawar", 2015, 6], ["Reyansh Jadhav", 2013, 6], ["Myra Gokhale", 2016, 5], ["Kabir Naik", 2014, 4], ["Saanvi Bhosale", 2015, 4],
+  ["Arjun Salunkhe", 2012, 3], ["Tara Chavan", 2016, 3], ["Advik More", 2013, 2], ["Ira Kamble", 2017, 1], ["Yash Gaikwad", 2014, 1],
+  ["Rudra Sawant", 2012, 5], ["Navya Deshpande", 2013, 3], ["Om Thorat", 2014, 2],
+  ["Pranav Kale", 2011, 4], ["Siya Raut", 2012, 2], ["Atharv Wagh", 2011, 1],
+];
+const karateRoll = (consents: NewStudentInput["consents"]): DemoStudent[] => [
+  ...KARATE_ROLL.map(([fullName, year, joinedMonthsAgo], i): DemoStudent => ({ fullName, dateOfBirth: `${year}-0${1 + (i % 9)}-15`, gender: i % 2 ? "female" : "male", guardian: { fullName: `Parent of ${fullName.split(" ")[0]}`, phone: `98765002${String(i).padStart(2, "0")}`, relation: "father" }, programInterest: "Beginners", consents, joinedMonthsAgo })),
+  { fullName: "Neel Phadke", dateOfBirth: "2015-12-02", gender: "male", guardian: { fullName: "Sunil Phadke", phone: "9876500299", relation: "father" }, programInterest: "Beginners", consents },
+];
 function demoStudents(vertical: string): DemoStudent[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
   const consents = { dataProcessing: true, photo: true, whatsapp: true };
@@ -69,14 +83,15 @@ function demoStudents(vertical: string): DemoStudent[] {
     { fullName: "Ishaan Patil", dateOfBirth: "2016-01-30", gender: "male", guardian: { fullName: "Vikram Patil", phone: "9876500003", relation: "father" }, programInterest: interest, consents, behindOnFees: true },
     { fullName: "Meher Kaur", dateOfBirth: "1998-05-05", gender: "female", adultPhone: "9876500004", programInterest: interest, consents },
     { fullName: "Rohan Joshi", dateOfBirth: "2013-09-09", gender: "male", guardian: { fullName: "Priya Joshi", phone: "9876500005", relation: "mother" }, programInterest: interest, consents, paused: true },
+    ...(vertical === "karate" ? karateRoll(consents) : []),
   ];
 }
 
-type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[] };
+type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number | null; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[] };
 const days = (weekdays: number[], startTime: string, endTime: string) => weekdays.map((weekday) => ({ weekday, startTime, endTime }));
 
 // Early Morning (5:30 AM) is there for Prompt 9's timezone test.
-function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]; batches: DemoBatch[] } {
+function demoBatches(vertical: string, today: string): { programs: string[]; plans: PlanInput[]; batches: DemoBatch[] } {
   if (vertical === "deeniyat") {
     return {
       programs: ["Qaida", "Nazra", "Hifz"],
@@ -89,13 +104,23 @@ function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]
     };
   }
   if (vertical === "karate") {
+    // Eight months of history; the grace is set so this month's open invoices fall due tomorrow.
+    const first = `${today.slice(0, 7)}-01`;
+    const startDate = addMonths(first, -7);
+    const graceDays = Math.round((Date.parse(addDays(today, 1)) - Date.parse(first)) / 86_400_000);
+    const roll = KARATE_ROLL.map(([name]) => name);
+    const base = { program: "Karate", plan: "Karate Monthly", startDate };
     return {
       programs: ["Karate"],
-      plans: [{ name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000" }],
+      plans: [{ name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000", graceDays }],
       batches: [
-        { name: "Beginners B", program: "Karate", plan: "Karate Monthly", coach: "coach", withRoom: true, capacity: 30, startDate: "2026-06-01", slots: days([1, 3, 5], "18:00", "19:00"), students: ["Aarav Deshmukh", "Anaya Deshmukh", "Ishaan Patil", "Rohan Joshi"] },
-        { name: "Advanced A", program: "Karate", plan: "Karate Monthly", coach: "coach", withRoom: true, capacity: 20, startDate: "2026-06-01", slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh"] },
-        { name: "Early Morning", program: "Karate", plan: "Karate Monthly", coach: "owner", capacity: 15, startDate: "2026-06-01", slots: days([2, 4], "05:30", "06:30"), students: ["Meher Kaur"] },
+        // 14 of 15 seats: the near-capacity case.
+        { ...base, name: "Beginners B", coach: "coach", withRoom: true, capacity: 15, slots: days([1, 3, 5], "18:00", "19:00"), students: ["Aarav Deshmukh", "Anaya Deshmukh", "Ishaan Patil", "Rohan Joshi", ...roll.slice(0, 11)] },
+        { ...base, name: "Advanced A", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh"] },
+        { ...base, name: "Early Morning", coach: "owner", capacity: 15, slots: days([2, 4], "05:30", "06:30"), students: ["Meher Kaur"] },
+        // No capacity set: the bare-count case. Two mornings, so a day has classes already started.
+        { ...base, name: "Junior Morning", coach: "owner", capacity: null, slots: days([1, 2, 3, 4, 5, 6], "06:30", "07:30"), students: roll.slice(11, 14) },
+        { ...base, name: "Teens Morning", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 2, 3, 4, 5, 6], "08:00", "09:00"), students: roll.slice(14) },
       ],
     };
   }
@@ -122,13 +147,18 @@ function demoBatches(vertical: string): { programs: string[]; plans: PlanInput[]
 
 // The last 30 days of classes, marked mostly present with a few absences and
 // late arrivals, so Today, the register and profiles have something to show.
-async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>): Promise<void> {
+// Of today's started classes the latest is left unmarked, so Today has a gap.
+async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>, timeZone: string): Promise<void> {
   const now = new Date();
+  const today = todayIn(timeZone, now);
   await reconcileSessions(tx, { now: new Date(now.getTime() - 30 * 86_400_000) });
   await reconcileSessions(tx, { now });
   const past = await tx.select().from(sessions).where(and(lt(sessions.startsAt, now), ne(sessions.status, "cancelled"))).orderBy(asc(sessions.startsAt));
+  const startedToday = past.filter((c) => c.sessionDate === today);
+  const unmarked = startedToday.length > 1 ? startedToday.at(-1)?.id : undefined;
   for (const [day, c] of past.entries()) {
-    const at = new Date(c.startsAt.getTime() + 3_600_000);
+    if (c.id === unmarked) continue;
+    const at = new Date(Math.min(c.startsAt.getTime() + 3_600_000, now.getTime()));
     const roster = await classRoster(tx, ctx, c.id, { now: at });
     const marks = roster.entries
       .filter((e) => !e.paused)
@@ -137,14 +167,14 @@ async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>): P
   }
 }
 
-// A sibling discount, then last month's and this month's invoices, each made
-// and issued on the 1st as the monthly run would.
+// A sibling discount, then eight months of invoices (this month's included),
+// each made and issued on the 1st as the monthly run would.
 async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string): Promise<void> {
   const sibling = await createDiscount(tx, ctx, { name: "Sibling 10%", kind: "percent", value: 10 });
   await createDiscount(tx, ctx, { name: "Scholarship", kind: "percent", value: 100 });
   await giveDiscount(tx, ctx, siblingId, { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
   const thisMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
-  for (const first of [`${addDays(thisMonth, -1).slice(0, 7)}-01`, thisMonth]) {
+  for (const first of Array.from({ length: 8 }, (_, i) => addMonths(thisMonth, i - 7))) {
     const now = new Date(`${first}T04:00:00Z`);
     await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now });
     await issueInvoices(tx, ctx, "all", { now }).catch((e: unknown) => {
@@ -153,13 +183,15 @@ async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string): Promise<voi
   }
 }
 
-// Last month paid by all but the family behind on fees; this month's came in
-// over the days, two today (cash, UPI in part), so the register and today's
-// collection sheet differ. Their receipts wait under Messages → To send.
+// Earlier months paid on varying days, some in part and a few not at all, and
+// the family behind on fees only for the oldest months; this month's came in
+// over the days, two today (cash, UPI in part), the rest still open. Their
+// receipts wait under Messages → To send.
 async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>): Promise<void> {
   const today = todayIn("Asia/Kolkata");
   const thisMonth = `${today.slice(0, 7)}-01`;
-  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !behind.has(i.householdId));
+  const recent = addMonths(thisMonth, -2);
+  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !behind.has(i.householdId) || i.issueDate < recent);
   const pay = (inv: Invoice, on: string, method: "cash" | "upi" | "cheque", half = false) => {
     const balance = inv.totalPaise - inv.paidPaise;
     const amount = String(half ? (split(balance, 2)[0] ?? balance) : balance);
@@ -167,12 +199,21 @@ async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>): Promi
     const input = { requestId: uuidv7(), householdId: inv.householdId, branchId: inv.branchId, amountPaise: amount, method, ...(reference ? { reference } : {}), allocations: [{ invoiceId: inv.id, amountPaise: amount }] };
     return recordPayment(tx, ctx, input, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
   };
-  for (const [i, inv] of open.filter((x) => x.issueDate < thisMonth).entries()) await pay(inv, addDays(inv.issueDate, Math.min(2 + 5 * i, 27)), i % 2 ? "upi" : "cash");
-  const [first, second, third] = open.filter((x) => x.issueDate >= thisMonth);
+  const methods = ["cash", "upi", "cheque"] as const;
+  for (const [i, inv] of open.filter((x) => x.issueDate < thisMonth).entries()) {
+    if (i % 13 === 12) continue; // a late payer, still owing
+    await pay(inv, addDays(inv.issueDate, 1 + ((i * 7) % 24)), methods[i % 3] ?? "cash", i % 6 === 5);
+  }
+  const [first, second, third, ...rest] = open.filter((x) => x.issueDate >= thisMonth);
   const fourth = addDays(thisMonth, 3);
   if (first) await pay(first, fourth < today ? fourth : today, "cheque");
   if (second) await pay(second, today, "cash");
   if (third) await pay(third, today, "upi", true);
+  // Every other one of the rest came in early; the others fall due tomorrow.
+  for (const [j, inv] of rest.entries()) {
+    const on = addDays(thisMonth, 1 + (j % 5));
+    if (j % 2 === 0) await pay(inv, on < today ? on : today, methods[j % 3] ?? "cash");
+  }
 }
 
 // Five enquiries along the funnel: two new (one due today), one called, one
@@ -243,19 +284,22 @@ export async function seed(): Promise<SeedResult> {
       let siblingId = "";
       const behind = new Set<string>(); // household ids
       const oftenAbsent = new Set<string>(); // student ids
-      for (const { paused, behindOnFees, oftenAbsent: absent, sibling, ...student } of demoStudents(input.verticalPreset ?? "general")) {
+      const joinedOn = new Map<string, string>(); // student name -> enrolment start, where they joined later
+      const thisMonth = `${todayIn(tenant.timezone).slice(0, 7)}-01`;
+      for (const { paused, behindOnFees, oftenAbsent: absent, sibling, joinedMonthsAgo, ...student } of demoStudents(input.verticalPreset ?? "general")) {
         const phone = student.guardian?.phone ?? student.adultPhone ?? "";
         const householdId = families.get(phone);
         const created = await createStudent(tx, sctx, { ...student, ...(householdId ? { householdId } : {}) });
         families.set(phone, created.household.id);
         studentIds.set(student.fullName, created.student.id);
+        if (joinedMonthsAgo !== undefined) joinedOn.set(student.fullName, addMonths(thisMonth, -joinedMonthsAgo));
         if (paused) toPause.push(created.student.id);
         if (sibling) siblingId = created.student.id;
         if (behindOnFees) behind.add(created.household.id);
         if (absent) oftenAbsent.add(created.student.id);
       }
 
-      const plan = demoBatches(input.verticalPreset ?? "general");
+      const plan = demoBatches(input.verticalPreset ?? "general", todayIn(tenant.timezone));
       const programIds = new Map<string, string>();
       for (const name of plan.programs) programIds.set(name, (await addProgram(tx, sctx, { name })).id);
       const feePlanIds = new Map<string, string>();
@@ -272,11 +316,11 @@ export async function seed(): Promise<SeedResult> {
           startDate: b.startDate,
           slots: b.slots,
         });
-        for (const name of b.students) await enroll(tx, sctx, { studentId: studentIds.get(name) ?? "", batchId: batch.id, startDate: b.startDate });
+        for (const name of b.students) await enroll(tx, sctx, { studentId: studentIds.get(name) ?? "", batchId: batch.id, startDate: joinedOn.get(name) ?? b.startDate });
       }
       // Paused after joining, so their batches show as paused too.
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
-      await seedHistory(tx, sctx, oftenAbsent);
+      await seedHistory(tx, sctx, oftenAbsent, tenant.timezone);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
       await seedFees(tx, sctx, siblingId);
       await seedPayments(tx, sctx, behind);
@@ -286,7 +330,7 @@ export async function seed(): Promise<SeedResult> {
     // A second module waits for its first payment; started after the programs,
     // since with two modules on each new program names its module.
     if (extraModule) await withPlatformAdmin({ action: "seed.module", actorType: "system", tenantId: tenant.id }, (tx) => startActivity(tx, { tenantId: tenant.id, branchId: branch.id, activityKey: extraModule, today: todayIn(tenant.timezone), trial: false }));
-    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); 6 students, ${demoBatches(input.verticalPreset ?? "general").batches.length} batches, two months of invoices, payments spread over them`);
+    console.log(`seed: ${input.slug} owner ${owner.email} / coach ${coach.email}, password ${DEMO_PASSWORD} (dev only); ${demoStudents(input.verticalPreset ?? "general").length} students, ${demoBatches(input.verticalPreset ?? "general", todayIn(tenant.timezone)).batches.length} batches, up to eight months of invoices, payments spread over them`);
     console.log(`seed: ${input.slug} front desk invite (dev only): ${invite}`);
     result.tenantsCreated.push(input.slug);
   }
