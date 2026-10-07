@@ -169,11 +169,11 @@ async function seedHistory(tx: Tx, ctx: StudentCtx, oftenAbsent: Set<string>, ti
 
 // A sibling discount, then eight months of invoices (this month's included),
 // each made and issued on the 1st as the monthly run would.
-async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string): Promise<void> {
+async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string, timeZone: string): Promise<void> {
   const sibling = await createDiscount(tx, ctx, { name: "Sibling 10%", kind: "percent", value: 10 });
   await createDiscount(tx, ctx, { name: "Scholarship", kind: "percent", value: 100 });
   await giveDiscount(tx, ctx, siblingId, { discountId: sibling.id, reason: "Second child in the family", validFrom: "2026-06-01" });
-  const thisMonth = `${todayIn("Asia/Kolkata").slice(0, 7)}-01`;
+  const thisMonth = `${todayIn(timeZone).slice(0, 7)}-01`;
   for (const first of Array.from({ length: 8 }, (_, i) => addMonths(thisMonth, i - 7))) {
     const now = new Date(`${first}T04:00:00Z`);
     await generateInvoices(tx, { actorType: "system", tenantId: ctx.tenantId }, { now });
@@ -187,8 +187,8 @@ async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string): Promise<voi
 // the family behind on fees only for the oldest months; this month's came in
 // over the days, two today (cash, UPI in part), the rest still open. Their
 // receipts wait under Messages → To send.
-async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>): Promise<void> {
-  const today = todayIn("Asia/Kolkata");
+async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZone: string): Promise<void> {
+  const today = todayIn(timeZone);
   const thisMonth = `${today.slice(0, 7)}-01`;
   const recent = addMonths(thisMonth, -2);
   const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !behind.has(i.householdId) || i.issueDate < recent);
@@ -218,8 +218,8 @@ async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>): Promi
 
 // Five enquiries along the funnel: two new (one due today), one called, one
 // with a trial booked, one lost; so the board, Follow-ups and Report show.
-async function seedEnquiries(tx: Tx, ctx: StudentCtx, programId: string): Promise<void> {
-  const today = todayIn("Asia/Kolkata");
+async function seedEnquiries(tx: Tx, ctx: StudentCtx, programId: string, timeZone: string): Promise<void> {
+  const today = todayIn(timeZone);
   const add = (name: string, phone: string, source: "walk_in" | "instagram" | "referral" | "whatsapp" | "poster", extra: object = {}) => createEnquiry(tx, ctx, { name, phone, programId, source, ...extra });
   await add("Advait Kulkarni", "9812300001", "walk_in", { nextFollowUp: today });
   await add("Sia Mehta", "9812300002", "instagram", { contactName: "Pooja Mehta" });
@@ -325,10 +325,10 @@ export async function seed(): Promise<SeedResult> {
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
       await seedHistory(tx, sctx, oftenAbsent, tenant.timezone);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
-      await seedFees(tx, sctx, siblingId);
-      await seedPayments(tx, sctx, behind);
+      await seedFees(tx, sctx, siblingId, tenant.timezone);
+      await seedPayments(tx, sctx, behind, tenant.timezone);
       await queueReminders(tx); // what the hourly job would queue now
-      await seedEnquiries(tx, sctx, programIds.values().next().value ?? "");
+      await seedEnquiries(tx, sctx, programIds.values().next().value ?? "", tenant.timezone);
     });
     // A second module waits for its first payment; started after the programs,
     // since with two modules on each new program names its module.
