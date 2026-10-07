@@ -25,7 +25,7 @@ const ICON_BTN = "flex size-11 shrink-0 items-center justify-center rounded-full
 
 function CrumbText({ crumb, last }: { crumb: Crumb; last: boolean }) {
   const text = useNavLabel(crumb);
-  if (last) return <span aria-current="page" className="truncate font-medium text-neutral-900">{text}</span>;
+  if (last && !crumb.href) return <span aria-current="page" className="truncate font-medium text-neutral-900">{text}</span>;
   if (crumb.href) return <Link href={crumb.href} className="rounded-sm text-accent-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{text}</Link>;
   return <span>{text}</span>;
 }
