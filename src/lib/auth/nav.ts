@@ -14,39 +14,43 @@ export type NavItem = {
   count?: number;
 };
 
-export type NavGroup = { title: string; items: NavItem[] };
+// A parent is a disclosure with no route of its own.
+export type NavParent = { title: NavLabel; icon: string; children: NavItem[] };
+export type NavEntry = NavItem | NavParent;
+export type NavGroup = { title: string; items: NavEntry[] };
+
+export function isParent(entry: NavEntry): entry is NavParent {
+  return "children" in entry;
+}
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    title: "Daily",
+    title: "Main",
     items: [
       { href: "/dashboard", label: { text: "Dashboard" }, icon: "LayoutDashboard", permission: null }, // blocks inside follow permissions
       { href: "/today", label: { labelKey: "session", form: "many", prefix: "Today's " }, icon: "CalendarDays", permission: "sessions:read" },
       { href: "/attendance", label: { text: "Attendance" }, icon: "ClipboardCheck", permission: "attendance:read" },
-    ],
-  },
-  {
-    title: "People",
-    items: [
       { href: "/students", label: { labelKey: "student", form: "many" }, icon: "Users", permission: "students:read" },
       { href: "/enquiries", label: { text: "Enquiries" }, icon: "MessageSquare", permission: "enquiries:read" },
-      { href: "/staff", label: { labelKey: "staff", form: "many" }, icon: "UserCog", permission: "staff:read" },
-    ],
-  },
-  {
-    title: "Money",
-    items: [
-      { href: "/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
-      { href: "/payments/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
-      { href: "/payments", label: { text: "Collection" }, icon: "Wallet", permission: "payments:read" },
+      { href: "/batches/programs", label: { text: "Courses & Programs" }, icon: "GraduationCap", permission: "batches:read" },
+      { href: "/batches", label: { labelKey: "batch", form: "many" }, icon: "Layers", permission: "batches:read" },
+      {
+        title: { text: "Finance" },
+        icon: "Landmark",
+        children: [
+          { href: "/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
+          { href: "/payments", label: { text: "Collections" }, icon: "Wallet", permission: "payments:read" },
+          { href: "/payments/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
+          { href: "/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
+        ],
+      },
       { href: "/reports", label: { text: "Reports" }, icon: "BarChart3", permission: "reports:view" },
     ],
   },
   {
-    title: "Setup",
+    title: "Academy",
     items: [
-      { href: "/batches", label: { labelKey: "batch", form: "many", prefix: "Programs & " }, icon: "Layers", permission: "batches:read" },
-      { href: "/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
+      { href: "/staff", label: { labelKey: "staff", form: "many" }, icon: "UserCog", permission: "staff:read" },
       { href: "/messages", label: { text: "Messages" }, icon: "Send", permission: "messages:read" },
       { href: "/settings", label: { text: "Settings" }, icon: "Settings", permission: "settings:manage" },
       { href: "/billing", label: { text: "Billing" }, icon: "CreditCard", permission: "billing:view" },
@@ -67,8 +71,45 @@ export function allowed(session: NavSession, item: NavItem): boolean {
   return can({ tenantId: "", staffId: "", ...session }, PERMISSIONS[item.permission].module, item.permission);
 }
 
+// A parent with no permitted child vanishes; with one, it becomes that link.
+function visible(session: NavSession, entry: NavEntry): NavEntry | null {
+  if (!isParent(entry)) return allowed(session, entry) ? entry : null;
+  const children = entry.children.filter((c) => allowed(session, c));
+  if (children.length === 0) return null;
+  const [only] = children;
+  return children.length === 1 && only ? only : { ...entry, children };
+}
+
 export function navFor(session: NavSession, groups: NavGroup[] = NAV_GROUPS): NavGroup[] {
-  return groups.map((g) => ({ ...g, items: g.items.filter((i) => allowed(session, i)) })).filter((g) => g.items.length > 0);
+  return groups
+    .map((g) => ({ ...g, items: g.items.flatMap((e) => visible(session, e) ?? []) }))
+    .filter((g) => g.items.length > 0);
+}
+
+// The item for this page, or a parent of it; a more specific item wins
+// (/payments/new is Collect payment, not Collections).
+export function isActive(pathname: string, href: string, others: string[] = []): boolean {
+  const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  return under(href) && !others.some((h) => h.length > href.length && under(h));
+}
+
+// href null = not a link (the Finance parent, or a leaf the URL cannot name).
+export type Crumb = { label: NavLabel; href: string | null };
+
+// Crumbs for a pathname from the static config. `leaf` names the entity under
+// the matched item ("Aarav Sharma"); without it the entity shows as "…".
+export function crumbsFor(pathname: string, leaf?: string, groups: NavGroup[] = NAV_GROUPS): Crumb[] {
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return [];
+  const flat = groups.flatMap((g) => g.items.flatMap((e): { item: NavItem; parent: NavParent | null }[] => (isParent(e) ? e.children.map((item) => ({ item, parent: e })) : [{ item: e, parent: null }])));
+  const hrefs = flat.map((f) => f.item.href);
+  const hit = flat.find((f) => isActive(pathname, f.item.href, hrefs));
+  if (!hit) return [];
+  const trail: Crumb[] = [];
+  if (hit.parent) trail.push({ label: hit.parent.title, href: null });
+  const entity = pathname !== hit.item.href;
+  trail.push({ label: hit.item.label, href: entity ? hit.item.href : null });
+  if (entity) trail.push({ label: { text: leaf ?? "…" }, href: null });
+  return trail;
 }
 
 export function coachNavFor(session: NavSession): NavItem[] {

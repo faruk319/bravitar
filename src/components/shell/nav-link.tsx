@@ -3,7 +3,7 @@
 import * as icons from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { NavItem } from "@/lib/auth/nav";
+import { isActive, type NavItem } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { useLabel } from "./tenant-provider";
 
@@ -19,12 +19,7 @@ export function NavIcon({ name, className }: { name: string; className?: string 
   return <Icon className={cn("size-6 shrink-0", className)} aria-hidden />;
 }
 
-// The item for this page, or a parent of it; a more specific item wins
-// (/payments/new is Collect payment, not Collection).
-export function isActive(pathname: string, href: string, others: string[] = []): boolean {
-  const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
-  return under(href) && !others.some((h) => h.length > href.length && under(h));
-}
+export { isActive } from "@/lib/auth/nav";
 
 // One row in the rail, the sheet or the bottom nav. `compact` = icon only.
 export function NavLink({ item, compact, onNavigate, others }: { item: NavItem; compact?: boolean | undefined; onNavigate?: (() => void) | undefined; others?: string[] }) {

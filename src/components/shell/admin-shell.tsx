@@ -7,7 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { OfflineBanner, SyncBadge } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import type { NavGroup } from "@/lib/auth/nav";
+import { isParent, type NavGroup } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { AcademyMenu } from "./academy-menu";
 import { BranchSwitcher } from "./branch-switcher";
@@ -48,16 +48,15 @@ function useRailExpanded(): [boolean, () => void] {
 }
 
 function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compact?: boolean; onNavigate?: () => void }) {
-  const hrefs = groups.flatMap((g) => g.items.map((i) => i.href));
+  // TEMPORARY (S1): parents are not rendered until S2 builds the disclosure.
+  const hrefs = groups.flatMap((g) => g.items.flatMap((i) => (isParent(i) ? [] : [i.href])));
   return (
     <nav className="flex flex-col gap-4">
       {groups.map((g) => (
         <div key={g.title}>
           {!compact ? <div className="px-3 pb-1 text-caption font-medium uppercase tracking-wide text-muted-foreground">{g.title}</div> : null}
           <div className="flex flex-col gap-0.5">
-            {g.items.map((item) => (
-              <NavLink key={item.href} item={item} compact={compact} onNavigate={onNavigate} others={hrefs} />
-            ))}
+            {g.items.map((item) => (isParent(item) ? null : <NavLink key={item.href} item={item} compact={compact} onNavigate={onNavigate} others={hrefs} />))}
           </div>
         </div>
       ))}
