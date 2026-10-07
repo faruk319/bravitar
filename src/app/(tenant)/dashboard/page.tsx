@@ -49,10 +49,8 @@ export default async function DashboardPage() {
   if (atRisk?.unpaid != null) alerts.push({ key: "risk-fees", n: atRisk.unpaid, text: `${count(atRisk.unpaid, "student", "students")} with ${AT_RISK.overdue}+ invoices overdue`, href: "/reports/at-risk", icon: TrendingDown, tone: "danger" });
 
   const actions: QuickAction[] = [];
-  if (allows(ctx, "students:create")) actions.push("addStudent");
   if (allows(ctx, "batches:manage")) actions.push("createBatch");
   if (allows(ctx, "attendance:mark")) actions.push("markAttendance");
-  if (allows(ctx, "fees:collect")) actions.push("collectPayment");
   if (allows(ctx, "messages:send")) actions.push("sendAnnouncement");
 
   const hour = Number(timeIn(tz, new Date()).slice(0, 2));
