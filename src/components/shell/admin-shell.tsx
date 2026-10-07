@@ -136,6 +136,12 @@ function Rail({ groups }: { groups: NavGroup[] }) {
     timer.current = setTimeout(() => setHovered(next), ms);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
+  // The width slides only for user pin/unpin: off for SSR and hydration, on after the first frame.
+  const [slides, setSlides] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setSlides(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const onFocus = (e: FocusEvent<HTMLElement>) => {
     if (!e.target.matches(":focus-visible")) return;
@@ -166,7 +172,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
   );
 
   return (
-    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none md:block print:hidden", pinned ? "w-[248px]" : "w-[72px]")}>
+    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 md:block print:hidden", slides && "transition-[width] duration-200 ease-out motion-reduce:transition-none", pinned ? "w-[248px]" : "w-[72px]")}>
       <aside
         data-expanded={open}
         onPointerEnter={(e) => {
@@ -182,7 +188,8 @@ function Rail({ groups }: { groups: NavGroup[] }) {
           }
         }}
         className={cn(
-          "absolute inset-y-0 left-0 flex flex-col border-r border-neutral-100 bg-sidebar p-2 transition-[width,box-shadow] duration-200 ease-out motion-reduce:transition-none",
+          "absolute inset-y-0 left-0 flex flex-col border-r border-neutral-100 bg-sidebar p-2",
+          slides && "transition-[width,box-shadow] duration-200 ease-out motion-reduce:transition-none",
           open ? "w-[248px]" : "w-[72px]", open && !pinned && "shadow-lg",
         )}
       >
