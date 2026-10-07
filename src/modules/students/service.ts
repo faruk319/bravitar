@@ -76,25 +76,31 @@ export class DuplicateGuardianError extends ConflictError {
 }
 
 // A number already in this academy: who it is and who they are linked to, for staff to say
-// whether it is the same person. `linked` is whether they already have access to the member asked about.
-export type KnownGuardian = { guardianId: string; fullName: string; phone: string; linked: boolean; members: GuardianLink[] };
+// whether it is the same person. `linked`: they already have access to the member asked about.
+// Only members in the staff member's branches are shown; `hidden` counts the rest. With none
+// shown, nothing about the person is: the number is taken, and staff can use another or ask an owner.
+export type KnownGuardian = { guardianId: string; fullName: string; phone: string; linked: boolean; members: Omit<GuardianLink, "branchId">[]; hidden: number };
 
 // 409 carrying who the number belongs to. Nothing was changed; resend with linkGuardianId to link them, or use another number.
 export class KnownGuardianError extends ConflictError {
   constructor(readonly known: KnownGuardian) {
-    super(`This number belongs to ${known.fullName}`, known);
+    super(known.members.length || !known.hidden ? `This number belongs to ${known.fullName}` : "This number is used at another branch", known);
   }
 }
 
-export async function describeGuardian(tx: Tx, g: Guardian, studentId?: string): Promise<KnownGuardian> {
-  const members = await linksOfGuardian(tx, g.id);
-  return { guardianId: g.id, fullName: g.fullName, phone: g.phone, linked: !!studentId && members.some((m) => m.studentId === studentId), members };
+export async function describeGuardian(tx: Tx, ctx: StudentCtx, g: Guardian, studentId?: string): Promise<KnownGuardian> {
+  const all = await linksOfGuardian(tx, g.id);
+  const seen = all.filter((m) => !ctx.branchIds.length || ctx.branchIds.includes(m.branchId));
+  const members = seen.map((m) => ({ studentId: m.studentId, fullName: m.fullName, relation: m.relation }));
+  const linked = !!studentId && all.some((m) => m.studentId === studentId);
+  if (all.length && !seen.length) return { guardianId: "", fullName: "", phone: g.phone, linked, members, hidden: all.length };
+  return { guardianId: g.id, fullName: g.fullName, phone: g.phone, linked, members, hidden: all.length - seen.length };
 }
 
 export async function lookupKnownGuardian(tx: Tx, ctx: StudentCtx, phone: string, studentId?: string): Promise<KnownGuardian | undefined> {
   assertCan(ctx, "students:read");
   const g = await findGuardianByPhone(tx, phone);
-  return g ? describeGuardian(tx, g, studentId) : undefined;
+  return g ? describeGuardian(tx, ctx, g, studentId) : undefined;
 }
 
 export async function lookupGuardian(tx: Tx, phone: string): Promise<HouseholdSuggestion | undefined> {
@@ -137,7 +143,10 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
     const h = await getHousehold(tx, data.householdId);
     if (!h) throw new NotFoundError("Family");
     // Already in the family chosen is the same person; anyone else is for staff to decide.
-    if (existing && data.linkGuardianId !== existing.id && !(await guardiansOfHouseholdMembers(tx, h.id)).some((m) => m.id === existing.id)) throw new KnownGuardianError(await describeGuardian(tx, existing));
+    if (existing && !(await guardiansOfHouseholdMembers(tx, h.id)).some((m) => m.id === existing.id)) {
+      const known = await describeGuardian(tx, ctx, existing);
+      if (data.linkGuardianId !== existing.id || !known.guardianId) throw new KnownGuardianError(known);
+    }
     household = h;
     guardian =
       existing ??

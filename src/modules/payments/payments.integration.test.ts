@@ -537,6 +537,23 @@ describe("payments", () => {
       expect((await withTenant(T, (tx) => familyAccount(tx, desk, a, main))).open.map((o) => o.id)).toEqual([invA.id]);
     });
 
+    it("a shared guardian paying with nothing ticked settles only the screen's family; the rest stays as an advance", async () => {
+      const [a, b] = [await family(), await family()];
+      const shared = payerOfFamily.get(a) ?? "";
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: childOfFamily.get(b) ?? "", guardianId: shared, relation: "mother" }));
+      // B's invoice is the older one, so oldest-first over everything the payer owes would reach it first.
+      const invB = await bill(b, 1000, "2026-09-01", main, { payerGuardianId: shared });
+      const invA = await bill(a, 1000, "2026-09-10", main, { payerGuardianId: shared });
+      const p = await pay(a, 1500, { payerGuardianId: shared });
+      expect([await state(invA.id), await state(invB.id)]).toEqual([["paid", rupees(1000)], ["issued", 0n]]);
+      expect((await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, p.id)))).map((x) => [x.invoiceId, x.amountPaise])).toEqual([[invA.id, rupees(1000)]]);
+      expect(await advanceOf(a)).toBe(rupees(500));
+      // Ticking the other family's invoice from this screen is refused, and B's screen settles B.
+      await expect(pay(a, 500, { payerGuardianId: shared, allocations: [{ invoiceId: invB.id, amountPaise: String(rupees(500)) }] })).rejects.toMatchObject({ status: 400 });
+      await pay(b, 1000, { payerGuardianId: shared });
+      expect(await state(invB.id)).toEqual(["paid", rupees(1000)]);
+    });
+
     it("a link goes to the payer; a member paying for themselves with no guardian gets their own name and number", async () => {
       const h = await family();
       const self = childOfFamily.get(h) ?? "";

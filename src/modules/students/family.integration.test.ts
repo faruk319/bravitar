@@ -9,9 +9,10 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { linkedChildren } from "@/modules/portal/repo";
+import { createBranch } from "@/modules/tenancy/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { addFamilyMember, removeFamilyMember, setManager } from "./family";
-import { getGuardian, guardiansOfStudent } from "./repo";
+import { getGuardian, guardiansOfStudent, upsertFamilyLink } from "./repo";
 import { createStudent, KnownGuardianError, lookupKnownGuardian } from "./service";
 
 // Family access (agreed 2026-10-03): family members with access to a
@@ -67,7 +68,7 @@ describe("family members", () => {
       withTenant(T, (tx) => addFamilyMember(tx, ctx, kabir.student.id, { fullName: "Xavi", phone: NEIGHBOUR, relation: "guardian", ...(linkGuardianId ? { linkGuardianId } : {}) }));
     const err = await add().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(KnownGuardianError);
-    expect((err as KnownGuardianError).known).toEqual({ guardianId: zoya.guardian.id, fullName: "Neighbour", phone: zoya.guardian.phone, linked: false, members: [{ studentId: zoya.student.id, fullName: "Zoya", relation: "father" }] });
+    expect((err as KnownGuardianError).known).toEqual({ guardianId: zoya.guardian.id, fullName: "Neighbour", phone: zoya.guardian.phone, linked: false, hidden: 0, members: [{ studentId: zoya.student.id, fullName: "Zoya", relation: "father" }] });
     // Nothing happened, and naming someone else is not the answer.
     expect((await withTenant(T, (tx) => guardiansOfStudent(tx, kabir.student.id))).map((g) => g.fullName)).toEqual(["Other Parent"]);
     await expect(add(uuidv7())).rejects.toBeInstanceOf(KnownGuardianError);
@@ -78,6 +79,35 @@ describe("family members", () => {
     expect((await withTenant(T, (tx) => lookupKnownGuardian(tx, ctx, zoya.guardian.phone, kabir.student.id)))?.linked).toBe(true);
     // Once linked, adding them again is not a question.
     await add();
+  });
+
+  it("staff limited to one branch are not told who holds a number at another branch", async () => {
+    const here = await admit("Mina Here", "Parent Here", phone());
+    const branch2 = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Far branch" }))).id;
+    const far = await withTenant(T, (tx) => createStudent(tx, ctx, { fullName: "Qasim Faraway", branchId: branch2, guardian: { fullName: "Rukhsar Faraway", phone: phone(), relation: "mother" }, consents: { dataProcessing: true } }));
+    const restricted = { ...ctx, branchIds: [here.student.branchId] };
+    const farPhone = far.guardian.phone;
+    const seen = await withTenant(T, (tx) => lookupKnownGuardian(tx, restricted, farPhone, here.student.id));
+    expect(seen).toEqual({ guardianId: "", fullName: "", phone: farPhone, linked: false, members: [], hidden: 1 });
+    expect(JSON.stringify(seen)).not.toMatch(/Faraway|Rukhsar|Qasim/);
+    const add = (linkGuardianId?: string) =>
+      withTenant(T, (tx) => addFamilyMember(tx, restricted, here.student.id, { fullName: "Rukhsar", phone: farPhone, relation: "other", ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    const err = await add(far.guardian.id).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KnownGuardianError);
+    expect((err as Error).message).toBe("This number is used at another branch");
+    expect(JSON.stringify((err as KnownGuardianError).known)).not.toMatch(/Faraway|Rukhsar|Qasim/);
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, here.student.id))).map((g) => g.fullName)).toEqual(["Parent Here"]);
+    // With an owner's view the same number is a full answer, and linking works.
+    expect((await withTenant(T, (tx) => lookupKnownGuardian(tx, ctx, farPhone)))?.members.map((m) => m.fullName)).toEqual(["Qasim Faraway"]);
+  });
+
+  it("a guardian seen in one branch shows only the members there, and counts the rest", async () => {
+    const here = await admit("Nur Here", "Shared Parent", phone());
+    const branch3 = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Third branch" }))).id;
+    const far = await withTenant(T, (tx) => createStudent(tx, ctx, { fullName: "Omar Third", branchId: branch3, guardian: { fullName: "Other Third", phone: phone(), relation: "mother" }, consents: { dataProcessing: true } }));
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: far.student.id, guardianId: here.guardian.id, relation: "father" }));
+    const seen = await withTenant(T, (tx) => lookupKnownGuardian(tx, { ...ctx, branchIds: [here.student.branchId] }, here.guardian.phone));
+    expect(seen).toMatchObject({ fullName: "Shared Parent", hidden: 1, members: [{ fullName: "Nur Here" }] });
   });
 
   it("looking up a number reports the person and their members, or nothing", async () => {

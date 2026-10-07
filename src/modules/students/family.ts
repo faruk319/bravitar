@@ -30,7 +30,11 @@ export async function addFamilyMember(tx: Tx, ctx: StudentCtx, studentId: string
   const student = await requireStudent(tx, ctx, studentId);
   const d = familyMemberSchema.parse(input);
   const existing = await findGuardianByPhone(tx, d.phone);
-  if (existing && d.linkGuardianId !== existing.id && !(await guardiansOfMembers(tx, [studentId], { includeRemoved: true })).some((m) => m.id === existing.id)) throw new KnownGuardianError(await describeGuardian(tx, existing, studentId));
+  if (existing && !(await guardiansOfMembers(tx, [studentId], { includeRemoved: true })).some((m) => m.id === existing.id)) {
+    const known = await describeGuardian(tx, ctx, existing, studentId);
+    // Staff can only say "the same person" about someone they can see.
+    if (d.linkGuardianId !== existing.id || !known.guardianId) throw new KnownGuardianError(known);
+  }
   const guardian =
     existing ??
     (await createGuardian(tx, { tenantId: ctx.tenantId, householdId: student.householdId, fullName: d.fullName, phone: d.phone }).catch((e: unknown) => {

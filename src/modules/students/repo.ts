@@ -150,12 +150,12 @@ export async function studentsOfGuardian(tx: Tx, guardianId: string): Promise<St
   return rows.map((r) => r.s);
 }
 
-export type GuardianLink = { studentId: string; fullName: string; relation: Relation };
+export type GuardianLink = { studentId: string; fullName: string; relation: Relation; branchId: string };
 
 // Who this guardian is linked to now, with how they relate; removed links and deleted members aren't.
 export async function linksOfGuardian(tx: Tx, guardianId: string): Promise<GuardianLink[]> {
   return tx
-    .select({ studentId: students.id, fullName: students.fullName, relation: studentGuardians.relation })
+    .select({ studentId: students.id, fullName: students.fullName, relation: studentGuardians.relation, branchId: students.branchId })
     .from(studentGuardians)
     .innerJoin(students, eq(students.id, studentGuardians.studentId))
     .where(and(eq(studentGuardians.guardianId, guardianId), isNull(studentGuardians.removedAt), isNull(students.deletedAt)))

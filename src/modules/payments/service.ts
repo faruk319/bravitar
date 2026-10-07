@@ -192,7 +192,8 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
     if (!(await isReplay(tx, again, data, memberIds))) throw new ConflictError("This form was already used for a different payment");
     return again;
   }
-  const open = (await openInvoices(tx, payer, data.branchId)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
+  // Only the invoices the screen showed: a shared payer's other family is settled on its own screen.
+  const open = (await openInvoices(tx, payer, data.branchId, memberIds)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
   const split = data.allocations ? picked(data.amountPaise, open, data.allocations) : oldestFirst(data.amountPaise, open);
   const fy = financialYear(today, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);

@@ -86,9 +86,11 @@ const openIn = (tx: Tx, where: SQL | undefined) =>
     .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number), asc(invoices.id));
 
 // The payer's issued and part-paid invoices in one branch, oldest first: due
-// date, then number (length first, so 10000 sorts after 9999).
-export async function openInvoices(tx: Tx, payer: Payer, branchId: string): Promise<Invoice[]> {
-  return openIn(tx, and(payerIs(payer), eq(invoices.branchId, branchId)));
+// date, then number (length first, so 10000 sorts after 9999). With memberIds, only those
+// members' invoices: what a collect screen showed.
+export async function openInvoices(tx: Tx, payer: Payer, branchId: string, memberIds?: string[]): Promise<Invoice[]> {
+  if (memberIds && !memberIds.length) return [];
+  return openIn(tx, and(payerIs(payer), eq(invoices.branchId, branchId), memberIds ? inArray(invoices.studentId, memberIds) : undefined));
 }
 
 // Open invoices of these members, whoever the payer: the member's fees, for the collect screen and to find who is paying.
