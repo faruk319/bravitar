@@ -74,7 +74,8 @@ beforeAll(async () => {
   kabir = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Kabir", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, householdId, consents: { dataProcessing: true } }))).student.id;
   const joined = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: riya, batchId, startDate: "2026-10-01" })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: kabir, batchId, startDate: "2026-10-01" }))];
   await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: at("2026-10-01T04:00:00Z"), enrollmentIds: joined.map((e) => e.id) }));
-  const [draft] = await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.householdId, householdId)));
+  // One invoice per child; the test follows Riya's.
+  const draft = (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.householdId, householdId)))).find((i) => i.studentId === riya);
   invoiceId = draft?.id ?? "";
   await withTenant(T, (tx) => issueInvoices(tx, owner, [invoiceId], { now: at("2026-10-01T04:00:00Z") }));
   const branch = await withTenant(T, getDefaultBranch);
@@ -88,12 +89,12 @@ afterAll(async () => {
 });
 
 describe("copy-message flow (Prompt 17 step 1)", () => {
-  it("a fee reminder names the children, the balance, the due date and a private link, for the primary guardian", async () => {
+  it("a fee reminder names the child, the balance, the due date and a private link, for the primary guardian", async () => {
     const m = await compose({ key: "fee_overdue", invoiceId });
     expect(m.drafts).toHaveLength(1);
     const d = m.drafts[0];
     expect(d?.to[0]).toMatchObject({ name: "Sunita Sharma" });
-    expect(d?.text).toContain("Hello Sunita Sharma, Kabir and Riya's fee of ₹1,100");
+    expect(d?.text).toContain("Hello Sunita Sharma, Riya's fee of ₹300");
     expect(d?.text).toContain("was due on 8 Oct 2026");
     expect(d?.text).toMatch(new RegExp(`http://${slug}\\.localhost:3000/i/[A-Za-z0-9_-]{40,} Thank you\\.$`));
   });

@@ -15,7 +15,7 @@ import {
   clearKeys,
   discountsOf,
   enrollmentLinks,
-  familyDraft,
+  memberDraft,
   type GivenDiscount,
   getInvoice,
   insertInvoice,
@@ -47,7 +47,7 @@ type Charge = {
   unit: Paise;
   on: string; // discounts valid on this day apply
   group: string; // charges in a group share an invoice
-  studentId: string | null; // set on one-student invoices (installments)
+  studentId: string; // every invoice is one member's
   opens: boolean; // first charge of the student's first enrollment in the program
 };
 
@@ -104,8 +104,8 @@ function chargesFor(b: Billable, c: { today: string; from: string; proration: "f
         dueDate: addDays(ch.issueDate, plan.graceDays),
         unit: ch.amount,
         on: ch.issueDate,
-        group: `family|${b.householdId}|${b.branchId}|${ch.issueDate}`,
-        studentId: null,
+        group: `member|${e.studentId}|${b.branchId}|${ch.issueDate}`,
+        studentId: e.studentId,
         opens: first && ch === all[0],
       }));
   }
@@ -153,7 +153,7 @@ export function resolvePayers(es: Enrollment[], lead: Map<string, string>): { pa
   return { payers, corrupt };
 }
 
-// docs/03 §8: drafts per family, branch and billing day; installments get their own.
+// Drafts per member, payer, branch and billing day; installments get their own.
 // Re-running bills nothing twice. onlyKeys re-bills exactly those charges.
 export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptions = {}): Promise<GenerateResult> {
   const tenant = await getOwnTenant(tx);
@@ -199,7 +199,7 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
       continue;
     }
     const inv =
-      (head.studentId ? undefined : await familyDraft(tx, head.b.householdId, head.b.branchId, head.issueDate, payer)) ??
+      (head.group.startsWith("own|") ? undefined : await memberDraft(tx, head.b.e.studentId, head.b.branchId, head.issueDate, payer)) ??
       (await insertInvoice(tx, {
         tenantId: actor.tenantId,
         branchId: head.b.branchId,

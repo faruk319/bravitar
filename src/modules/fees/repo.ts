@@ -187,12 +187,13 @@ export async function payerNames(tx: Tx, payers: Payer[]): Promise<Map<string, s
   return new Map([...gs.map((g) => [payerKey({ kind: "guardian", guardianId: g.id }), g.name] as const), ...ms.map((m) => [payerKey({ kind: "member", memberId: m.id }), m.name] as const)]);
 }
 
-// The family's open draft for a billing day and payer, locked so issuing can't race an append.
-export async function familyDraft(tx: Tx, householdId: string, branchId: string, issueDate: string, payer: Payer): Promise<Invoice | undefined> {
+// The member's open tuition draft for a billing day and payer, locked so issuing can't race an append. Installment drafts stand alone.
+export async function memberDraft(tx: Tx, studentId: string, branchId: string, issueDate: string, payer: Payer): Promise<Invoice | undefined> {
+  const alone = sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND l.billing_key LIKE 'installment|%')`;
   const [inv] = await tx
     .select()
     .from(invoices)
-    .where(and(eq(invoices.householdId, householdId), eq(invoices.branchId, branchId), eq(invoices.issueDate, issueDate), eq(invoices.status, "draft"), isNull(invoices.studentId), payerIs(payer)))
+    .where(and(eq(invoices.studentId, studentId), eq(invoices.branchId, branchId), eq(invoices.issueDate, issueDate), eq(invoices.status, "draft"), sql`NOT ${alone}`, payerIs(payer)))
     .limit(1)
     .for("update");
   return inv;

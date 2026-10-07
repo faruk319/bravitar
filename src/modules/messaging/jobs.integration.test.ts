@@ -80,7 +80,8 @@ beforeAll(async () => {
   for (const id of Object.values(kids)) joined.push((await withTenant(T, (tx) => enroll(tx, owner, { studentId: id, batchId, startDate: "2026-10-01" }))).id);
   await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: ist("2026-10-01", "09:30"), enrollmentIds: joined }));
   await withTenant(T, (tx) => issueInvoices(tx, owner, "all", { now: ist("2026-10-01", "09:30") }));
-  for (const inv of await withTenant(T, (tx) => tx.select().from(invoices))) bill[inv.householdId] = inv; // each due 8 Oct
+  // One invoice per child, each due 8 Oct; the Sharmas' is Riya's.
+  for (const inv of await withTenant(T, (tx) => tx.select().from(invoices))) if (inv.studentId !== kids.kabir) bill[inv.householdId] = inv;
 });
 
 afterAll(async () => {
@@ -96,12 +97,12 @@ describe("messages.remind: fee reminders (agreed 2026-09-25)", () => {
     await remind(ist("2026-10-05", "10:00"));
     await remind(ist("2026-10-05", "11:00"));
     const due = (await log()).filter((m) => m.templateKey === "fee_due");
-    expect(due.map((m) => m.toPhone).sort()).toEqual([SUNITA, MEHER]); // Zoya's mother never opted in
+    expect(due.map((m) => m.toPhone).sort()).toEqual([SUNITA, SUNITA, MEHER]); // an invoice per child; Zoya's mother never opted in
 
     const sharma = bill[family.sharma] as Invoice;
-    const m = due.find((x) => x.toPhone === SUNITA);
+    const m = due.find((x) => x.relatedId === sharma.id);
     expect(m).toMatchObject({ channel: "manual", status: "queued", relatedType: "invoice", relatedId: sharma.id, sendAfter: ist("2026-10-05", "10:00") });
-    expect(m?.body).toContain(`Kabir and Riya's fee of ${formatPaise(sharma.totalPaise)}`);
+    expect(m?.body).toContain(`Riya's fee of ${formatPaise(sharma.totalPaise)}`);
     expect(m?.body).toContain("is due on 8 Oct 2026");
     const token = m?.body.match(/\/i\/([A-Za-z0-9_-]+) Thank you\.$/)?.[1] ?? "";
     expect((await sharedInvoice(token, slug))?.invoice.id).toBe(sharma.id);
@@ -113,7 +114,7 @@ describe("messages.remind: fee reminders (agreed 2026-09-25)", () => {
   it("fee_overdue goes 1 and 7 days after, each once, catching up after a missed day; nothing after two weeks", async () => {
     for (const day of ["2026-10-10", "2026-10-12", "2026-10-15", "2026-10-22"]) await remind(ist(day, "10:30"));
     const stages = (await log()).filter((m) => m.templateKey === "fee_overdue" && m.toPhone === SUNITA).map((m) => m.dedupeKey?.split("|")[2]);
-    expect(stages).toEqual(["1", "7"]);
+    expect(stages).toEqual(["1", "1", "7", "7"]); // each of her two children's invoices
   });
 });
 

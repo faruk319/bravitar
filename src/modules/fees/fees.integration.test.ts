@@ -137,7 +137,7 @@ describe("fee plans", () => {
 });
 
 describe("generating invoices", () => {
-  it("two children in different programs: one family invoice, two lines, the sibling discount with its reason; totals reconcile", async () => {
+  it("two children in different programs: an invoice each, the sibling discount with its reason; totals reconcile", async () => {
     const f = await family("Riya", "Kabir");
     const [riya = "", kabir = ""] = f.ids;
     const sibling = await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Sibling 10%", kind: "percent", value: 10 }));
@@ -146,16 +146,18 @@ describe("generating invoices", () => {
     const enrollments = [await join(riya, "Karate A", M0), await join(kabir, "Dance A", M0)];
     H.siblings = { ...f, enrollments };
 
-    expect(await gen(M1, enrollments)).toEqual({ invoices: 1, lines: 2, skipped: [] });
-    const [inv] = await invoicesOf(f.householdId);
-    expect(inv).toMatchObject({ status: "draft", number: null, fy: null, studentId: null, issueDate: M1, dueDate: addDays(M1, 7), periodStart: M1, periodEnd: monthEndOf(M1) });
-    expect(inv).toMatchObject({ subtotalPaise: 180000n, discountPaise: 10000n, taxPaise: 0n, totalPaise: 170000n });
-    const lines = await linesOn(inv?.id ?? "");
-    expect(lines.map((l) => [l.studentName, l.description, l.unitPaise, l.discountPaise, l.discountNote, l.amountPaise])).toEqual([
+    expect(await gen(M1, enrollments)).toEqual({ invoices: 2, lines: 2, skipped: [] });
+    const all = await invoicesOf(f.householdId);
+    expect(all.map((i) => i.studentId).sort()).toEqual([riya, kabir].sort());
+    const [forRiya, forKabir] = [riya, kabir].map((id) => all.find((i) => i.studentId === id));
+    for (const inv of [forRiya, forKabir]) expect(inv).toMatchObject({ status: "draft", number: null, fy: null, issueDate: M1, dueDate: addDays(M1, 7), periodStart: M1, periodEnd: monthEndOf(M1) });
+    expect(forRiya).toMatchObject({ subtotalPaise: 80000n, discountPaise: 0n, taxPaise: 0n, totalPaise: 80000n });
+    expect(forKabir).toMatchObject({ subtotalPaise: 100000n, discountPaise: 10000n, taxPaise: 0n, totalPaise: 90000n });
+    expect((await linesOn(forRiya?.id ?? "")).map((l) => [l.studentName, l.description, l.unitPaise, l.discountPaise, l.discountNote, l.amountPaise])).toEqual([["Riya", "Karate Monthly", 80000n, 0n, null, 80000n]]);
+    expect((await linesOn(forKabir?.id ?? "")).map((l) => [l.studentName, l.description, l.unitPaise, l.discountPaise, l.discountNote, l.amountPaise])).toEqual([
       ["Kabir", "Dance Monthly", 100000n, 10000n, "Sibling 10% — Second child", 90000n],
-      ["Riya", "Karate Monthly", 80000n, 0n, null, 80000n],
     ]);
-    expect(sum(lines.map((l) => l.unitPaise)) - sum(lines.map((l) => l.discountPaise)) + sum(lines.map((l) => l.taxPaise))).toBe(inv?.totalPaise);
+    expect(sum(all.map((i) => i.totalPaise))).toBe(170000n); // what one family invoice used to total
     expect(await actions(given.id)).toEqual(["discount.give"]);
   });
 
@@ -164,18 +166,21 @@ describe("generating invoices", () => {
     expect(await gen(M1, enrollments)).toEqual({ invoices: 0, lines: 0, skipped: [] });
     expect(await runInvoicesGenerate({ now: at(M1), tenantIds: [T] })).toEqual({ tenants: 1, ok: 1, failed: [] });
     const all = await invoicesOf(householdId);
-    expect(all).toHaveLength(1);
-    expect(await linesOn(all[0]?.id ?? "")).toHaveLength(2);
+    expect(all).toHaveLength(2);
+    for (const i of all) expect(await linesOn(i.id)).toHaveLength(1);
   });
 
   it("void and redo: the draft is voided without a number and drafted again", async () => {
     const { householdId, enrollments } = H.siblings ?? { householdId: "", enrollments: [] };
-    const [old] = await invoicesOf(householdId);
+    const old = (await invoicesOf(householdId)).find((i) => i.totalPaise === 90000n);
     await withTenant(T, (tx) => voidInvoice(tx, owner, old?.id ?? "", { reason: "Redo after fee check", rebill: true }, { now: at(M1) }));
-    const [voided, fresh] = await invoicesOf(householdId);
-    expect(voided).toMatchObject({ id: old?.id, status: "void", number: null, voidReason: "Redo after fee check" });
-    expect(fresh).toMatchObject({ status: "draft", totalPaise: 170000n });
-    expect((await linesOn(voided?.id ?? "")).map((l) => l.billingKey)).toEqual([null, null]);
+    const all = await invoicesOf(householdId);
+    const voided = all.find((i) => i.id === old?.id);
+    const fresh = all.find((i) => i.status === "draft" && i.studentId === old?.studentId);
+    expect(all).toHaveLength(3);
+    expect(voided).toMatchObject({ status: "void", number: null, voidReason: "Redo after fee check" });
+    expect(fresh).toMatchObject({ status: "draft", totalPaise: 90000n });
+    expect((await linesOn(voided?.id ?? "")).map((l) => l.billingKey)).toEqual([null]);
     expect(await gen(M1, enrollments)).toEqual({ invoices: 0, lines: 0, skipped: [] });
   });
 
@@ -292,40 +297,46 @@ describe("generating invoices", () => {
 });
 
 describe("leaving and moving", () => {
-  it("leaving voids the family invoice and drafts it again without that child's line", async () => {
+  it("leaving one of a member's two batches voids their invoice and drafts it again without that line; a sibling's invoice is untouched", async () => {
     const f = await family("Zoya", "Zaid");
-    const [zoya, zaid] = [await join(f.ids[0] ?? "", "Karate A", addMonths(M0, -1)), await join(f.ids[1] ?? "", "Karate A", addMonths(M0, -1))];
-    expect(await gen(M0, [zoya, zaid])).toEqual({ invoices: 1, lines: 2, skipped: [] });
-    const [inv] = await withTenant(T, async (tx) => issueInvoices(tx, owner, [(await invoicesOf(f.householdId))[0]?.id ?? ""], { now: at(M0) }));
+    const [zoyaKarate, zoyaDance, zaid] = [await join(f.ids[0] ?? "", "Karate A", addMonths(M0, -1)), await join(f.ids[0] ?? "", "Dance A", addMonths(M0, -1)), await join(f.ids[1] ?? "", "Karate A", addMonths(M0, -1))];
+    expect(await gen(M0, [zoyaKarate, zoyaDance, zaid])).toEqual({ invoices: 2, lines: 3, skipped: [] });
+    const zoyasId = (await invoicesOf(f.householdId)).find((i) => i.studentId === f.ids[0])?.id ?? "";
+    const zaids = (await invoicesOf(f.householdId)).find((i) => i.studentId === f.ids[1]);
+    const [inv] = await withTenant(T, async (tx) => issueInvoices(tx, owner, [zoyasId], { now: at(M0) }));
 
-    await withTenant(T, (tx) => leaveEnrollment(tx, owner, zoya, { date: addDays(M0, -1) }));
-    const [voided, redraft] = await invoicesOf(f.householdId);
-    expect(voided).toMatchObject({ id: inv?.id, status: "void", number: inv?.number });
+    await withTenant(T, (tx) => leaveEnrollment(tx, owner, zoyaKarate, { date: addDays(M0, -1) }));
+    const all = await invoicesOf(f.householdId);
+    const voided = all.find((i) => i.id === inv?.id);
+    const redraft = all.find((i) => i.status === "draft" && i.studentId === f.ids[0]);
+    expect(all).toHaveLength(3);
+    expect(voided).toMatchObject({ status: "void", number: inv?.number });
     expect(voided?.voidReason).toMatch(/^Zoya left Karate A, last day /);
-    expect(redraft).toMatchObject({ status: "draft", totalPaise: 80000n });
-    expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Zaid"]);
+    expect(redraft).toMatchObject({ status: "draft", totalPaise: 100000n });
+    expect((await summary(redraft?.id ?? "")).map((l) => [l[0], l[2]])).toEqual([["Zoya", "Dance Monthly"]]);
+    expect(all.find((i) => i.id === zaids?.id)).toMatchObject({ status: "draft", totalPaise: 80000n });
   });
 
   it("leaving voids a paid invoice all the same: its money becomes the family's advance and pays the redraft when that is issued", async () => {
-    const f = await family("Meera", "Arjun");
-    const [meera, arjun] = [await join(f.ids[0] ?? "", "Karate A", addMonths(M0, -1)), await join(f.ids[1] ?? "", "Karate A", addMonths(M0, -1))];
-    expect(await gen(M0, [meera, arjun])).toEqual({ invoices: 1, lines: 2, skipped: [] });
+    const f = await family("Meera");
+    const [karate, dance] = [await join(f.ids[0] ?? "", "Karate A", addMonths(M0, -1)), await join(f.ids[0] ?? "", "Dance A", addMonths(M0, -1))];
+    expect(await gen(M0, [karate, dance])).toEqual({ invoices: 1, lines: 2, skipped: [] });
     const [inv] = await withTenant(T, async (tx) => issueInvoices(tx, owner, [(await invoicesOf(f.householdId))[0]?.id ?? ""], { now: at(M0) }));
     const branchId = inv?.branchId ?? "";
-    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "160000" }));
-    expect((await invoicesOf(f.householdId))[0]).toMatchObject({ status: "paid", paidPaise: 160000n });
+    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "180000" }));
+    expect((await invoicesOf(f.householdId))[0]).toMatchObject({ status: "paid", paidPaise: 180000n });
     const advance = async () => (await withTenant(T, (tx) => familyAccount(tx, owner, f.householdId, branchId))).advancePaise;
 
-    await withTenant(T, (tx) => leaveEnrollment(tx, owner, meera, { date: addDays(M0, -1) }));
+    await withTenant(T, (tx) => leaveEnrollment(tx, owner, karate, { date: addDays(M0, -1) }));
     const [voided, redraft] = await invoicesOf(f.householdId);
     expect(voided).toMatchObject({ id: inv?.id, status: "void", paidPaise: 0n, number: inv?.number });
-    expect(redraft).toMatchObject({ status: "draft", totalPaise: 80000n });
-    expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Arjun"]);
-    expect(await advance()).toBe(160000n);
+    expect(redraft).toMatchObject({ status: "draft", totalPaise: 100000n });
+    expect((await summary(redraft?.id ?? "")).map((l) => l[0])).toEqual(["Meera"]);
+    expect(await advance()).toBe(180000n);
     expect(await actions(inv?.id ?? "")).toEqual(expect.arrayContaining(["invoice.void", "payment.release"]));
 
     await withTenant(T, (tx) => issueInvoices(tx, owner, [redraft?.id ?? ""]));
-    expect((await invoicesOf(f.householdId))[1]).toMatchObject({ id: redraft?.id, status: "paid", paidPaise: 80000n });
+    expect((await invoicesOf(f.householdId))[1]).toMatchObject({ id: redraft?.id, status: "paid", paidPaise: 100000n });
     expect(await advance()).toBe(80000n);
   });
 
@@ -501,6 +512,44 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     expect(await gen(M1, [ea, ef])).toEqual({ invoices: 2, lines: 2, skipped: [] });
     expect((await invoicesOf(adult.household.id))[0]).toMatchObject({ payerGuardianId: null, payerMemberId: adult.student.id, billToName: "Gym Adult" });
     expect((await invoicesOf(fine.household.id))[0]?.billToName).toBe("Mother Fine");
+  });
+
+  it("a member whose two batches have different payers gets two invoices, one per payer, each with its own lines and bill-to name", async () => {
+    const s = await one("Split Kid", "Mother Split");
+    const aunt = await withTenant(T, (tx) => addFamilyMember(tx, owner, s.student.id, { fullName: "Aunt Split", phone: phoneNo(), relation: "other" }));
+    const [karate, dance] = [await join(s.student.id, "Karate A", M0), await join(s.student.id, "Dance A", M0)];
+    await setPayer(karate, s.guardian.id);
+    await setPayer(dance, aunt.id);
+    // One invoice (lines 2) would mean a payer was silently dropped.
+    expect(await gen(M1, [karate, dance])).toEqual({ invoices: 2, lines: 2, skipped: [] });
+    const all = await invoicesOf(s.household.id);
+    const [byMother, byAunt] = [all.find((i) => i.payerGuardianId === s.guardian.id), all.find((i) => i.payerGuardianId === aunt.id)];
+    expect(all).toHaveLength(2);
+    expect(byMother).toMatchObject({ studentId: s.student.id, billToName: "Mother Split", totalPaise: 80000n });
+    expect(byAunt).toMatchObject({ studentId: s.student.id, billToName: "Aunt Split", totalPaise: 100000n });
+    expect((await linesOn(byMother?.id ?? "")).map((l) => [l.enrollmentId, l.description])).toEqual([[karate, "Karate Monthly"]]);
+    expect((await linesOn(byAunt?.id ?? "")).map((l) => [l.enrollmentId, l.description])).toEqual([[dance, "Dance Monthly"]]);
+    expect(await gen(M1, [karate, dance])).toEqual({ invoices: 0, lines: 0, skipped: [] });
+  });
+
+  it("three siblings with the same payer get an invoice each, never one combined, in one run or across runs", async () => {
+    const a = await one("Sib One", "Mother Sibs");
+    const b = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Two", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, householdId: a.household.id, consents: { dataProcessing: true } }));
+    expect(b.guardian.id).toBe(a.guardian.id);
+    const c = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Sib Three", guardian: { fullName: "Mother Sibs", phone: a.guardian.phone, relation: "mother" }, householdId: a.household.id, consents: { dataProcessing: true } }));
+    const [ea, eb, ec] = [await join(a.student.id, "Karate A", M0), await join(b.student.id, "Karate A", M0), await join(c.student.id, "Karate A", M0)];
+    for (const e of [ea, eb, ec]) await setPayer(e, a.guardian.id);
+    expect(await gen(M1, [ea])).toEqual({ invoices: 1, lines: 1, skipped: [] });
+    // Fails as invoices 1, lines 2 if siblings in one run shared a group, or as lines 1 if a later run appended to the first sibling's draft.
+    expect(await gen(M1, [eb, ec])).toEqual({ invoices: 2, lines: 2, skipped: [] });
+    const all = await invoicesOf(a.household.id);
+    expect(all.map((i) => [i.studentId, i.payerGuardianId, i.billToName, i.totalPaise]).sort()).toEqual(
+      [
+        [a.student.id, a.guardian.id, "Mother Sibs", 80000n],
+        [b.student.id, a.guardian.id, "Mother Sibs", 80000n],
+        [c.student.id, a.guardian.id, "Mother Sibs", 80000n],
+      ].sort(),
+    );
   });
 
   it("an enrollment with both payer columns set is skipped on its own; the others still get a payer", () => {
