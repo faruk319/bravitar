@@ -173,7 +173,7 @@ export async function getInvoice(tx: Tx, branchIds: string[], id: string): Promi
   return inv;
 }
 
-const payerIs = (p: Payer): SQL =>
+export const payerIs = (p: Payer): SQL =>
   p.kind === "guardian" ? sql`${invoices.payerGuardianId} = ${p.guardianId} AND ${invoices.payerMemberId} IS NULL` : sql`${invoices.payerMemberId} = ${p.memberId} AND ${invoices.payerGuardianId} IS NULL`;
 
 // Payers' names today by payerKey, two queries for any number (deleted guardians keep theirs), for stamping on invoices.

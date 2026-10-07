@@ -17,9 +17,11 @@ import { cancelPayment, collectionSheet, recordPayment } from "@/modules/payment
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
+import { guardians } from "@/modules/students/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { createHousehold } from "@/modules/students/repo";
+import { billableFamily } from "@/lib/db/isolation/family";
+import { familyGuardians } from "@/modules/payments/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -47,10 +49,12 @@ const owe = (household: string, rupees: number, late: number, at = branch) =>
   withTenant(T, async (tx) => {
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, householdId: household, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const [payer] = await familyGuardians(tx, household);
+    const [who] = payer ? await tx.select({ name: guardians.fullName }).from(guardians).where(eq(guardians.id, payer)) : [];
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, householdId: household, payerGuardianId: payer ?? null, billToName: who?.name ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
-const family = (name: string) => withTenant(T, (tx) => createHousehold(tx, { tenantId: T, name }));
+const family = (name: string) => withTenant(T, (tx) => billableFamily(tx, owner, name));
 const pay = (householdId: string, rupees: number, method: "cash" | "upi" = "cash", at = branch) =>
   withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: at, amountPaise: String(rupees * 100), method }));
 

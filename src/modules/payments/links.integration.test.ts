@@ -49,12 +49,14 @@ const family = async (tenant = T, ctx = owner) => {
   const r = await withTenant(tenant, (tx) =>
     createStudent(tx, ctx, { fullName: `Kid ${++phone}`, guardian: { fullName: `Parent ${phone}`, phone: `+9198${String(10_000_000 + phone)}`, relation: "mother" }, consents: { dataProcessing: true } }),
   );
+  payerOfFamily.set(r.household.id, r.guardian.id);
   return r.household.id;
 };
+const payerOfFamily = new Map<string, string>();
 const bill = (householdId: string, rupees: number, tenant = T, status: "issued" | "draft" = "issued"): Promise<Invoice> =>
   withTenant(tenant, async (tx) => {
     const total = BigInt(rupees) * 100n;
-    const inv = await insertInvoice(tx, { tenantId: tenant, branchId: tenant === T ? main : mainU, householdId, issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: tenant, branchId: tenant === T ? main : mainU, householdId, payerGuardianId: payerOfFamily.get(householdId) ?? null, issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
     return status === "draft" ? inv : updateInvoice(tx, inv.id, { number: await allocateNumber(tx, tenant, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const link = (invoiceId: string, as: ScopedCtx = desk, tenant = T) => withTenant(tenant, (tx) => paymentLinkFor(tx, as, invoiceId, { api: rzp.api }));

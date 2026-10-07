@@ -2,18 +2,34 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, type SQL, sql } from
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
+import { payerIs } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
+import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardiansOfHouseholdMembers } from "@/modules/students/repo";
-import { guardians, households } from "@/modules/students/schema";
+import { guardians, households, studentGuardians, students } from "@/modules/students/schema";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
-// Every money move for a family takes turns: recording, cancelling, refunding,
-// using the advance and releasing a voided invoice. The two-key form never
-// collides with the single-key invoicing lock, which is always taken first.
-export async function lockFamily(tx: Tx, householdId: string): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('money'), hashtext(${householdId}))`);
+// Every money move for a payer takes turns: recording, cancelling, refunding,
+// using the advance and releasing a voided invoice. A payment only ever pays
+// its own payer's invoices, so two payers touch disjoint rows and may move
+// money at once. The two-key form never collides with the single-key
+// invoicing lock, which is always taken first.
+export async function lockPayer(tx: Tx, payer: Payer): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('money'), hashtext(${payerKey(payer)}))`);
 }
+
+// The payer of an invoice or payment row; one with none is corrupt, so refuse rather than lock the wrong thing.
+export function payerOfRow(row: { payerGuardianId: string | null; payerMemberId: string | null }): Payer {
+  const p = payerOf(row);
+  if (!p) throw new Error("money row has no payer");
+  return p;
+}
+
+export const lockPayerOf = (tx: Tx, row: { payerGuardianId: string | null; payerMemberId: string | null }): Promise<void> => lockPayer(tx, payerOfRow(row));
+
+const paymentPayerIs = (p: Payer): SQL =>
+  p.kind === "guardian" ? sql`${payments.payerGuardianId} = ${p.guardianId} AND ${payments.payerMemberId} IS NULL` : sql`${payments.payerMemberId} = ${p.memberId} AND ${payments.payerGuardianId} IS NULL`;
 
 export async function insertPayment(tx: Tx, row: Omit<typeof payments.$inferInsert, "id">): Promise<Payment> {
   const [p] = await tx.insert(payments).values({ id: uuidv7(), ...row }).returning();
@@ -62,29 +78,42 @@ export async function moveMoney(
     .where(eq(invoices.id, row.invoiceId));
 }
 
-// The family's issued and part-paid invoices in one branch, oldest first: due
-// date, then number (length first, so 10000 sorts after 9999).
-export async function openInvoices(tx: Tx, householdId: string, branchId: string): Promise<Invoice[]> {
-  return tx
+const openIn = (tx: Tx, where: SQL | undefined) =>
+  tx
     .select()
     .from(invoices)
-    .where(and(eq(invoices.householdId, householdId), eq(invoices.branchId, branchId), inArray(invoices.status, ["issued", "part_paid"])))
+    .where(and(where, inArray(invoices.status, ["issued", "part_paid"])))
     .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number), asc(invoices.id));
+
+// The payer's issued and part-paid invoices in one branch, oldest first: due
+// date, then number (length first, so 10000 sorts after 9999).
+export async function openInvoices(tx: Tx, payer: Payer, branchId: string): Promise<Invoice[]> {
+  return openIn(tx, and(payerIs(payer), eq(invoices.branchId, branchId)));
+}
+
+// Every payer's open invoices in a family: for the collect screen, and to find who is paying.
+export async function openInvoicesOfHousehold(tx: Tx, householdId: string, branchId: string): Promise<Invoice[]> {
+  return openIn(tx, and(eq(invoices.householdId, householdId), eq(invoices.branchId, branchId)));
 }
 
 const allocatedTo = sql<string>`(SELECT coalesce(sum(a.amount_paise), 0) FROM app.payment_allocations a WHERE a.payment_id = ${payments.id})`;
 const refundedFrom = sql<string>`(SELECT coalesce(sum(r.amount_paise), 0) FROM app.refunds r WHERE r.payment_id = ${payments.id})`;
 
-// Confirmed payments of the family in a branch with money not yet on an
-// invoice or refunded: the family's advance, oldest payment first.
-export async function unusedPayments(tx: Tx, householdId: string, branchId: string): Promise<{ paymentId: string; unused: Paise }[]> {
+const unusedWhere = async (tx: Tx, where: SQL | undefined): Promise<{ paymentId: string; unused: Paise }[]> => {
   const rows = await tx
     .select({ paymentId: payments.id, unused: sql<string>`(${payments.amountPaise} - ${allocatedTo} - ${refundedFrom})::text` })
     .from(payments)
-    .where(and(eq(payments.householdId, householdId), eq(payments.branchId, branchId), eq(payments.status, "confirmed")))
+    .where(and(where, eq(payments.status, "confirmed")))
     .orderBy(asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id));
   return rows.map((r) => ({ paymentId: r.paymentId, unused: BigInt(r.unused) })).filter((r) => r.unused > 0n);
-}
+};
+
+// Confirmed payments of the payer in a branch with money not yet on an
+// invoice or refunded: the payer's advance, oldest payment first.
+export const unusedPayments = (tx: Tx, payer: Payer, branchId: string) => unusedWhere(tx, and(paymentPayerIs(payer), eq(payments.branchId, branchId)));
+
+// Every payer's unused money in a family, for showing on the family only; nothing is applied from it.
+export const unusedPaymentsOfHousehold = (tx: Tx, householdId: string, branchId: string) => unusedWhere(tx, and(eq(payments.householdId, householdId), eq(payments.branchId, branchId)));
 
 // One payment's money: on invoices, refunded, and what's left unused.
 export async function paymentMoney(tx: Tx, paymentId: string): Promise<{ allocated: Paise; refunded: Paise }> {
@@ -142,10 +171,22 @@ export async function receiptLines(tx: Tx, paymentId: string): Promise<ReceiptLi
     .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number));
 }
 
+// "Received from", frozen when the receipt was made: the name written to the
+// audit row of the payment (append-only), else the invoice it paid, else the
+// payer's name today for receipts that predate it, else the family's.
+const livePayerName = sql`CASE WHEN app.payments.payer_guardian_id IS NOT NULL THEN (SELECT g.full_name FROM app.guardians g WHERE g.id = app.payments.payer_guardian_id)
+  ELSE (SELECT s.full_name FROM app.students s WHERE s.id = app.payments.payer_member_id) END`;
+const receivedFrom = sql<string>`coalesce(
+  (SELECT a.after ->> 'billToName' FROM app.audit_log a WHERE a.entity_type = 'payment' AND a.entity_id = app.payments.id AND a.action = 'payment.create' ORDER BY a.id LIMIT 1),
+  (SELECT i.bill_to_name FROM app.payment_allocations pa JOIN app.invoices i ON i.id = pa.invoice_id WHERE pa.payment_id = app.payments.id AND pa.kind = 'receipt' AND i.bill_to_name IS NOT NULL ORDER BY pa.created_at, pa.id LIMIT 1),
+  ${livePayerName},
+  (SELECT h.name FROM app.households h WHERE h.id = app.payments.household_id),
+  '')`;
+
 export async function receiptNames(tx: Tx, p: Payment): Promise<{ householdName: string; collectorName: string | null }> {
-  const [h] = await tx.select({ name: households.name }).from(households).where(eq(households.id, p.householdId));
+  const [r] = await tx.select({ name: receivedFrom }).from(payments).where(eq(payments.id, p.id));
   const [s] = p.receivedBy ? await tx.select({ name: staffUsers.fullName }).from(staffUsers).where(eq(staffUsers.id, p.receivedBy)) : [];
-  return { householdName: h?.name ?? "", collectorName: s?.name ?? null };
+  return { householdName: r?.name ?? "", collectorName: s?.name ?? null };
 }
 
 // ---- the collection sheet (docs/04 "The daily reconciliation screen")
@@ -169,11 +210,10 @@ const recorded = (tx: Tx, where: SQL | undefined) =>
       cancelReason: payments.cancelReason,
       receivedBy: payments.receivedBy,
       createdAt: payments.createdAt,
-      householdName: households.name,
+      householdName: receivedFrom,
       collectorName: staffUsers.fullName,
     })
     .from(payments)
-    .innerJoin(households, eq(households.id, payments.householdId))
     .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
     .where(where)
     .orderBy(asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id));
@@ -201,11 +241,10 @@ export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<
       reason: refunds.reason,
       refundedAt: refunds.refundedAt,
       receiptNumber: payments.receiptNumber,
-      householdName: households.name,
+      householdName: receivedFrom,
     })
     .from(refunds)
     .innerJoin(payments, eq(payments.id, refunds.paymentId))
-    .innerJoin(households, eq(households.id, payments.householdId))
     .where(and(eq(payments.branchId, branchId), eq(refunds.refundedOn, day)))
     .orderBy(asc(refunds.refundedAt), asc(refunds.id));
 }
@@ -308,4 +347,21 @@ export async function refundByGatewayId(tx: Tx, gatewayRefundId: string): Promis
 export async function linkById(tx: Tx, id: string): Promise<PaymentLink | undefined> {
   const [l] = await tx.select().from(paymentLinks).where(eq(paymentLinks.id, id));
   return l;
+}
+
+// The guardians ever linked to a member of this family, lead first (manager, then earliest).
+// Removed members and links are included on purpose: a payer whose child left still owes and still pays.
+export async function familyGuardians(tx: Tx, householdId: string, opts: { includeRemoved?: boolean } = {}): Promise<string[]> {
+  const rows = await tx
+    .select({ id: guardians.id })
+    .from(studentGuardians)
+    .innerJoin(students, eq(students.id, studentGuardians.studentId))
+    .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
+    .where(and(eq(students.householdId, householdId), isNull(guardians.deletedAt), opts.includeRemoved ? undefined : isNull(studentGuardians.removedAt)))
+    .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt), asc(guardians.id));
+  return [...new Set(rows.map((r) => r.id))];
+}
+
+export async function familyMembers(tx: Tx, householdId: string): Promise<string[]> {
+  return (await tx.select({ id: students.id }).from(students).where(eq(students.householdId, householdId)).orderBy(asc(students.createdAt), asc(students.id))).map((r) => r.id);
 }

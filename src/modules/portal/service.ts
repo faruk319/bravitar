@@ -15,14 +15,15 @@ import { enrollmentsOfStudent } from "@/modules/enrollments/repo";
 import { isCurrentEnrollment } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
 import { getInvoice, listInvoices } from "@/modules/fees/repo";
+import type { Invoice } from "@/modules/fees/schema";
 import { razorpayConnected } from "@/modules/integrations/service";
 import { makeShareLink } from "@/modules/messaging/links";
 import { getPayment } from "@/modules/payments/repo";
 import { type Receipt, receiptOf } from "@/modules/payments/service";
-import { getGuardian, studentsOfGuardian } from "@/modules/students/repo";
+import { getGuardian } from "@/modules/students/repo";
 import { getOwnTenant, updateOwnTenant } from "@/modules/tenancy/repo";
 import { FAMILY_ACCESS, type FamilyAccess } from "./access";
-import { batchBranches, cancelledClasses, type FamilyPayment, familyPayments, linkedChildren, type PortalChild } from "./repo";
+import { batchBranches, billedInvoices, cancelledClasses, type FamilyPayment, familyPayments, isBilledTo, isPaidBy, linkedChildren, type Payers, payersOf, type PortalChild } from "./repo";
 
 // docs/03 §12: a parent, or an adult student as their own guardian, sees the
 // children linked to them and their family's fees, read-only. Anything that
@@ -34,11 +35,11 @@ export type { PortalChild };
 export const childrenOf = (tx: Tx, g: GuardianCtx): Promise<PortalChild[]> => linkedChildren(tx, g.guardianId);
 
 // Re-read on every request: a removed guardian, or one whose login was turned off, opens nothing.
-// Their family's money is what the linked children's households owe and paid.
-async function familyOf(tx: Tx, g: GuardianCtx): Promise<Set<string>> {
+// Their money is what they and their family pay: records where the payer is one of them.
+async function familyOf(tx: Tx, g: GuardianCtx): Promise<Payers> {
   const guardian = await getGuardian(tx, g.guardianId);
   if (!guardian?.canLogin) throw new NotFoundError("Family");
-  return new Set((await studentsOfGuardian(tx, g.guardianId)).map((s) => s.householdId));
+  return payersOf(tx, g.guardianId);
 }
 
 // What this person may see: everything about a child they manage, else what
@@ -114,7 +115,14 @@ export async function childPage(tx: Tx, g: GuardianCtx, studentId: string, opts:
 export async function familyReceipts(tx: Tx, g: GuardianCtx): Promise<FamilyPayment[]> {
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("receipts")) throw new NotFoundError("Receipts");
-  return familyPayments(tx, [...family]);
+  return familyPayments(tx, family);
+}
+
+// The invoices billed to this guardian and their family, with or without linked members: the history stays readable.
+export async function billedToMe(tx: Tx, g: GuardianCtx): Promise<Invoice[]> {
+  const family = await familyOf(tx, g);
+  if (!(await familyAllowed(tx, g)).has("fees")) throw new NotFoundError("Invoices");
+  return billedInvoices(tx, family);
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,7 +131,7 @@ export async function portalReceipt(tx: Tx, g: GuardianCtx, paymentId: string): 
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("receipts")) throw new NotFoundError("Receipt");
   const p = UUID.test(paymentId) ? await getPayment(tx, [], paymentId) : undefined;
-  if (!p || !family.has(p.householdId) || p.status === "cancelled") throw new NotFoundError("Receipt");
+  if (!p || !isPaidBy(family, p) || p.status === "cancelled") throw new NotFoundError("Receipt");
   return receiptOf(tx, p);
 }
 
@@ -133,7 +141,7 @@ export async function payLink(tx: Tx, g: GuardianCtx, invoiceId: string): Promis
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("pay")) throw new NotFoundError("Invoice");
   const inv = UUID.test(invoiceId) ? await getInvoice(tx, [], invoiceId) : undefined;
-  if (!inv || !family.has(inv.householdId) || (inv.status !== "issued" && inv.status !== "part_paid")) throw new NotFoundError("Invoice");
+  if (!inv || !isBilledTo(family, inv) || (inv.status !== "issued" && inv.status !== "part_paid")) throw new NotFoundError("Invoice");
   return `/i/${await makeShareLink(tx, { actorType: "guardian", actorId: g.guardianId, tenantId: g.tenantId }, "invoice", inv.id)}`;
 }
 

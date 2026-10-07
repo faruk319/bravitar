@@ -8,23 +8,29 @@ import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from
 import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
 import type { Actor } from "@/modules/fees/invoicing";
-import { getInvoice } from "@/modules/fees/repo";
+import { getInvoice, payerNames } from "@/modules/fees/repo";
 import type { Invoice } from "@/modules/fees/schema";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
+import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { getHousehold } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
   collectedOn,
+  familyGuardians,
+  familyMembers,
   getPayment,
   insertPayment,
   insertRefund,
-  lockFamily,
+  lockPayer,
+  lockPayerOf,
   lockPayment,
   moveMoney,
   openInvoices,
+  openInvoicesOfHousehold,
+  payerOfRow,
   paidByPayment,
   paymentByGatewayId,
   paymentByRequest,
@@ -42,6 +48,7 @@ import {
   type SheetPayment,
   type SheetRefund,
   unusedPayments,
+  unusedPaymentsOfHousehold,
   updatePayment,
 } from "./repo";
 import { PAYMENT_METHODS, type Payment, type PaymentMethod, type Refund } from "./schema";
@@ -92,6 +99,8 @@ export const paymentSchema = z.object({
   receivedOn: isoDate.optional(),
   notes: z.string().trim().max(300).optional(),
   allocations: z.array(z.object({ invoiceId: z.uuid(), amountPaise: paise })).max(100).optional(),
+  payerGuardianId: z.uuid().optional(), // who is paying; left out, it is the payer of the invoices ticked or the only one with dues
+  payerMemberId: z.uuid().optional(),
 });
 export type PaymentInput = z.input<typeof paymentSchema>;
 
@@ -118,6 +127,38 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, householdId: string,
   return { account, householdName: household?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
 }
 
+// A payment has exactly one payer, and only ever pays that payer's invoices:
+// money never crosses payers. It is the payer asked for, else the payer of the
+// invoices ticked (they must all agree), else the only payer with dues, else
+// the lead guardian of the family's members. Never guessed between several.
+async function payerOfPayment(tx: Tx, data: z.output<typeof paymentSchema>): Promise<Payer> {
+  if (data.payerGuardianId && data.payerMemberId) throw new BadRequestError("Pick one payer");
+  const asked: Payer | undefined = data.payerGuardianId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId ? { kind: "member", memberId: data.payerMemberId } : undefined;
+  const open = await openInvoicesOfHousehold(tx, data.householdId, data.branchId);
+  const ticked = data.allocations ? open.filter((i) => data.allocations?.some((a) => a.invoiceId === i.id)) : open;
+  const payers = new Map(ticked.map((i) => [payerKey(payerOfRow(i)), payerOfRow(i)] as const));
+  if (asked) {
+    if (data.allocations && [...payers.keys()].some((k) => k !== payerKey(asked))) throw new BadRequestError("Those invoices are billed to someone else");
+    if (!(await belongsToFamily(tx, data.householdId, asked))) throw new BadRequestError("That payer isn't in this family");
+    return asked;
+  }
+  if (payers.size > 1) throw new BadRequestError(data.allocations ? "These invoices are billed to different people. Record one payment for each." : "Say who is paying");
+  const [found] = payers.values();
+  if (found) return found;
+  const lead = await familyGuardians(tx, data.householdId);
+  const [guardianId] = lead;
+  if (lead.length === 1 && guardianId) return { kind: "guardian", guardianId };
+  const members = await familyMembers(tx, data.householdId);
+  const [only] = members;
+  if (!lead.length && members.length === 1 && only) return { kind: "member", memberId: only };
+  throw new BadRequestError("Say who is paying");
+}
+
+async function belongsToFamily(tx: Tx, householdId: string, payer: Payer): Promise<boolean> {
+  if (payer.kind === "member") return (await familyMembers(tx, householdId)).includes(payer.memberId);
+  return (await familyGuardians(tx, householdId, { includeRemoved: true })).includes(payer.guardianId);
+}
+
 // Oldest invoice first unless invoices are picked; what is left is the family's
 // advance in this branch. The receipt number is taken in this transaction, so a
 // failure gives it back.
@@ -130,14 +171,16 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const receivedOn = data.receivedOn ?? today;
   checkReceivedOn(receivedOn, today, fyStartMonth);
 
-  await lockFamily(tx, data.householdId);
+  // An issued invoice's payer never changes, so it is safe to read before the lock.
+  const payer = await payerOfPayment(tx, data);
+  await lockPayer(tx, payer);
   // Checked under the lock, so a double tap waits for the first and returns it.
   const again = await paymentByRequest(tx, data.requestId);
   if (again) {
     if (again.householdId !== data.householdId || again.branchId !== data.branchId || again.amountPaise !== data.amountPaise) throw new ConflictError("This form was already used for a different payment");
     return again;
   }
-  const open = (await openInvoices(tx, data.householdId, data.branchId)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
+  const open = (await openInvoices(tx, payer, data.branchId)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
   const split = data.allocations ? picked(data.amountPaise, open, data.allocations) : oldestFirst(data.amountPaise, open);
   const fy = financialYear(today, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);
@@ -145,6 +188,8 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
     tenantId: ctx.tenantId,
     branchId: data.branchId,
     householdId: data.householdId,
+    payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
+    payerMemberId: payer.kind === "member" ? payer.memberId : null,
     requestId: data.requestId,
     receiptNumber,
     fy,
@@ -173,6 +218,9 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
       recordedOn: today,
       branchId: payment.branchId,
       householdId: payment.householdId,
+      payerGuardianId: payment.payerGuardianId,
+      payerMemberId: payment.payerMemberId,
+      billToName: (await payerNames(tx, [payer])).get(payerKey(payer)) ?? null,
       invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })),
       advancePaise: text(split.advance),
     },
@@ -192,7 +240,7 @@ export async function cancelPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
   const data = cancelSchema.parse(input);
   const found = await requirePayment(tx, ctx, id);
   if (found.receivedBy !== ctx.staffId && !allows(ctx, "fees:refund")) throw new ForbiddenError("Only the person who recorded it, or someone who can refund, can cancel it");
-  await lockFamily(tx, found.householdId);
+  await lockPayerOf(tx, found);
   const p = await lockPayment(tx, id);
   if (p.status === "cancelled") throw new ConflictError("Already cancelled");
   if (p.method === "online") throw new ConflictError(ONLINE_REFUND);
@@ -231,7 +279,7 @@ export async function refundPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
   assertCan(ctx, "fees:refund");
   const data = refundSchema.parse(input);
   const found = await requirePayment(tx, ctx, id);
-  await lockFamily(tx, found.householdId);
+  await lockPayerOf(tx, found);
   const p = await lockPayment(tx, id);
   if (p.status === "cancelled") throw new ConflictError("A cancelled payment can't be refunded");
   if (p.method === "online") throw new ConflictError(ONLINE_REFUND);
@@ -272,11 +320,12 @@ export async function refundPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
 
 // ---- the advance, and money released by a void (called by fees)
 
-// The family's unused money in a branch pays its open invoices, oldest money
-// to the oldest invoice. Runs when invoices are issued (docs/03 §9).
-export async function applyAdvance(tx: Tx, by: Actor, householdId: string, branchId: string): Promise<Paise> {
-  await lockFamily(tx, householdId);
-  const [unused, open] = await Promise.all([unusedPayments(tx, householdId, branchId), openInvoices(tx, householdId, branchId)]);
+// The payer's unused money in a branch pays that payer's open invoices, oldest
+// money to the oldest invoice, never another payer's. Runs when invoices are
+// issued (docs/03 §9).
+export async function applyAdvance(tx: Tx, by: Actor, payer: Payer, branchId: string): Promise<Paise> {
+  await lockPayer(tx, payer);
+  const [unused, open] = await Promise.all([unusedPayments(tx, payer, branchId), openInvoices(tx, payer, branchId)]);
   const balances = open.map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
   let applied = 0n;
   for (const u of unused) {
@@ -293,8 +342,8 @@ export async function applyAdvance(tx: Tx, by: Actor, householdId: string, branc
 
 // Voiding an invoice with money on it: each payment's money comes off as a
 // 'void' row and is the family's advance again (docs/03 §6). Nothing is deleted.
-export async function releaseInvoice(tx: Tx, by: Actor, invoice: Pick<Invoice, "id" | "householdId">): Promise<Paise> {
-  await lockFamily(tx, invoice.householdId);
+export async function releaseInvoice(tx: Tx, by: Actor, invoice: Pick<Invoice, "id" | "payerGuardianId" | "payerMemberId">): Promise<Paise> {
+  await lockPayerOf(tx, invoice);
   let released = 0n;
   for (const p of await paymentsOnInvoice(tx, invoice.id)) {
     await moveMoney(tx, { tenantId: by.tenantId, paymentId: p.paymentId, invoiceId: invoice.id, kind: "void", amountPaise: -p.net, createdBy: by.actorId ?? null });
@@ -315,7 +364,7 @@ export async function familyAccount(tx: Tx, ctx: ScopedCtx, householdId: string,
   if (!allows(ctx, "fees:collect") && !allows(ctx, "invoices:read")) throw new ForbiddenError("Not allowed: fees");
   await requireBranch(tx, ctx, branchId);
   if (!(await getHousehold(tx, householdId))) throw new NotFoundError("Family");
-  const [open, unused] = await Promise.all([openInvoices(tx, householdId, branchId), unusedPayments(tx, householdId, branchId)]);
+  const [open, unused] = await Promise.all([openInvoicesOfHousehold(tx, householdId, branchId), unusedPaymentsOfHousehold(tx, householdId, branchId)]);
   return {
     open: open.map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, totalPaise: i.totalPaise, paidPaise: i.paidPaise, status: i.status, balancePaise: i.totalPaise - i.paidPaise })),
     advancePaise: sum(unused.map((u) => u.unused)),
@@ -436,6 +485,11 @@ export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string)
 
 const system = (tenantId: string) => ({ actorType: "system" as const, tenantId });
 
+async function gatewayPayerName(tx: Tx, inv: Invoice): Promise<string | null> {
+  const payer = payerOf(inv);
+  return payer ? ((await payerNames(tx, [payer])).get(payerKey(payer)) ?? null) : null;
+}
+
 // A paid link, recorded once per Razorpay payment id whichever event brings it:
 // method Online, no collector, the next receipt number, received on the day
 // Razorpay captured it, counted on the day recorded. It pays the invoice up to
@@ -447,7 +501,7 @@ export async function recordGatewayPayment(
 ): Promise<{ payment: Payment; created: boolean }> {
   const found = await getInvoice(tx, [], input.invoiceId);
   if (!found) throw new NotFoundError("Invoice");
-  await lockFamily(tx, found.householdId);
+  await lockPayerOf(tx, found);
   const again = await paymentByGatewayId(tx, input.gatewayPaymentId);
   if (again) return { payment: again, created: false };
   if (input.amountPaise <= 0n) throw new BadRequestError("A payment needs an amount");
@@ -463,6 +517,8 @@ export async function recordGatewayPayment(
     tenantId: inv.tenantId,
     branchId: inv.branchId,
     householdId: inv.householdId,
+    payerGuardianId: inv.payerGuardianId,
+    payerMemberId: inv.payerMemberId,
     receiptNumber,
     fy,
     method: "online",
@@ -479,7 +535,7 @@ export async function recordGatewayPayment(
     action: "payment.create",
     entityType: "payment",
     entityId: payment.id,
-    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
+    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", billToName: inv.billToName ?? (await gatewayPayerName(tx, inv)), gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
   });
   await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
   return { payment, created: true };
@@ -495,7 +551,7 @@ export async function recordGatewayRefund(
 ): Promise<{ refund?: Refund; problem?: string }> {
   const found = await paymentByGatewayId(tx, input.gatewayPaymentId);
   if (!found) return { problem: "not a payment recorded here" };
-  await lockFamily(tx, found.householdId);
+  await lockPayerOf(tx, found);
   const again = await refundByGatewayId(tx, input.gatewayRefundId);
   if (again) return { refund: again };
   const p = await lockPayment(tx, found.id);

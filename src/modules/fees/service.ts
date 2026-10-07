@@ -306,9 +306,9 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
     await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise), billToName } });
     issued.push(inv);
   }
-  // A family's advance pays what was just issued, oldest first (docs/03 §9).
-  const families = new Map(issued.map((i) => [`${i.householdId}|${i.branchId}`, i] as const));
-  for (const i of families.values()) await applyAdvance(tx, actor(ctx), i.householdId, i.branchId);
+  // A payer's advance pays what was just issued to that payer, oldest first (docs/03 §9).
+  const payers = new Map(issued.flatMap((i) => payerIfValid(i).map((p) => [`${payerKey(p)}|${i.branchId}`, { payer: p, branchId: i.branchId }] as const)));
+  for (const x of payers.values()) await applyAdvance(tx, actor(ctx), x.payer, x.branchId);
   return issued;
 }
 

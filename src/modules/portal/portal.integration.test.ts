@@ -24,8 +24,8 @@ import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice } from "@/modules/messaging/public";
-import { addFamilyMember } from "@/modules/students/family";
-import { childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt, saveFamilyAccess } from "./service";
+import { addFamilyMember, removeFamilyMember } from "@/modules/students/family";
+import { billedToMe, childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt, saveFamilyAccess } from "./service";
 
 // docs/06 Prompt 20, written before the feature: a parent sees their own
 // children and nothing else. Another family's id is a 404, like a missing one.
@@ -85,7 +85,7 @@ beforeAll(async () => {
   receipt.a = (await pay(aarav.household.id, 500)).id;
   receipt.b = (await pay(zoya.household.id, 300)).id;
   await withTenant(T, async (tx) => {
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: aarav.student.branchId, householdId: aarav.household.id, issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 80_000n, totalPaise: 80_000n });
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: aarav.student.branchId, householdId: aarav.household.id, payerGuardianId: aarav.guardian.id, billToName: "Rekha Deshmukh", issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 80_000n, totalPaise: 80_000n });
     await insertLines(tx, [{ tenantId: T, invoiceId: inv.id, studentId: kid.aarav ?? "", kind: "tuition", description: "Karate, this month", unitPaise: 80_000n, amountPaise: 80_000n }]);
     await updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
@@ -153,6 +153,34 @@ describe("the portal", () => {
     expect((await sharedInvoice(token, `portal-${stamp}`))?.invoice.id).toBe(due?.id);
     expect(await sharedInvoice(token, `other-${stamp}`)).toBeUndefined();
     await expect(withTenant(T, (tx) => payLink(tx, b, due?.id ?? ""))).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("a payer with no members left (spec: invoice history stays readable)", () => {
+  it("sees the invoices and receipts where they are the payer, and no one else does", async () => {
+    const imran = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Imran Khan", guardian: { fullName: "Farhat Khan", phone: "98733 10010", relation: "mother" }, consents: { dataProcessing: true } }));
+    const uncle = await withTenant(T, (tx) => addFamilyMember(tx, owner, imran.student.id, { fullName: "Aslam Khan", phone: "98733 10011", relation: "other" }));
+    const u: GuardianCtx = { tenantId: T, guardianId: uncle.id };
+    const inv = await withTenant(T, async (tx) => {
+      const made = await insertInvoice(tx, { tenantId: T, branchId: imran.student.branchId, householdId: imran.household.id, payerGuardianId: uncle.id, billToName: "Aslam Khan", studentId: imran.student.id, issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 60_000n, totalPaise: 60_000n });
+      return updateInvoice(tx, made.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
+    });
+    const paid = await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: imran.household.id, branchId: imran.student.branchId, amountPaise: "20000", method: "cash", allocations: [{ invoiceId: inv.id, amountPaise: "20000" }] }));
+    expect(paid.payerGuardianId).toBe(uncle.id);
+
+    await withTenant(T, (tx) => removeFamilyMember(tx, owner, imran.student.id, uncle.id));
+    expect(await withTenant(T, (tx) => childrenOf(tx, u))).toEqual([]);
+    expect((await withTenant(T, (tx) => billedToMe(tx, u))).map((i) => [i.id, i.totalPaise])).toEqual([[inv.id, 60_000n]]);
+    expect((await withTenant(T, (tx) => familyReceipts(tx, u))).map((r) => r.id)).toEqual([paid.id]);
+    expect((await withTenant(T, (tx) => portalReceipt(tx, u, paid.id))).payment.amountPaise).toBe(20_000n);
+    expect(await withTenant(T, (tx) => payLink(tx, u, inv.id))).toMatch(/^\/i\//);
+
+    // The mother, still linked, is a different payer: she sees neither his invoice nor his receipt.
+    const farhat: GuardianCtx = { tenantId: T, guardianId: imran.guardian.id };
+    expect(await withTenant(T, (tx) => billedToMe(tx, farhat))).toEqual([]);
+    expect(await withTenant(T, (tx) => familyReceipts(tx, farhat))).toEqual([]);
+    await expect(withTenant(T, (tx) => portalReceipt(tx, farhat, paid.id))).rejects.toMatchObject({ status: 404 });
+    await expect(withTenant(T, (tx) => payLink(tx, farhat, inv.id))).rejects.toMatchObject({ status: 404 });
   });
 });
 

@@ -16,6 +16,9 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createHousehold } from "@/modules/students/repo";
+import { addFamilyMember } from "@/modules/students/family";
+import { guardians } from "@/modules/students/schema";
+import { createStudent } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { collectedByMonth, insertPayment } from "./repo";
@@ -218,16 +221,25 @@ describe("payments", () => {
     const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
     return { ...base, branchIds };
   };
-  const family = async () => (await withTenant(T, (tx) => createHousehold(tx, { tenantId: T, name: `Family ${++families}` }))).id;
+  // A family: one child and their mother, who is the payer of everything billed to it.
+  const payerOfFamily = new Map<string, string>();
+  const childOfFamily = new Map<string, string>();
+  const family = async () => {
+    const n = ++families;
+    const c = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: `Child ${n}`, guardian: { fullName: `Mother ${n}`, phone: `98765 ${40_000 + n}`, relation: "mother" }, consents: { dataProcessing: true } }));
+    payerOfFamily.set(c.household.id, c.guardian.id);
+    childOfFamily.set(c.household.id, c.student.id);
+    return c.household.id;
+  };
   // An issued invoice with a real number from the series.
-  const bill = (householdId: string, amount: number, dueDate = "2026-09-10", branchId = main): Promise<Invoice> =>
+  const bill = (householdId: string, amount: number, dueDate = "2026-09-10", branchId = main, who: { payerGuardianId: string | null; payerMemberId?: string } = { payerGuardianId: payerOfFamily.get(householdId) ?? null }): Promise<Invoice> =>
     withTenant(T, async (tx) => {
       const total = rupees(amount);
-      const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId, issueDate: "2026-09-01", dueDate, subtotalPaise: total, totalPaise: total });
+      const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId, ...who, billToName: "Mother", issueDate: "2026-09-01", dueDate, subtotalPaise: total, totalPaise: total });
       return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", FY), fy: FY, status: "issued", issuedAt: NOW });
     });
-  const draftBill = (householdId: string, amount: number, dueDate: string): Promise<Invoice> =>
-    withTenant(T, (tx) => insertInvoice(tx, { tenantId: T, branchId: main, householdId, issueDate: "2026-09-01", dueDate, subtotalPaise: rupees(amount), totalPaise: rupees(amount) }));
+  const draftBill = (householdId: string, amount: number, dueDate: string, payerGuardianId = payerOfFamily.get(householdId) ?? null): Promise<Invoice> =>
+    withTenant(T, (tx) => insertInvoice(tx, { tenantId: T, branchId: main, householdId, payerGuardianId, issueDate: "2026-09-01", dueDate, subtotalPaise: rupees(amount), totalPaise: rupees(amount) }));
   const pay = (householdId: string, amount: number, extra: Partial<PaymentInput> = {}, as: ScopedCtx = desk, now = NOW): Promise<Payment> =>
     withTenant(T, (tx) => recordPayment(tx, as, { requestId: uuidv7(), householdId, branchId: main, amountPaise: String(rupees(amount)), ...extra }, { now }));
   const refund = (paymentId: string, amount: number, extra: { reason?: string; invoiceId?: string } = {}, as: ScopedCtx = owner) =>
@@ -258,9 +270,10 @@ describe("payments", () => {
         SELECT 'allocation ' || a.payment_id || ' on ' || a.invoice_id || ': below zero' FROM app.payment_allocations a
          GROUP BY a.payment_id, a.invoice_id HAVING sum(a.amount_paise) < 0
         UNION ALL
-        SELECT 'allocation ' || a.id || ': another family or branch' FROM app.payment_allocations a
+        SELECT 'allocation ' || a.id || ': another family, payer or branch' FROM app.payment_allocations a
           JOIN app.payments p ON p.id = a.payment_id JOIN app.invoices i ON i.id = a.invoice_id
          WHERE p.household_id <> i.household_id OR p.branch_id <> i.branch_id
+            OR p.payer_guardian_id IS DISTINCT FROM i.payer_guardian_id OR p.payer_member_id IS DISTINCT FROM i.payer_member_id
       `),
     );
     expect(problems.map((p) => p.problem)).toEqual([]);
@@ -466,6 +479,139 @@ describe("payments", () => {
       const r = await receiptOf(p.id);
       expect(r.lines.map((l) => [l.number, l.amountPaise])).toEqual([[inv.number, rupees(1500)]]);
       expect([r.advancePaise, r.collectorName, r.payment.method, r.payment.reference]).toEqual([rupees(500), "Priya", "upi", "UPI 4471"]);
+    });
+  });
+
+  describe("the payer (money never crosses payers)", () => {
+    // One child, two payers: the mother, and a father who is added as a guardian.
+    const twoPayers = async () => {
+      const h = await family();
+      const dad = await withTenant(T, (tx) => addFamilyMember(tx, owner, childOfFamily.get(h) ?? "", { fullName: `Father ${h.slice(-4)}`, phone: `98766 ${String(40_000 + ++families)}`, relation: "father" }));
+      return { h, mum: payerOfFamily.get(h) ?? "", dad: dad.id };
+    };
+    const paymentRows = () => withTenant(T, (tx) => tx.select().from(payments));
+    const issue = (ids: string[]) => withTenant(T, (tx) => issueInvoices(tx, owner, ids, { now: NOW }));
+
+    it("a payer's advance pays their own member's invoice and not the other payer's in the same family", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const advance = await pay(h, 3000, { payerGuardianId: mum });
+      const [mums, dads] = [await draftBill(h, 1500, "2026-09-10", mum), await draftBill(h, 1500, "2026-09-10", dad)];
+      await issue([dads.id, mums.id]);
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["paid", rupees(1500)],
+        ["issued", 0n],
+      ]);
+      const onDads = await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.invoiceId, dads.id)));
+      expect(onDads).toEqual([]);
+      expect(advance.payerGuardianId).toBe(mum);
+      expect((await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, advance.id)))).map((a) => [a.invoiceId, a.kind, a.amountPaise])).toEqual([[mums.id, "advance", rupees(1500)]]);
+    });
+
+    it("the other payer's advance pays only the other payer's invoice", async () => {
+      const { h, mum, dad } = await twoPayers();
+      await pay(h, 1000, { payerGuardianId: dad });
+      const [mums, dads] = [await draftBill(h, 1500, "2026-09-10", mum), await draftBill(h, 1500, "2026-09-10", dad)];
+      await issue([mums.id, dads.id]);
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["issued", 0n],
+        ["part_paid", rupees(1000)],
+      ]);
+    });
+
+    it("stamps the payer of the invoices ticked, and writes it, with the frozen name, to the audit row", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const [mums, dads] = [await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum }), await bill(h, 1000, "2026-09-11", main, { payerGuardianId: dad })];
+      const p = await pay(h, 1000, { allocations: [{ invoiceId: dads.id, amountPaise: String(rupees(1000)) }] });
+      expect([p.payerGuardianId, p.payerMemberId]).toEqual([dad, null]);
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["issued", 0n],
+        ["paid", rupees(1000)],
+      ]);
+      const [a] = await withTenant(T, (tx) => tx.select().from(auditLog).where(eq(auditLog.entityId, p.id)));
+      expect(a?.after).toMatchObject({ payerGuardianId: dad, billToName: expect.stringMatching(/^Father /) });
+    });
+
+    it("one payment never settles invoices of two payers: refused whole, nothing written", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const [mums, dads] = [await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum }), await bill(h, 1000, "2026-09-11", main, { payerGuardianId: dad })];
+      const before = (await paymentRows()).length;
+      await expect(pay(h, 2000, { allocations: [{ invoiceId: mums.id, amountPaise: String(rupees(1000)) }, { invoiceId: dads.id, amountPaise: String(rupees(1000)) }] })).rejects.toMatchObject({ status: 400 });
+      expect((await paymentRows()).length).toBe(before);
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["issued", 0n],
+        ["issued", 0n],
+      ]);
+      await pay(h, 1000, { payerGuardianId: mum });
+      expect(await state(mums.id)).toEqual(["paid", rupees(1000)]);
+      expect(await state(dads.id)).toEqual(["issued", 0n]);
+    });
+
+    it("with several payers owing and nobody named, it asks who; naming one pays only theirs, oldest first", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const [mums, dads] = [await bill(h, 1000, "2026-09-20", main, { payerGuardianId: mum }), await bill(h, 1000, "2026-09-05", main, { payerGuardianId: dad })];
+      await expect(pay(h, 1000)).rejects.toMatchObject({ status: 400 });
+      await pay(h, 1000, { payerGuardianId: mum });
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["paid", rupees(1000)],
+        ["issued", 0n],
+      ]);
+    });
+
+    it("a named payer must be in the family, and must be the payer of the invoices ticked", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const mums = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
+      await expect(pay(h, 1000, { payerGuardianId: dad, allocations: [{ invoiceId: mums.id, amountPaise: String(rupees(1000)) }] })).rejects.toMatchObject({ status: 400 });
+      const other = await family();
+      await expect(pay(h, 1000, { payerGuardianId: payerOfFamily.get(other) ?? "" })).rejects.toMatchObject({ status: 400 });
+      expect(await state(mums.id)).toEqual(["issued", 0n]);
+    });
+
+    it("a member who pays for themselves is the payer of a payment too", async () => {
+      const h = await family();
+      const self = childOfFamily.get(h) ?? "";
+      const inv = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: null, payerMemberId: self });
+      const p = await pay(h, 1000);
+      expect([p.payerGuardianId, p.payerMemberId]).toEqual([null, self]);
+      expect(await state(inv.id)).toEqual(["paid", rupees(1000)]);
+    });
+
+    it("two payers of one family record at the same moment: each pays only their own invoice", async () => {
+      const { h, mum, dad } = await twoPayers();
+      const [mums, dads] = [await bill(h, 1500, "2026-09-10", main, { payerGuardianId: mum }), await bill(h, 1500, "2026-09-10", main, { payerGuardianId: dad })];
+      await Promise.all([pay(h, 2000, { payerGuardianId: mum }), pay(h, 700, { payerGuardianId: dad })]);
+      expect([await state(mums.id), await state(dads.id)]).toEqual([
+        ["paid", rupees(1500)],
+        ["part_paid", rupees(700)],
+      ]);
+      expect(await advanceOf(h)).toBe(rupees(500));
+    });
+
+    it("a receipt keeps the name it was made with after the payer is renamed, on the receipt and on the day's sheet", async () => {
+      const { h, mum } = await twoPayers();
+      await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
+      const p = await pay(h, 1000);
+      const named = (await receiptOf(p.id)).householdName;
+      expect(named).toMatch(/^Mother /);
+      await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Renamed Person" }).where(eq(guardians.id, mum)));
+      expect((await receiptOf(p.id)).householdName).toBe(named);
+      const sheet = await withTenant(T, (tx) => collectionSheet(tx, owner, { branchId: main }, { now: NOW }));
+      expect(sheet.payments.find((x) => x.id === p.id)?.householdName).toBe(named);
+    });
+
+    it("a receipt from before names were stored takes the name of the invoice it paid, else the payer's name today", async () => {
+      const { h, mum } = await twoPayers();
+      const inv = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
+      const legacy = (extra: Partial<typeof payments.$inferInsert> = {}) =>
+        withTenant(T, async (tx) =>
+          insertPayment(tx, { tenantId: T, branchId: main, householdId: h, payerGuardianId: mum, receiptNumber: await allocateNumber(tx, T, "receipt", FY), fy: FY, method: "cash", amountPaise: rupees(1000), receivedOn: "2026-09-24", recordedOn: "2026-09-24", receivedBy: owner.staffId, ...extra }),
+        );
+      const onInvoice = await legacy();
+      await withTenant(T, (tx) => tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId: T, paymentId: onInvoice.id, invoiceId: inv.id, kind: "receipt", amountPaise: rupees(1000) }));
+      await withTenant(T, (tx) => tx.update(invoices).set({ paidPaise: rupees(1000), status: "paid" }).where(eq(invoices.id, inv.id)));
+      expect((await receiptOf(onInvoice.id)).householdName).toBe("Mother");
+      const advanceOnly = await legacy();
+      await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Mother Today" }).where(eq(guardians.id, mum)));
+      expect((await receiptOf(advanceOnly.id)).householdName).toBe("Mother Today");
     });
   });
 

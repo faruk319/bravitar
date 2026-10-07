@@ -15,7 +15,7 @@ import { paymentLinks, payments, refunds } from "@/modules/payments/schema";
 import { cancelPayment, collectionSheet, familyAccount, recordPayment, refundPayment } from "@/modules/payments/service";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
-import { createHousehold } from "@/modules/students/repo";
+import { billableFamily } from "@/lib/db/isolation/family";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { fakeRazorpay } from "./fake-razorpay";
 import { razorpayWebhookRoute } from "./routes";
@@ -47,9 +47,9 @@ const setUp = async (x: Academy) => {
 };
 const bill = (x: Academy, rupees: number): Promise<Invoice> =>
   withTenant(x.id, async (tx) => {
-    const h = await createHousehold(tx, { tenantId: x.id, name: `Family ${++evt}` });
+    const h = await billableFamily(tx, x.owner, `Family ${++evt}`);
     const total = BigInt(rupees) * 100n;
-    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, householdId: h.id, issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, householdId: h.id, payerGuardianId: h.guardianId, billToName: "Family", issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, x.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: NOW });
   });
 const linkFor = async (x: Academy, inv: Invoice) => {

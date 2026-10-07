@@ -24,7 +24,8 @@ import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { students } from "@/modules/students/schema";
-import { createHousehold } from "@/modules/students/repo";
+import { billableFamily } from "@/lib/db/isolation/family";
+import { familyGuardians } from "@/modules/payments/repo";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -54,7 +55,8 @@ const owe = (householdId: string, rupees: number, late: number) =>
   withTenant(T, async (tx) => {
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const [payer] = await familyGuardians(tx, householdId);
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: string) =>
@@ -84,14 +86,14 @@ beforeAll(async () => {
   await withTenant(T, async (tx) => saveAttendance(tx, owner, await classOn(early.id, today), { marks }, { now: noon }));
 
   // Money: two receipts today, one three days ago; Kiran's family two invoices overdue, another not yet due.
-  const sharma = await withTenant(T, (tx) => createHousehold(tx, { tenantId: T, name: "Sharma family" }));
+  const sharma = await withTenant(T, (tx) => billableFamily(tx, owner, "Sharma"));
   await pay(sharma.id, 200, "cash", addDays(today, -3));
   await pay(sharma.id, 500, "cash");
   await pay(sharma.id, 300, "upi");
   const kiran = await child("Kiran");
   await owe(kiran.household.id, 400, 10);
   await owe(kiran.household.id, 600, 40);
-  await owe((await withTenant(T, (tx) => createHousehold(tx, { tenantId: T, name: "Mehta family" }))).id, 1000, -5);
+  await owe((await withTenant(T, (tx) => billableFamily(tx, owner, "Mehta"))).id, 1000, -5);
 
   // Pipeline: one due today, one with a trial tomorrow, one lost.
   const enquiry = (ctx: ScopedCtx, name: string, extra: object = {}) => withTenant(T, (tx) => createEnquiry(tx, ctx, { name, phone: `98766${10_000 + ++n}`, programId: program, ...extra }));
@@ -202,7 +204,8 @@ describe("the dashboard", () => {
       })();
       const day = await withTenant(t.tenant.id, tenantToday);
       const start = `${day.slice(0, 7)}-01`;
-      const house = (await withTenant(t.tenant.id, (tx) => createHousehold(tx, { tenantId: t.tenant.id, name: "Rao family" }))).id;
+      const rao = await withTenant(t.tenant.id, (tx) => billableFamily(tx, ctx, "Rao"));
+      const house = rao.id;
       const receive = (rupees: number, on: string) =>
         withTenant(t.tenant.id, (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), householdId: house, branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
       const inMonth = (back: number) => `${addMonths(start, -back).slice(0, 7)}-10`;
@@ -214,7 +217,7 @@ describe("the dashboard", () => {
       const bill = (rupees: number, due: string) =>
         withTenant(t.tenant.id, async (tx) => {
           const total = BigInt(rupees) * 100n;
-          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, payerGuardianId: rao.guardianId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
           return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, t.tenant.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
         });
       await bill(250, addDays(day, -2));

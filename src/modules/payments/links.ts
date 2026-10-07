@@ -12,7 +12,7 @@ import type { Actor } from "@/modules/fees/invoicing";
 import { httpRazorpay, type RazorpayApi } from "@/modules/integrations/razorpay";
 import { razorpayKeys, razorpayMessage } from "@/modules/integrations/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
-import { closeLink, familyContact, insertLink, liveLink, lockFamily } from "./repo";
+import { closeLink, familyContact, insertLink, liveLink, lockPayerOf } from "./repo";
 import type { PaymentLink } from "./schema";
 
 export type LinkShare = { url: string; amountPaise: Paise; invoiceNumber: string; phone: string | null; message: string; reused: boolean };
@@ -42,7 +42,7 @@ export async function linkForInvoice(tx: Tx, actor: Actor, found: Invoice, opts:
   const keys = await razorpayKeys(tx);
   if (!keys) throw new ConflictError("Connect Razorpay in Settings first");
   // The balance can't move while the link is made.
-  await lockFamily(tx, found.householdId);
+  await lockPayerOf(tx, found);
   const inv = (await getInvoice(tx, [], found.id)) ?? found;
   if (inv.status !== "issued" && inv.status !== "part_paid") throw new ConflictError("Only an unpaid invoice can have a payment link");
   const balance = inv.totalPaise - inv.paidPaise;
