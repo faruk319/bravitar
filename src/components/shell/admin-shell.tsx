@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { isActive, isParent, type NavEntry, type NavGroup, type NavItem, type NavParent } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { CrumbLeafProvider } from "./crumb-leaf";
+import { Footer } from "./footer";
 import { Header } from "./header";
 import { NavIcon, NavLink, useNavLabel } from "./nav-link";
 import { useSession, useTenantName } from "./tenant-provider";
@@ -232,6 +233,7 @@ export function AdminShell({ groups, children }: { groups: NavGroup[]; children:
             <OfflineBanner />
           </div>
           <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 print:p-0">{children}</main>
+          <Footer />
         </div>
       </div>
     </CrumbLeafProvider>
