@@ -92,7 +92,7 @@ export default async function DashboardPage() {
             ) : null}
             {money?.byMonth ? (
               <Card>
-                <CardHeader title="Revenue" />
+                <CardHeader title="Collection" />
                 <RevenueOverview months={money.byMonth} />
               </Card>
             ) : null}
