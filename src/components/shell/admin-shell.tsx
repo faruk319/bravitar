@@ -72,8 +72,9 @@ function Disclosure({ parent, compact, onNavigate, others }: { parent: NavParent
   const [open, setOpen] = useState(() => parent.children.some((c) => isActive(pathname, c.href, others)));
   const panelId = useId();
   const links = parent.children.map((c) => <NavLink key={c.href} item={c} compact={compact} onNavigate={onNavigate} others={others} />);
-  // One tree for both rail widths so focus survives a resize. Collapsed hides
-  // the button and shows the children as a flat icon list (no room for a popover).
+  // One tree for both rail widths. Collapsed hides the button and shows the
+  // children flat (no room for a popover). Hiding is CSS-only and never applies
+  // to an element holding focus, so a focus-driven resize cannot drop focus.
   return (
     <div className={cn(compact && "border-y border-neutral-100 py-1")}>
       <button
@@ -81,13 +82,13 @@ function Disclosure({ parent, compact, onNavigate, others }: { parent: NavParent
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(!open)}
-        className={cn("min-h-12 w-full items-center gap-3 rounded-lg px-3 text-body whitespace-nowrap text-neutral-700 outline-none hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring", compact ? "hidden" : "flex")}
+        className={cn("flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-body whitespace-nowrap text-neutral-700 outline-none hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring", compact && "[&:not(:focus)]:hidden")}
       >
         <NavIcon name={parent.icon} />
         <span className="truncate">{label}</span>
         <ChevronDown className={cn("ml-auto size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
       </button>
-      <div id={panelId} className={cn("flex flex-col gap-0.5", !compact && "ml-6 border-l border-neutral-100 pl-2", !compact && !open && "hidden")}>
+      <div id={panelId} className={cn("flex flex-col gap-0.5", !compact && "ml-6 border-l border-neutral-100 pl-2", !compact && !open && "[&:not(:focus-within)]:hidden")}>
         {links}
       </div>
     </div>
@@ -144,7 +145,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
     if (!e.currentTarget.contains(e.relatedTarget)) schedule(false, LEAVE_MS);
   };
 
-    const pinButton = (
+  const pinButton = (
     <Button variant="ghost" size="icon-sm" onClick={() => save(!pinned)} aria-label={pinned ? "Unpin menu" : "Pin menu"} aria-pressed={pinned}>
       {pinned ? <PanelLeftClose /> : <PanelLeftOpen />}
     </Button>
@@ -164,7 +165,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
   );
 
   return (
-    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 md:block print:hidden", pinned ? "w-[248px]" : "w-[72px]")}>
+    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 transition-[width] duration-200 ease-out motion-reduce:transition-none md:block print:hidden", pinned ? "w-[248px]" : "w-[72px]")}>
       <aside
         data-expanded={open}
         onPointerEnter={(e) => {
