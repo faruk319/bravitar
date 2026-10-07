@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { todayIn } from "@/lib/dates";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
+import { getEnv } from "@/lib/env";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -245,6 +249,56 @@ describe("join date", () => {
       expect(r.student.joinedOn).toBe(todayIn(timezone));
     } finally {
       await deleteTenantsCompletely([t.tenant.id]);
+    }
+  });
+});
+
+describe("payer backfill (migration 0039)", () => {
+  it("gives each invoice, payment and enrollment the right payer", async () => {
+    const own = postgres(getEnv().DATABASE_URL_MIGRATOR ?? "", { max: 1, onnotice: () => {} });
+    try {
+      const a = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Imran Sheikh", dateOfBirth: "2014-01-01", guardian: { fullName: "Rafiq Sheikh", phone: P(901), relation: "father" }, consents }));
+      const b = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Zara Sheikh", dateOfBirth: "2016-01-01", householdId: a.household.id, guardian: { fullName: "Sana Sheikh", phone: P(902), relation: "mother" }, consents }));
+      const c = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Omar Pathan", dateOfBirth: "2014-01-01", guardian: { fullName: "Latif Pathan", phone: P(903), relation: "father" }, consents }));
+      const program = await withTenant(T, (tx) => addProgram(tx, ownerCtx, { name: "Backfill" }));
+      const batch = await withTenant(T, (tx) => createBatch(tx, ownerCtx, { name: "Backfill A", programId: program.id, slots: [{ weekday: 2, startTime: "17:00", endTime: "18:00" }] }));
+      const enrollIn = (studentId: string) => withTenant(T, (tx) => enroll(tx, ownerCtx, { studentId, batchId: batch.id }));
+      const ea = await enrollIn(a.student.id);
+      const eb = await enrollIn(b.student.id);
+      const ec = await enrollIn(c.student.id);
+      const today = todayIn("Asia/Kolkata");
+      // Household 1: Rafiq is primary, Sana manages Zara. Household 2: its only guardian is soft-deleted.
+      await own`UPDATE app.guardians SET is_primary = (id = ${a.guardian.id}) WHERE household_id = ${a.household.id}`;
+      // Sana is the older record, so only is_primary can make Rafiq the payer.
+      await own`UPDATE app.guardians SET created_at = created_at - interval '1 day' WHERE id = ${b.guardian.id}`;
+      await own`UPDATE app.student_guardians SET is_manager = true WHERE student_id = ${b.student.id} AND guardian_id = ${b.guardian.id}`;
+      await own`UPDATE app.guardians SET deleted_at = now() WHERE id = ${c.guardian.id}`;
+      const money = async (household: string, n: number) => {
+        const [inv] = await own`INSERT INTO app.invoices (tenant_id, branch_id, household_id, number, fy, issue_date, due_date, subtotal_paise, total_paise, status, issued_at)
+          VALUES (${T}, ${mainBranch}, ${household}, ${`BF/${stamp}/${n}`}, '2026-27', ${today}, ${today}, 10000, 10000, 'issued', now()) RETURNING id`;
+        const [pay] = await own`INSERT INTO app.payments (tenant_id, branch_id, household_id, receipt_number, fy, method, amount_paise, received_on, recorded_on)
+          VALUES (${T}, ${mainBranch}, ${household}, ${`BF-R/${stamp}/${n}`}, '2026-27', 'cash', 5000, ${today}, ${today}) RETURNING id`;
+        return { inv: inv?.id as string, pay: pay?.id as string };
+      };
+      const m1 = await money(a.household.id, 1);
+      const m2 = await money(c.household.id, 2);
+
+      const migration = readFileSync(join(process.cwd(), "migrations/0039_member_guardian_payer.sql"), "utf8");
+      await own.unsafe(migration.slice(migration.indexOf("-- Backfill:"), migration.indexOf("-- A household with no guardian")));
+
+      const payerOf = async (table: "invoices" | "payments" | "enrollments", id: string) =>
+        (await own.unsafe(`SELECT payer_guardian_id, payer_member_id FROM app.${table} WHERE id = $1`, [id]))[0];
+      expect((await payerOf("invoices", m1.inv))).toEqual({ payer_guardian_id: a.guardian.id, payer_member_id: null });
+      expect((await payerOf("payments", m1.pay))).toEqual({ payer_guardian_id: a.guardian.id, payer_member_id: null });
+      expect((await payerOf("invoices", m2.inv))?.payer_guardian_id).toBe(c.guardian.id);
+      expect((await payerOf("payments", m2.pay))?.payer_guardian_id).toBe(c.guardian.id);
+      expect((await payerOf("enrollments", ea.id))?.payer_guardian_id).toBe(a.guardian.id);
+      expect((await payerOf("enrollments", eb.id))?.payer_guardian_id).toBe(b.guardian.id);
+      expect((await payerOf("enrollments", ec.id))?.payer_guardian_id).toBe(c.guardian.id);
+      const names = await own`SELECT id, bill_to_name FROM app.invoices WHERE id IN ${own([m1.inv, m2.inv])}`;
+      expect(Object.fromEntries(names.map((r) => [r.id, r.bill_to_name]))).toEqual({ [m1.inv]: "Rafiq Sheikh", [m2.inv]: "Latif Pathan" });
+    } finally {
+      await own.end({ timeout: 5 });
     }
   });
 });

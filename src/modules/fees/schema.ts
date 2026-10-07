@@ -2,7 +2,7 @@ import { bigint, boolean, date, integer, jsonb, pgSchema, smallint, text, timest
 import { programs } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { households, students } from "@/modules/students/schema";
+import { guardians, households, students } from "@/modules/students/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
 // Mirrors migrations/0014_fees.sql. Money is bigint paise.
@@ -63,6 +63,9 @@ export const invoices = app.table("invoices", {
   branchId: uuid("branch_id").notNull().references(() => branches.id),
   householdId: uuid("household_id").notNull().references(() => households.id),
   studentId: uuid("student_id").references(() => students.id),
+  payerGuardianId: uuid("payer_guardian_id").references(() => guardians.id), // migration 0039
+  payerMemberId: uuid("payer_member_id").references(() => students.id),
+  billToName: text("bill_to_name"),
   number: text("number"),
   fy: text("fy"),
   periodStart: date("period_start"),

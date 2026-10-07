@@ -49,6 +49,8 @@ export const guardians = app.table("guardians", {
   isPrimary: boolean("is_primary").notNull().default(false),
   whatsappOptin: boolean("whatsapp_optin").notNull().default(false), // automated messages only after this
   whatsappOptinAt: timestamp("whatsapp_optin_at", { withTimezone: true }),
+  address: text("address"), // migration 0039
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
@@ -64,6 +66,7 @@ export const students = app.table("students", {
   dateOfBirth: date("date_of_birth"),
   gender: text("gender"),
   phone: text("phone"),
+  address: text("address"), // migration 0039
   photoKey: text("photo_key"),
   status: text("status", { enum: STUDENT_STATUSES }).notNull().default("active"),
   joinedOn: date("joined_on").notNull().defaultNow(),

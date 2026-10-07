@@ -37,6 +37,9 @@ export const tenants = app.table("tenants", {
   absenceSendHour: smallint("absence_send_hour").notNull().default(19),
   messageDailyCap: integer("message_daily_cap").notNull().default(250),
   familyAccess: text("family_access").array().notNull().default(sql`'{attendance,fees,receipts,pay}'`).$type<FamilyAccess[]>(), // migration 0038
+  guardianMode: text("guardian_mode", { enum: ["off", "optional", "required_under_age"] }).notNull().default("optional"), // migration 0039
+  guardianRequiredUnderAge: integer("guardian_required_under_age").notNull().default(18),
+  memberLoginMinAge: integer("member_login_min_age").notNull().default(18),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });

@@ -1,7 +1,7 @@
 import { bigint, date, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { households } from "@/modules/students/schema";
+import { guardians, households, students } from "@/modules/students/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
 // Mirrors migrations/0015_payments.sql. Money is bigint paise. Rows are only
@@ -24,6 +24,8 @@ export const payments = app.table("payments", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   branchId: uuid("branch_id").notNull().references(() => branches.id),
   householdId: uuid("household_id").notNull().references(() => households.id),
+  payerGuardianId: uuid("payer_guardian_id").references(() => guardians.id), // migration 0039
+  payerMemberId: uuid("payer_member_id").references(() => students.id),
   requestId: uuid("request_id"),
   receiptNumber: text("receipt_number").notNull(),
   fy: text("fy").notNull(),

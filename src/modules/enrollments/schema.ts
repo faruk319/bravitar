@@ -1,6 +1,6 @@
 import { type AnyPgColumn, date, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { batches } from "@/modules/batches/schema";
-import { students } from "@/modules/students/schema";
+import { guardians, students } from "@/modules/students/schema";
 import { tenants } from "@/modules/tenancy/schema";
 
 // Mirrors migrations/0010_enrollments.sql.
@@ -17,6 +17,8 @@ export const enrollments = app.table("enrollments", {
   pausedOn: date("paused_on"),
   transferredToEnrollmentId: uuid("transferred_to_enrollment_id").references((): AnyPgColumn => enrollments.id),
   feePlanId: uuid("fee_plan_id"), // FK to fee_plans in 0014
+  payerGuardianId: uuid("payer_guardian_id").references(() => guardians.id), // migration 0039
+  payerMemberId: uuid("payer_member_id").references(() => students.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
