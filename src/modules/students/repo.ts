@@ -75,14 +75,14 @@ export async function linkGuardian(tx: Tx, tenantId: string, studentId: string, 
 export type FamilyMember = Guardian & { relation: Relation; isManager: boolean };
 
 // The people with access to any of these members, once each, a manager first;
-// removed links and deleted guardians aren't (student_guardians is the only link we read).
-export async function guardiansOfMembers(tx: Tx, studentIds: string[]): Promise<FamilyMember[]> {
+// removed links (unless asked for) and deleted guardians aren't (student_guardians is the only link we read).
+export async function guardiansOfMembers(tx: Tx, studentIds: string[], opts: { includeRemoved?: boolean } = {}): Promise<FamilyMember[]> {
   if (!studentIds.length) return [];
   const rows = await tx
     .select({ g: guardians, relation: studentGuardians.relation, isManager: studentGuardians.isManager })
     .from(studentGuardians)
     .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
-    .where(and(inArray(studentGuardians.studentId, studentIds), isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
+    .where(and(inArray(studentGuardians.studentId, studentIds), opts.includeRemoved ? undefined : isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
     .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt), asc(guardians.id));
   const seen = new Set<string>();
   return rows.filter((r) => !seen.has(r.g.id) && seen.add(r.g.id)).map((r) => ({ ...r.g, relation: r.relation, isManager: r.isManager }));
@@ -91,8 +91,8 @@ export async function guardiansOfMembers(tx: Tx, studentIds: string[]): Promise<
 export const guardiansOfStudent = (tx: Tx, studentId: string): Promise<FamilyMember[]> => guardiansOfMembers(tx, [studentId]);
 
 // The household's invoices and payments still key on it: reach their people through its members.
-export async function guardiansOfHouseholdMembers(tx: Tx, householdId: string): Promise<FamilyMember[]> {
-  return guardiansOfMembers(tx, (await studentsOfHousehold(tx, householdId)).map((s) => s.id));
+export async function guardiansOfHouseholdMembers(tx: Tx, householdId: string, opts: { includeRemoved?: boolean } = {}): Promise<FamilyMember[]> {
+  return guardiansOfMembers(tx, (await studentsOfHousehold(tx, householdId)).map((s) => s.id), opts);
 }
 
 // The members this guardian is linked to, by name; removed links and deleted members aren't.

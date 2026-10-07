@@ -30,6 +30,7 @@ import {
   updateGuardian,
   upsertFamilyLink,
 } from "@/modules/students/repo";
+import { addFamilyMember } from "@/modules/students/family";
 import { guardians, students } from "@/modules/students/schema";
 import {
   archiveStudent,
@@ -409,5 +410,23 @@ describe("student_guardians is the only family link", () => {
     expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, a.household.id)))).toEqual([a.guardian.id]);
     expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, b.household.id)))).toEqual([b.guardian.id]);
     expect((await withTenant(T, (tx) => studentsOfGuardian(tx, b.guardian.id))).map((k) => k.fullName)).toEqual(["Hamid Odd"]);
+  });
+
+  it("addFamilyMember asks the join table: a linked guardian is in the family whatever household_id says", async () => {
+    const a = await mk("Dina Row", "Esha Row", P(211));
+    const b = await mk("Dev Row", "Farid Row", P(212));
+    const b2 = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Row", dateOfBirth: "2016-03-12", householdId: b.household.id, guardian: { fullName: "Farid Row", phone: P(212), relation: "father" }, consents }));
+    // Esha's row points at household A, but she is linked to Dev in household B.
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "cousin" }));
+    const added = await withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b2.student.id, { fullName: "Esha Row", phone: P(211), relation: "cousin" }));
+    expect(added.id).toBe(a.guardian.id);
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, b2.student.id))).map((g) => g.fullName).sort()).toEqual(["Esha Row", "Farid Row"]);
+  });
+
+  it("addFamilyMember still refuses a number whose household_id matches but who is linked to no one there", async () => {
+    const a = await mk("Gita Decoy", "Hira Decoy", P(213));
+    const b = await mk("Gus Decoy", "Imran Decoy", P(214));
+    await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { householdId: b.household.id }));
+    await expect(withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b.student.id, { fullName: "Hira Decoy", phone: P(213), relation: "cousin" }))).rejects.toThrow("This number belongs to another family here");
   });
 });

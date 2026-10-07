@@ -5,7 +5,7 @@ import type { Tx } from "@/lib/db/client";
 import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { FAMILY_RELATIONS } from "./relations";
-import { createGuardian, findGuardianByPhone, guardiansOfStudent, moveManager, removeFamilyLink, upsertFamilyLink } from "./repo";
+import { createGuardian, findGuardianByPhone, guardiansOfHouseholdMembers, guardiansOfStudent, moveManager, removeFamilyLink, upsertFamilyLink } from "./repo";
 import type { Guardian } from "./schema";
 import { requireStudent, type StudentCtx } from "./service";
 
@@ -21,14 +21,14 @@ const familyMemberSchema = z.object({
 
 const actor = (ctx: StudentCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
 
-// Someone already in the family is linked (again); a number from another
+// Someone linked to the family, even once removed, is linked (again); a number from another
 // family here is refused, since a number is one person in an academy.
 export async function addFamilyMember(tx: Tx, ctx: StudentCtx, studentId: string, input: z.input<typeof familyMemberSchema>): Promise<Guardian> {
   assertCan(ctx, "students:update");
   const student = await requireStudent(tx, ctx, studentId);
   const d = familyMemberSchema.parse(input);
   const existing = await findGuardianByPhone(tx, d.phone);
-  if (existing && existing.householdId !== student.householdId) throw new ConflictError("This number belongs to another family here");
+  if (existing && !(await guardiansOfHouseholdMembers(tx, student.householdId, { includeRemoved: true })).some((m) => m.id === existing.id)) throw new ConflictError("This number belongs to another family here");
   const guardian =
     existing ??
     (await createGuardian(tx, { tenantId: ctx.tenantId, householdId: student.householdId, fullName: d.fullName, phone: d.phone }).catch((e: unknown) => {
