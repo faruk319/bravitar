@@ -20,12 +20,13 @@ export async function linkedChildren(tx: Tx, guardianId: string): Promise<Portal
 
 export type FamilyPayment = Pick<Payment, "id" | "receiptNumber" | "receivedOn" | "amountPaise" | "method" | "status">;
 
-// A family's receipts, newest first; cancelled ones aren't receipts.
-export async function familyPayments(tx: Tx, householdId: string): Promise<FamilyPayment[]> {
+// Receipts of these households, newest first; cancelled ones aren't receipts.
+export async function familyPayments(tx: Tx, householdIds: string[]): Promise<FamilyPayment[]> {
+  if (!householdIds.length) return [];
   return tx
     .select({ id: payments.id, receiptNumber: payments.receiptNumber, receivedOn: payments.receivedOn, amountPaise: payments.amountPaise, method: payments.method, status: payments.status })
     .from(payments)
-    .where(and(eq(payments.householdId, householdId), inArray(payments.status, ["confirmed", "refunded"])))
+    .where(and(inArray(payments.householdId, householdIds), inArray(payments.status, ["confirmed", "refunded"])))
     .orderBy(desc(payments.receivedOn), desc(payments.receiptNumber));
 }
 

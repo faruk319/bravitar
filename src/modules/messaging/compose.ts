@@ -9,7 +9,7 @@ import { tenantOrigin } from "@/lib/tenant/origin";
 import { classRoster } from "@/modules/attendance/service";
 import { invoiceDetail } from "@/modules/fees/service";
 import { receipt } from "@/modules/payments/service";
-import { guardiansOfHousehold, guardiansOfStudent } from "@/modules/students/repo";
+import { guardiansOfHouseholdMembers, guardiansOfStudent } from "@/modules/students/repo";
 import type { Guardian } from "@/modules/students/schema";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
@@ -53,7 +53,7 @@ export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeReque
       const inv = d.invoice;
       if (inv.status !== "issued" && inv.status !== "part_paid") throw new ConflictError("Only an unpaid invoice gets a reminder");
       const names = [...new Set(d.lines.flatMap((l) => (l.studentName ? [l.studentName] : [])))];
-      const to = recipients(await guardiansOfHousehold(tx, inv.householdId));
+      const to = recipients(await guardiansOfHouseholdMembers(tx, inv.householdId));
       return {
         key: req.key,
         drafts: [draft(d.householdName, to, { student_names: joinNames(names), amount: formatPaise(inv.totalPaise - inv.paidPaise), due_date: formatDate(inv.dueDate), invoice_number: inv.number ?? "", link: await link("invoice", inv.id) })],
@@ -62,7 +62,7 @@ export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeReque
     case "receipt": {
       const r = await receipt(tx, ctx, req.paymentId);
       if (r.payment.status === "cancelled") throw new ConflictError("This payment was cancelled");
-      const to = recipients(await guardiansOfHousehold(tx, r.payment.householdId));
+      const to = recipients(await guardiansOfHouseholdMembers(tx, r.payment.householdId));
       return {
         key: "receipt",
         drafts: [draft(r.householdName, to, { amount: formatPaise(r.payment.amountPaise), date: formatDate(r.payment.receivedOn), receipt_number: r.payment.receiptNumber, link: await link("receipt", r.payment.id) })],

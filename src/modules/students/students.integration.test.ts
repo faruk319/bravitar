@@ -15,7 +15,21 @@ import { enroll, leaveEnrollment } from "@/modules/enrollments/service";
 import { listRoles } from "@/modules/staff/repo";
 import type { StaffUser } from "@/modules/staff/schema";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
-import { countByStatus, countStudents, countWithoutBatch, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
+import {
+  countByStatus,
+  countStudents, countWithoutBatch,
+  createGuardian,
+  guardiansOfHouseholdMembers,
+  guardiansOfMembers,
+  guardiansOfStudent,
+  moveManager,
+  removeFamilyLink,
+  searchStudents,
+  studentsOfGuardian,
+  studentsOfHousehold,
+  updateGuardian,
+  upsertFamilyLink,
+} from "@/modules/students/repo";
 import { guardians, students } from "@/modules/students/schema";
 import {
   archiveStudent,
@@ -88,7 +102,7 @@ describe("families", () => {
     const r = await withTenant(T, (tx) =>
       createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", householdId: s?.householdId ?? "", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, consents }),
     );
-    const [gs, kids] = await withTenant(T, async (tx) => [await guardiansOfHousehold(tx, r.household.id), await studentsOfHousehold(tx, r.household.id)]);
+    const [gs, kids] = await withTenant(T, async (tx) => [await guardiansOfHouseholdMembers(tx, r.household.id), await studentsOfHousehold(tx, r.household.id)]);
     expect(gs).toHaveLength(1);
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Aarav Deshmukh", "Anaya Deshmukh"]);
     const o = await withTenant(T, (tx) => studentOverview(tx, ownerCtx, r.student.id));
@@ -326,5 +340,74 @@ describe("payer backfill (migration 0039)", () => {
     } finally {
       await own.end({ timeout: 5 });
     }
+  });
+});
+
+describe("student_guardians is the only family link", () => {
+  const mk = (name: string, guardian: string, phone: string) =>
+    withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: name, dateOfBirth: "2015-03-12", guardian: { fullName: guardian, phone, relation: "mother" }, consents }));
+  const ids = <R extends { id: string }>(rows: R[]) => rows.map((r) => r.id).sort();
+
+  it("one guardian links to two members who were in different households", async () => {
+    const a = await mk("Zoya Link", "Nadia Link", P(201));
+    const b = await mk("Yusuf Link", "Omar Link", P(202));
+    expect(a.household.id).not.toBe(b.household.id);
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+    const [kids, ofA, ofB] = await withTenant(T, async (tx) => [await studentsOfGuardian(tx, a.guardian.id), await guardiansOfStudent(tx, a.student.id), await guardiansOfStudent(tx, b.student.id)]);
+    expect(kids.map((k) => k.fullName)).toEqual(["Yusuf Link", "Zoya Link"]);
+    expect(ofA.map((g) => g.id)).toEqual([a.guardian.id]);
+    expect(ofB.map((g) => [g.fullName, g.isManager])).toEqual([["Omar Link", true], ["Nadia Link", false]]);
+    // Both members at once: each guardian once (Nadia is linked to both).
+    const both = await withTenant(T, (tx) => guardiansOfMembers(tx, [a.student.id, b.student.id]));
+    expect(both.map((g) => g.fullName)).toEqual(["Nadia Link", "Omar Link"]);
+    expect(both.find((g) => g.id === a.guardian.id)?.isManager).toBe(true);
+  });
+
+  it("one member with two guardians lists the manager first, whoever was added first", async () => {
+    const a = await mk("Mina Pair", "Parveen Pair", P(203));
+    const second = await withTenant(T, async (tx) => {
+      const g = await createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Aamir Pair", phone: P(204) });
+      await upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g.id, relation: "father" });
+      return g;
+    });
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).map((g) => [g.fullName, g.isManager])).toEqual([["Parveen Pair", true], ["Aamir Pair", false]]);
+    await withTenant(T, (tx) => moveManager(tx, a.student.id, second.id));
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).map((g) => [g.fullName, g.relation, g.isManager])).toEqual([["Aamir Pair", "father", true], ["Parveen Pair", "mother", false]]);
+  });
+
+  it("a removed link is gone in both directions, and comes back when restored", async () => {
+    const a = await mk("Rida Gone", "Salma Gone", P(205));
+    const b = await mk("Raza Gone", "Tariq Gone", P(206));
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+    await withTenant(T, (tx) => removeFamilyLink(tx, b.student.id, a.guardian.id, new Date()));
+    const [kids, ofB] = await withTenant(T, async (tx) => [await studentsOfGuardian(tx, a.guardian.id), await guardiansOfStudent(tx, b.student.id)]);
+    expect(kids.map((k) => k.fullName)).toEqual(["Rida Gone"]);
+    expect(ofB.map((g) => g.fullName)).toEqual(["Tariq Gone"]);
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Raza Gone", "Rida Gone"]);
+  });
+
+  it("a soft-deleted guardian is not listed, and a deleted member is not theirs", async () => {
+    const a = await mk("Sana Del", "Tabassum Del", P(207));
+    const g2 = await withTenant(T, async (tx) => {
+      const g = await createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Umar Del", phone: P(208) });
+      await upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g.id, relation: "father" });
+      return g;
+    });
+    await withTenant(T, (tx) => updateGuardian(tx, g2.id, { deletedAt: new Date() }));
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).map((g) => g.fullName)).toEqual(["Tabassum Del"]);
+    expect((await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, a.household.id))).map((g) => g.fullName)).toEqual(["Tabassum Del"]);
+    await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { deletedAt: new Date() }));
+    expect(await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).toEqual([]);
+  });
+
+  it("a guardian household_id no longer decides who is related", async () => {
+    const a = await mk("Hana Odd", "Iram Odd", P(209));
+    const b = await mk("Hamid Odd", "Jabir Odd", P(210));
+    // Jabir's row says household A, but he is linked only to Hamid.
+    await withTenant(T, (tx) => updateGuardian(tx, b.guardian.id, { householdId: a.household.id }));
+    expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, a.household.id)))).toEqual([a.guardian.id]);
+    expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, b.household.id)))).toEqual([b.guardian.id]);
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, b.guardian.id))).map((k) => k.fullName)).toEqual(["Hamid Odd"]);
   });
 });

@@ -24,7 +24,7 @@ import {
   splitPhones,
   validateMapping,
 } from "./import-fields";
-import { findGuardianByPhone, studentsOfHousehold } from "./repo";
+import { findGuardianByPhone, studentsOfGuardian } from "./repo";
 import { createStudent, type NewStudentInput, type StudentCtx } from "./service";
 
 export const importRequestSchema = z.object({
@@ -201,7 +201,7 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
       try {
         const outcome = await sp.transaction(async (rowTx): Promise<RowOutcome> => {
           const existing = await findGuardianByPhone(rowTx, plan.contact.phone);
-          if (existing && (await studentsOfHousehold(rowTx, existing.householdId)).some((s) => nameKey(s.fullName) === plan.key)) return { kind: "skipped" };
+          if (existing && (await studentsOfGuardian(rowTx, existing.id)).some((s) => nameKey(s.fullName) === plan.key)) return { kind: "skipped" };
 
           const base = {
             fullName: plan.fullName,

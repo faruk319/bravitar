@@ -44,10 +44,6 @@ export async function updateGuardian(tx: Tx, id: string, patch: Partial<typeof g
   return g;
 }
 
-export async function guardiansOfHousehold(tx: Tx, householdId: string): Promise<Guardian[]> {
-  return tx.select().from(guardians).where(and(eq(guardians.householdId, householdId), isNull(guardians.deletedAt))).orderBy(asc(guardians.isPrimary), asc(guardians.fullName));
-}
-
 export async function studentsOfHousehold(tx: Tx, householdId: string): Promise<Student[]> {
   return tx.select().from(students).where(and(eq(students.householdId, householdId), isNull(students.deletedAt))).orderBy(asc(students.fullName));
 }
@@ -78,15 +74,36 @@ export async function linkGuardian(tx: Tx, tenantId: string, studentId: string, 
 
 export type FamilyMember = Guardian & { relation: Relation; isManager: boolean };
 
-// The people with access to a student, the manager first; removed ones aren't.
-export async function guardiansOfStudent(tx: Tx, studentId: string): Promise<FamilyMember[]> {
+// The people with access to any of these members, once each, a manager first;
+// removed links and deleted guardians aren't (student_guardians is the only link we read).
+export async function guardiansOfMembers(tx: Tx, studentIds: string[]): Promise<FamilyMember[]> {
+  if (!studentIds.length) return [];
   const rows = await tx
     .select({ g: guardians, relation: studentGuardians.relation, isManager: studentGuardians.isManager })
     .from(studentGuardians)
     .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
-    .where(and(eq(studentGuardians.studentId, studentId), isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
-    .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt));
-  return rows.map((r) => ({ ...r.g, relation: r.relation, isManager: r.isManager }));
+    .where(and(inArray(studentGuardians.studentId, studentIds), isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
+    .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt), asc(guardians.id));
+  const seen = new Set<string>();
+  return rows.filter((r) => !seen.has(r.g.id) && seen.add(r.g.id)).map((r) => ({ ...r.g, relation: r.relation, isManager: r.isManager }));
+}
+
+export const guardiansOfStudent = (tx: Tx, studentId: string): Promise<FamilyMember[]> => guardiansOfMembers(tx, [studentId]);
+
+// The household's invoices and payments still key on it: reach their people through its members.
+export async function guardiansOfHouseholdMembers(tx: Tx, householdId: string): Promise<FamilyMember[]> {
+  return guardiansOfMembers(tx, (await studentsOfHousehold(tx, householdId)).map((s) => s.id));
+}
+
+// The members this guardian is linked to, by name; removed links and deleted members aren't.
+export async function studentsOfGuardian(tx: Tx, guardianId: string): Promise<Student[]> {
+  const rows = await tx
+    .select({ s: students })
+    .from(studentGuardians)
+    .innerJoin(students, eq(students.id, studentGuardians.studentId))
+    .where(and(eq(studentGuardians.guardianId, guardianId), isNull(studentGuardians.removedAt), isNull(students.deletedAt)))
+    .orderBy(asc(students.fullName), asc(students.id));
+  return rows.map((r) => r.s);
 }
 
 // Someone in the family gets access to this student, or gets it back.

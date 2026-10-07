@@ -20,12 +20,13 @@ import {
   getGuardian,
   getHousehold,
   getStudent,
-  guardiansOfHousehold,
+  guardiansOfHouseholdMembers,
   guardiansOfStudent,
   insertStudent,
   linkGuardian,
   recordConsent,
   type Scope,
+  studentsOfGuardian,
   studentsOfHousehold,
   updateGuardian,
   updateStudent,
@@ -74,7 +75,7 @@ export class DuplicateGuardianError extends ConflictError {
 export async function lookupGuardian(tx: Tx, phone: string): Promise<HouseholdSuggestion | undefined> {
   const g = await findGuardianByPhone(tx, phone);
   if (!g) return undefined;
-  const [household, kids] = await Promise.all([getHousehold(tx, g.householdId), studentsOfHousehold(tx, g.householdId)]);
+  const [household, kids] = await Promise.all([getHousehold(tx, g.householdId), studentsOfGuardian(tx, g.id)]);
   return { householdId: g.householdId, householdName: household?.name ?? "", guardianName: g.fullName, students: kids.map((s) => s.fullName) };
 }
 
@@ -110,7 +111,7 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   if (data.householdId) {
     const h = await getHousehold(tx, data.householdId);
     if (!h) throw new NotFoundError("Family");
-    if (existing && existing.householdId !== h.id) throw new ConflictError("This phone number belongs to another family");
+    if (existing && !(await guardiansOfHouseholdMembers(tx, h.id)).some((m) => m.id === existing.id)) throw new ConflictError("This phone number belongs to another family");
     household = h;
     guardian =
       existing ??
@@ -119,7 +120,7 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
         householdId: h.id,
         fullName: data.guardian?.fullName ?? data.fullName,
         phone: contactPhone,
-        isPrimary: (await guardiansOfHousehold(tx, h.id)).length === 0,
+        isPrimary: (await guardiansOfHouseholdMembers(tx, h.id)).length === 0,
         ...(data.guardian?.email ? { email: data.guardian.email } : {}),
       }));
   } else {
@@ -254,7 +255,7 @@ export async function setStudentStatus(tx: Tx, ctx: StudentCtx, id: string, inpu
 export async function setGuardianWhatsapp(tx: Tx, ctx: StudentCtx, guardianId: string, on: boolean): Promise<Guardian> {
   assertCan(ctx, "students:update");
   const g = await getGuardian(tx, guardianId);
-  const kids = g ? await studentsOfHousehold(tx, g.householdId) : [];
+  const kids = g ? await studentsOfGuardian(tx, g.id) : [];
   if (!g || !kids.some((k) => !ctx.branchIds.length || ctx.branchIds.includes(k.branchId))) throw new NotFoundError("Guardian");
   if (g.whatsappOptin === on) return g;
   const after = await updateGuardian(tx, guardianId, { whatsappOptin: on, whatsappOptinAt: on ? new Date() : null });

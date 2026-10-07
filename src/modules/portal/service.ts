@@ -19,7 +19,7 @@ import { razorpayConnected } from "@/modules/integrations/service";
 import { makeShareLink } from "@/modules/messaging/links";
 import { getPayment } from "@/modules/payments/repo";
 import { type Receipt, receiptOf } from "@/modules/payments/service";
-import { getGuardian } from "@/modules/students/repo";
+import { getGuardian, studentsOfGuardian } from "@/modules/students/repo";
 import { getOwnTenant, updateOwnTenant } from "@/modules/tenancy/repo";
 import { FAMILY_ACCESS, type FamilyAccess } from "./access";
 import { batchBranches, cancelledClasses, type FamilyPayment, familyPayments, linkedChildren, type PortalChild } from "./repo";
@@ -34,10 +34,11 @@ export type { PortalChild };
 export const childrenOf = (tx: Tx, g: GuardianCtx): Promise<PortalChild[]> => linkedChildren(tx, g.guardianId);
 
 // Re-read on every request: a removed guardian, or one whose login was turned off, opens nothing.
-async function familyOf(tx: Tx, g: GuardianCtx): Promise<string> {
+// Their family's money is what the linked children's households owe and paid.
+async function familyOf(tx: Tx, g: GuardianCtx): Promise<Set<string>> {
   const guardian = await getGuardian(tx, g.guardianId);
   if (!guardian?.canLogin) throw new NotFoundError("Family");
-  return guardian.householdId;
+  return new Set((await studentsOfGuardian(tx, g.guardianId)).map((s) => s.householdId));
 }
 
 // What this person may see: everything about a child they manage, else what
@@ -113,7 +114,7 @@ export async function childPage(tx: Tx, g: GuardianCtx, studentId: string, opts:
 export async function familyReceipts(tx: Tx, g: GuardianCtx): Promise<FamilyPayment[]> {
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("receipts")) throw new NotFoundError("Receipts");
-  return familyPayments(tx, family);
+  return familyPayments(tx, [...family]);
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -122,7 +123,7 @@ export async function portalReceipt(tx: Tx, g: GuardianCtx, paymentId: string): 
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("receipts")) throw new NotFoundError("Receipt");
   const p = UUID.test(paymentId) ? await getPayment(tx, [], paymentId) : undefined;
-  if (!p || p.householdId !== family || p.status === "cancelled") throw new NotFoundError("Receipt");
+  if (!p || !family.has(p.householdId) || p.status === "cancelled") throw new NotFoundError("Receipt");
   return receiptOf(tx, p);
 }
 
@@ -132,7 +133,7 @@ export async function payLink(tx: Tx, g: GuardianCtx, invoiceId: string): Promis
   const family = await familyOf(tx, g);
   if (!(await familyAllowed(tx, g)).has("pay")) throw new NotFoundError("Invoice");
   const inv = UUID.test(invoiceId) ? await getInvoice(tx, [], invoiceId) : undefined;
-  if (!inv || inv.householdId !== family || (inv.status !== "issued" && inv.status !== "part_paid")) throw new NotFoundError("Invoice");
+  if (!inv || !family.has(inv.householdId) || (inv.status !== "issued" && inv.status !== "part_paid")) throw new NotFoundError("Invoice");
   return `/i/${await makeShareLink(tx, { actorType: "guardian", actorId: g.guardianId, tenantId: g.tenantId }, "invoice", inv.id)}`;
 }
 

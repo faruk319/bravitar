@@ -11,7 +11,7 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { buildErrorRows, suggestMapping } from "@/modules/students/import-fields";
 import { type ImportResult, importStudents } from "@/modules/students/import";
-import { findGuardianByPhone, guardiansOfHousehold, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
+import { findGuardianByPhone, guardiansOfHouseholdMembers, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
 import { consents, guardians, households, studentCodeSeries, students } from "@/modules/students/schema";
 import { createStudent, type StudentCtx } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
@@ -117,7 +117,7 @@ describe("student CSV import", () => {
   it("keeps a family that shares one phone together: one guardian row, three siblings", async () => {
     const { kids, parents } = await withTenant(T, async (tx) => {
       const g = await findGuardianByPhone(tx, "+919876511111");
-      return { kids: await studentsOfHousehold(tx, g?.householdId ?? ""), parents: await guardiansOfHousehold(tx, g?.householdId ?? "") };
+      return { kids: await studentsOfHousehold(tx, g?.householdId ?? ""), parents: await guardiansOfHouseholdMembers(tx, g?.householdId ?? "") };
     });
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Anaya Deshmukh", "Kabir", "आरव देशमुख"]);
     expect(parents.map((p) => p.fullName)).toEqual(["राकेश देशमुख"]);

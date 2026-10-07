@@ -4,6 +4,7 @@ import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
+import { guardiansOfHouseholdMembers } from "@/modules/students/repo";
 import { guardians, households } from "@/modules/students/schema";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
@@ -282,15 +283,14 @@ export async function staleLinks(tx: Tx, before: Date, limit = 200): Promise<Pay
 
 export type Contact = { name: string; phone: string | null };
 
-// Who a link is for: the family's primary guardian, else the family itself.
-export async function familyContact(tx: Tx, householdId: string): Promise<Contact> {
-  const [g] = await tx
-    .select({ name: guardians.fullName, phone: guardians.phone })
-    .from(guardians)
-    .where(and(eq(guardians.householdId, householdId), isNull(guardians.deletedAt)))
-    .orderBy(desc(guardians.isPrimary), asc(guardians.createdAt))
-    .limit(1);
-  if (g) return g;
+// Who a link is for: the invoice's payer, else the primary guardian of its members, else the family itself.
+export async function familyContact(tx: Tx, inv: Pick<Invoice, "householdId" | "payerGuardianId">): Promise<Contact> {
+  const { householdId } = inv;
+  const [payer] = inv.payerGuardianId ? await tx.select({ name: guardians.fullName, phone: guardians.phone }).from(guardians).where(and(eq(guardians.id, inv.payerGuardianId), isNull(guardians.deletedAt))) : [];
+  if (payer) return payer;
+  const linked = await guardiansOfHouseholdMembers(tx, householdId);
+  const g = linked.find((x) => x.isPrimary) ?? linked[0];
+  if (g) return { name: g.fullName, phone: g.phone };
   const [h] = await tx.select({ name: households.name }).from(households).where(eq(households.id, householdId));
   return { name: h?.name ?? "", phone: null };
 }

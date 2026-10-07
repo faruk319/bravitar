@@ -47,7 +47,7 @@ export async function linkForInvoice(tx: Tx, actor: Actor, found: Invoice, opts:
   if (inv.status !== "issued" && inv.status !== "part_paid") throw new ConflictError("Only an unpaid invoice can have a payment link");
   const balance = inv.totalPaise - inv.paidPaise;
   const number = inv.number ?? "";
-  const [tenant, contact] = await Promise.all([getOwnTenant(tx), familyContact(tx, inv.householdId)]);
+  const [tenant, contact] = await Promise.all([getOwnTenant(tx), familyContact(tx, inv)]);
   const academy = tenant?.name ?? "";
   const now = opts.now ?? new Date();
   const api = (opts.api ?? httpRazorpay)(keys);
