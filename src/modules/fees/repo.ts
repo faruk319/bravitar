@@ -5,7 +5,8 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { households, students } from "@/modules/students/schema";
+import type { Payer } from "@/modules/students/payer";
+import { guardians, households, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
 // ---- fee plans
@@ -172,12 +173,24 @@ export async function getInvoice(tx: Tx, branchIds: string[], id: string): Promi
   return inv;
 }
 
-// The family's open draft for a billing day, locked so issuing can't race an append.
-export async function familyDraft(tx: Tx, householdId: string, branchId: string, issueDate: string): Promise<Invoice | undefined> {
+const payerIs = (p: Payer): SQL =>
+  p.kind === "guardian" ? sql`${invoices.payerGuardianId} = ${p.guardianId} AND ${invoices.payerMemberId} IS NULL` : sql`${invoices.payerMemberId} = ${p.memberId} AND ${invoices.payerGuardianId} IS NULL`;
+
+// The payer's name today, for stamping on an invoice (deleted guardians keep theirs); undefined if the row is gone.
+export async function payerName(tx: Tx, payer: Payer): Promise<string | undefined> {
+  const [row] =
+    payer.kind === "guardian"
+      ? await tx.select({ name: guardians.fullName }).from(guardians).where(eq(guardians.id, payer.guardianId))
+      : await tx.select({ name: students.fullName }).from(students).where(eq(students.id, payer.memberId));
+  return row?.name;
+}
+
+// The family's open draft for a billing day and payer, locked so issuing can't race an append.
+export async function familyDraft(tx: Tx, householdId: string, branchId: string, issueDate: string, payer: Payer): Promise<Invoice | undefined> {
   const [inv] = await tx
     .select()
     .from(invoices)
-    .where(and(eq(invoices.householdId, householdId), eq(invoices.branchId, branchId), eq(invoices.issueDate, issueDate), eq(invoices.status, "draft"), isNull(invoices.studentId)))
+    .where(and(eq(invoices.householdId, householdId), eq(invoices.branchId, branchId), eq(invoices.issueDate, issueDate), eq(invoices.status, "draft"), isNull(invoices.studentId), payerIs(payer)))
     .limit(1)
     .for("update");
   return inv;
@@ -254,6 +267,9 @@ export async function openInstallments(tx: Tx, branchIds: string[], studentId: s
 
 export const INVOICE_VIEWS = ["draft", "unpaid", "overdue", "month", "void"] as const;
 export type InvoiceView = (typeof INVOICE_VIEWS)[number];
+// The name the invoice was issued with; the live household name only for a row that never got one.
+const billToName = sql<string>`coalesce(${invoices.billToName}, ${households.name})`;
+
 export type InvoiceRow = Invoice & { householdName: string; students: string[] };
 
 // Overdue is worked out when reading (due date passed), never stored.
@@ -286,11 +302,11 @@ function viewFilter(view: InvoiceView, today: string): SQL | undefined {
 export async function listInvoices(tx: Tx, branchIds: string[], opts: { view?: InvoiceView; today: string; studentId?: string; limit?: number }): Promise<InvoiceRow[]> {
   const forStudent = opts.studentId ? sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND l.student_id = ${opts.studentId})` : undefined;
   const rows = await tx
-    .select({ inv: invoices, householdName: households.name })
+    .select({ inv: invoices, householdName: billToName })
     .from(invoices)
     .innerJoin(households, eq(households.id, invoices.householdId))
     .where(and(invoiceScope(branchIds), opts.view ? viewFilter(opts.view, opts.today) : undefined, forStudent))
-    .orderBy(...(opts.view === "draft" ? [asc(invoices.issueDate), asc(households.name)] : [desc(invoices.issueDate), desc(invoices.number), desc(invoices.id)]))
+    .orderBy(...(opts.view === "draft" ? [asc(invoices.issueDate), asc(billToName)] : [desc(invoices.issueDate), desc(invoices.number), desc(invoices.id)]))
     .limit(opts.limit ?? 200);
   const names = new Map<string, Set<string>>();
   for (const l of await linesOf(tx, rows.map((r) => r.inv.id))) if (l.studentName) names.set(l.invoiceId, (names.get(l.invoiceId) ?? new Set()).add(l.studentName));
@@ -339,7 +355,7 @@ export async function duesByFamily(tx: Tx, branchIds: string[], today: string): 
   const rows = await tx
     .select({
       householdId: invoices.householdId,
-      name: households.name,
+      name: sql<string>`max(${billToName})`,
       invoices: sql<number>`count(*)::int`,
       notDue: bucket(sql`${late} < 0`),
       days0to30: bucket(sql`${late} BETWEEN 0 AND 30`),
@@ -349,8 +365,8 @@ export async function duesByFamily(tx: Tx, branchIds: string[], today: string): 
     .from(invoices)
     .innerJoin(households, eq(households.id, invoices.householdId))
     .where(and(inArray(invoices.status, [...OWED]), invoiceScope(branchIds)))
-    .groupBy(invoices.householdId, households.name)
-    .orderBy(desc(sql`sum(${owed})`), asc(households.name));
+    .groupBy(invoices.householdId)
+    .orderBy(desc(sql`sum(${owed})`), asc(sql`max(${billToName})`));
   return rows.map((r) => ({ ...r, notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) }));
 }
 

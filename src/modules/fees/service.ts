@@ -10,6 +10,7 @@ import { getProgram, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { applyAdvance } from "@/modules/payments/service";
+import { payerOf } from "@/modules/students/payer";
 import { getHousehold } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
@@ -36,6 +37,7 @@ import {
   linesOf,
   lockDrafts,
   lockInvoicing,
+  payerName,
   type OpenInstallment,
   openInstallments,
   type PlanRow,
@@ -257,7 +259,7 @@ export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date }
   return {
     invoice,
     overdue: isOverdue(invoice, today),
-    householdName: household?.name ?? "",
+    householdName: invoice.billToName ?? household?.name ?? "",
     lines,
     academy: { name: tenant?.name ?? "", gstin: tenant?.gstin ?? null, branch: branch?.name ?? "", address: branch?.address ?? null },
   };
@@ -266,6 +268,17 @@ export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date }
 export async function generateNow(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } = {}): Promise<GenerateResult> {
   assertCan(ctx, "invoices:manage");
   return generateInvoices(tx, actor(ctx), opts.now ? { now: opts.now } : {});
+}
+
+// A row with both payer columns set is corrupt: keep the stored name instead of guessing whose it is.
+async function currentPayerName(tx: Tx, inv: Invoice): Promise<string | undefined> {
+  let payer: ReturnType<typeof payerOf>;
+  try {
+    payer = payerOf(inv);
+  } catch {
+    return undefined;
+  }
+  return payer ? payerName(tx, payer) : undefined;
 }
 
 export const issueSchema = z.union([z.literal("all"), z.array(z.uuid()).min(1).max(1000)]);
@@ -282,10 +295,13 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
   if (!drafts.length) throw new ConflictError("Nothing to issue");
   const issued: Invoice[] = [];
   for (const d of drafts) {
+    // The bill-to name is frozen here (the payer's name today, else the one the draft carries); a draft with no name stays a draft.
+    const billToName = (await currentPayerName(tx, d)) ?? d.billToName ?? (await getHousehold(tx, d.householdId))?.name;
+    if (!billToName) continue;
     const number = await allocateNumber(tx, ctx.tenantId, "invoice", fy);
     // Nothing to pay (a full waiver) is paid on issue.
-    const inv = await updateInvoice(tx, d.id, { number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: now });
-    await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise) } });
+    const inv = await updateInvoice(tx, d.id, { billToName, number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: now });
+    await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise), billToName } });
     issued.push(inv);
   }
   // A family's advance pays what was just issued, oldest first (docs/03 §9).

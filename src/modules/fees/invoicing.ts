@@ -5,6 +5,8 @@ import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { Paise } from "@/lib/money/paise";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { releaseInvoice } from "@/modules/payments/service";
+import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
+import { guardiansOfStudent } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { type Cycle, invoiceTotals, type LineDiscount, lineAmounts, recurringCharges } from "./billing";
 import {
@@ -22,6 +24,7 @@ import {
   type Link,
   linesOf,
   lockInvoicing,
+  payerName,
   takenKeys,
   updateInvoice,
 } from "./repo";
@@ -131,37 +134,84 @@ const admissionFor = (c: Charge): Charge => ({
 const validOn = (g: GivenDiscount, day: string) => g.validFrom <= day && (g.validTo === null || g.validTo >= day);
 
 export type GenerateOptions = { now?: Date; enrollmentIds?: string[]; onlyKeys?: Set<string> };
-export type GenerateResult = { invoices: number; lines: number };
+export type SkippedMember = { enrollmentId: string; studentId: string; reason: "no_payer" | "corrupt_payer" };
+export type GenerateResult = { invoices: number; lines: number; skipped: SkippedMember[] };
+
+// The enrollment's own payer; one with none falls back to the member's manager guardian (the 0039 backfill's rule).
+// No guardian at all is null, and the caller skips the member rather than issue a nameless invoice.
+async function payerFor(tx: Tx, e: Enrollment): Promise<Payer | null | "corrupt"> {
+  try {
+    const own = payerOf(e);
+    if (own) return own;
+  } catch {
+    return "corrupt";
+  }
+  const [g] = await guardiansOfStudent(tx, e.studentId);
+  return g ? { kind: "guardian", guardianId: g.id } : null;
+}
 
 // docs/03 §8: drafts per family, branch and billing day; installments get their own.
 // Re-running bills nothing twice. onlyKeys re-bills exactly those charges.
 export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptions = {}): Promise<GenerateResult> {
   const tenant = await getOwnTenant(tx);
-  if (!tenant?.enabledModules.fees) return { invoices: 0, lines: 0 };
+  if (!tenant?.enabledModules.fees) return { invoices: 0, lines: 0, skipped: [] };
   await lockInvoicing(tx, actor.tenantId);
   const today = todayIn(tenant.timezone, opts.now);
   const only = opts.onlyKeys;
   const from = only ? EVER : addDays(today, -LOOKBACK_DAYS);
-  const billables = await billableEnrollments(tx, { from, to: today, ...(opts.enrollmentIds ? { ids: opts.enrollmentIds } : {}) });
+  const everyone = await billableEnrollments(tx, { from, to: today, ...(opts.enrollmentIds ? { ids: opts.enrollmentIds } : {}) });
+  // One bad row skips that member only; it is audited below and tried again next run.
+  const payers = new Map<string, Payer>();
+  const skipped: SkippedMember[] = [];
+  for (const b of everyone) {
+    const p = await payerFor(tx, b.e);
+    if (p && p !== "corrupt") payers.set(b.e.id, p);
+    else skipped.push({ enrollmentId: b.e.id, studentId: b.e.studentId, reason: p ? "corrupt_payer" : "no_payer" });
+  }
+  const billables = everyone.filter((b) => payers.has(b.e.id));
   const studentIds = [...new Set(billables.map((b) => b.e.studentId))];
   const [links, given] = await Promise.all([enrollmentLinks(tx, studentIds), discountsOf(tx, studentIds)]);
   const chain = chains(links);
 
   const wanted = (c: Charge) => !only || only.has(c.key);
-  const charges = billables.flatMap((b) => chargesFor(b, { today, from, proration: tenant.proration, chain, rebill: Boolean(only) }).map((c) => ({ ...c, b }))).filter(wanted);
+  const charges = billables
+    .flatMap((b) => {
+      const p = payers.get(b.e.id);
+      return p ? chargesFor(b, { today, from, proration: tenant.proration, chain, rebill: Boolean(only) }).map((c) => ({ ...c, b, group: `${c.group}|${payerKey(p)}` })) : [];
+    })
+    .filter(wanted);
   const admissions = charges.filter((c) => c.opens && c.b.plan.admissionFeePaise > 0n).map((host) => [host, admissionFor(host)] as const);
   const taken = await takenKeys(tx, [...charges, ...admissions.map(([, a]) => a)].map((c) => c.key));
   const fresh = [...charges.filter((c) => !taken.has(c.key)), ...admissions.filter(([host, a]) => !taken.has(host.key) && !taken.has(a.key) && wanted(a)).map(([, a]) => a)];
 
   const groups = new Map<string, Charge[]>();
   for (const c of fresh) groups.set(c.group, [...(groups.get(c.group) ?? []), c]);
+  let made = 0;
+  let lines = 0;
   for (const cs of groups.values()) {
     const head = cs[0];
     if (!head) continue;
     const due = cs.map((c) => c.dueDate).sort()[0] ?? head.dueDate;
+    const payer = payers.get(head.b.e.id);
+    if (!payer) continue;
+    const billTo = await payerName(tx, payer);
+    if (!billTo) {
+      skipped.push(...cs.map((c) => ({ enrollmentId: c.b.e.id, studentId: c.b.e.studentId, reason: "no_payer" as const })));
+      continue;
+    }
     const inv =
-      (head.studentId ? undefined : await familyDraft(tx, head.b.householdId, head.b.branchId, head.issueDate)) ??
-      (await insertInvoice(tx, { tenantId: actor.tenantId, branchId: head.b.branchId, householdId: head.b.householdId, studentId: head.studentId, issueDate: head.issueDate, dueDate: due }));
+      (head.studentId ? undefined : await familyDraft(tx, head.b.householdId, head.b.branchId, head.issueDate, payer)) ??
+      (await insertInvoice(tx, {
+        tenantId: actor.tenantId,
+        branchId: head.b.branchId,
+        householdId: head.b.householdId,
+        payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
+        payerMemberId: payer.kind === "member" ? payer.memberId : null,
+        billToName: billTo,
+        studentId: head.studentId,
+        issueDate: head.issueDate,
+        dueDate: due,
+      }));
     await insertLines(
       tx,
       cs.map((c) => {
@@ -187,9 +237,12 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
       }),
     );
     await retotal(tx, inv, due);
+    made++;
+    lines += cs.length;
   }
-  const result = { invoices: groups.size, lines: fresh.length };
-  if (fresh.length) await writeAudit(tx, { ...actor, action: "invoice.generate", after: { ...result, rebill: Boolean(only) } });
+  const result = { invoices: made, lines, skipped };
+  if (lines) await writeAudit(tx, { ...actor, action: "invoice.generate", after: { invoices: made, lines, rebill: Boolean(only) } });
+  if (skipped.length) await writeAudit(tx, { ...actor, action: "invoice.generate_skipped", after: { skipped } });
   return result;
 }
 
