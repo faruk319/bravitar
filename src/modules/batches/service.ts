@@ -343,7 +343,7 @@ export const holidaySchema = z.object({
   branchId: z.uuid().nullable().optional(),
 });
 
-export async function addHoliday(tx: Tx, ctx: ScopedCtx, input: z.input<typeof holidaySchema>): Promise<Holiday> {
+export async function addHoliday(tx: Tx, ctx: ScopedCtx, input: z.input<typeof holidaySchema>, opts: { now?: Date } = {}): Promise<Holiday> {
   assertCan(ctx, "batches:manage");
   const data = holidaySchema.parse(input);
   const date = checkDate(data.date, "Date");
@@ -360,17 +360,18 @@ export async function addHoliday(tx: Tx, ctx: ScopedCtx, input: z.input<typeof h
     throw e;
   }
   await writeAudit(tx, { ...actor(ctx), action: "holiday.create", entityType: "holiday", entityId: holiday.id, after: { date, name: data.name, branchId } });
-  await reconcileSessions(tx);
+  // The clock decides whether a started session may still be cancelled, so tests can pin it.
+  await reconcileSessions(tx, opts.now ? { now: opts.now } : {});
   return holiday;
 }
 
-export async function removeHoliday(tx: Tx, ctx: ScopedCtx, id: string): Promise<void> {
+export async function removeHoliday(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<void> {
   assertCan(ctx, "batches:manage");
   const h = await getHoliday(tx, id);
   const allowed = h && (h.branchId === null ? !ctx.branchIds.length : canUseBranch(ctx.branchIds, h.branchId));
   if (!h || !allowed) throw new NotFoundError("Holiday");
   await deleteHoliday(tx, id);
-  await reconcileSessions(tx);
+  await reconcileSessions(tx, opts.now ? { now: opts.now } : {});
   await writeAudit(tx, { ...actor(ctx), action: "holiday.delete", entityType: "holiday", entityId: id, before: { date: h.date, name: h.name, branchId: h.branchId } });
 }
 

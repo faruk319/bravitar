@@ -126,7 +126,7 @@ export function AddStudentForm() {
       ) : null}
 
       <Field label="Interested in" htmlFor="programInterest">
-        <Input id="programInterest" name="programInterest" placeholder="e.g. Beginners, Class 9 Maths" />
+        <Input id="programInterest" name="programInterest" placeholder="e.g. Karate, Swimming, Gym" />
       </Field>
 
       {branches.length > 1 ? (

@@ -12,6 +12,7 @@ import { rulesFor } from "@/modules/batches/repo";
 import { startActivity } from "@/modules/billing/service";
 import { rulesOn } from "@/modules/batches/schedule";
 import { batches, programs } from "@/modules/batches/schema";
+import { sessions } from "@/modules/sessions/schema";
 import {
   addHoliday,
   addProgram,
@@ -212,6 +213,26 @@ describe("holidays", () => {
     const fri = cal.days.find((d) => d.date === "2026-10-02");
     expect(fri?.holidays).toEqual(["Gandhi Jayanti"]);
     expect(fri?.blocks.find((x) => x.key === b.id)?.holiday).toBe("Gandhi Jayanti");
+  });
+
+  it("takes a clock, so a holiday after that clock's horizon leaves its classes alone", async () => {
+    const daily = await create({ name: "Daily Clock", slots: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, startTime: "18:00", endTime: "19:00" })) });
+    const statusOn = async (date: string) => {
+      const rows = await withTenant(T, (tx) => tx.select({ status: sessions.status }).from(sessions).where(and(eq(sessions.batchId, daily.id), eq(sessions.sessionDate, date))));
+      return rows.map((r) => r.status);
+    };
+
+    // Ahead of the real clock, so the class exists and can still be cancelled.
+    const soon = addDays(today, 7);
+    expect(await statusOn(soon)).toEqual(["scheduled"]);
+    await withTenant(T, (tx) => addHoliday(tx, owner, { date: soon, name: "Real clock" }));
+    expect(await statusOn(soon)).toEqual(["cancelled"]);
+
+    // Same shape, but the clock is pinned past the holiday, so that class is history and stays put.
+    const later = addDays(today, 9);
+    expect(await statusOn(later)).toEqual(["scheduled"]);
+    await withTenant(T, (tx) => addHoliday(tx, owner, { date: later, name: "Pinned clock" }, { now: new Date(`${addDays(today, 30)}T12:00:00Z`) }));
+    expect(await statusOn(later)).toEqual(["scheduled"]);
   });
 });
 
