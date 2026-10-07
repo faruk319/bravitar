@@ -122,7 +122,7 @@ async function build(T: string, ownerId: string): Promise<void> {
         const spread = 2 + ((from + k) % 26);
         const on = addDays(inv.issueDate, inv.issueDate < thisMonth ? spread : Math.min(spread, daysSoFar));
         const amount = String(inv.totalPaise - inv.paidPaise);
-        await recordPayment(tx, ctx, { requestId: uuidv7(), householdId: inv.householdId, branchId: inv.branchId, amountPaise: amount, method: k % 3 ? "cash" : "upi", allocations: [{ invoiceId: inv.id, amountPaise: amount }] }, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
+        await recordPayment(tx, ctx, { requestId: uuidv7(), memberId: inv.studentId ?? "", branchId: inv.branchId, amountPaise: amount, method: k % 3 ? "cash" : "upi", allocations: [{ invoiceId: inv.id, amountPaise: amount }] }, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
       }
     });
   }

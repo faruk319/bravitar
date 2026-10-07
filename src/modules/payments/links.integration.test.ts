@@ -15,7 +15,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { reconcileLinks, runPaymentsReconcile } from "./job";
 import { paymentLinkFor } from "./links";
 import { paymentLinks, payments } from "./schema";
@@ -104,7 +104,7 @@ describe("payment links", () => {
     const inv = await bill(h, 1500);
     const first = await link(inv.id);
     expect(await link(inv.id)).toMatchObject({ url: first.url, reused: true });
-    await withTenant(T, (tx) => recordPayment(tx, desk, { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "50000" }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "50000" }));
     const second = await link(inv.id);
     expect(second).toMatchObject({ amountPaise: 100000n, reused: false });
     expect(second.url).not.toBe(first.url);
@@ -119,7 +119,7 @@ describe("payment links", () => {
     await link(inv.id);
     const [row] = await linksOf(inv.id);
     rzp.pay(row?.gatewayLinkId ?? "", `pay_${stamp}a`);
-    await withTenant(T, (tx) => recordPayment(tx, desk, { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "10000" }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "10000" }));
     await expect(link(inv.id)).rejects.toThrow("couldn't be cancelled");
     expect((await linksOf(inv.id)).map((r) => r.status)).toEqual(["created"]);
   });
@@ -128,7 +128,7 @@ describe("payment links", () => {
     const h = await family();
     const draft = await bill(h, 500, T, "draft");
     const paid = await bill(h, 500);
-    await withTenant(T, (tx) => recordPayment(tx, desk, { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "50000", allocations: [{ invoiceId: paid.id, amountPaise: "50000" }] }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "50000", allocations: [{ invoiceId: paid.id, amountPaise: "50000" }] }));
     const voided = await bill(h, 500);
     await withTenant(T, (tx) => voidInvoice(tx, owner, voided.id, { reason: "Wrong plan" }));
     for (const inv of [draft, paid, voided]) await expect(link(inv.id)).rejects.toThrow("Only an unpaid invoice");

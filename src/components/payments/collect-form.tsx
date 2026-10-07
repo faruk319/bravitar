@@ -32,7 +32,7 @@ const asInput = (paise: bigint) => (paise === 0n ? "" : formatPaise(paise).slice
 // docs/07 §7.4: family, what's due (all ticked), amount already filled in, cash.
 // The common case is one tap on Record. The request id is made once per form,
 // so a retry after a dropped connection can never pay twice.
-export function CollectForm({ householdId, branchId, due, advance, preselect, today, earliest }: { householdId: string; branchId: string; due: DueInvoice[]; advance: string; preselect?: string[]; today: string; earliest: string }) {
+export function CollectForm({ memberId, branchId, due, advance, preselect, today, earliest }: { memberId: string; branchId: string; due: DueInvoice[]; advance: string; preselect?: string[]; today: string; earliest: string }) {
   const router = useRouter();
   const [requestId] = useState(() => uuidv7());
   const [ticked, setTicked] = useState(() => new Set(preselect ?? due.map((d) => d.id)));
@@ -64,7 +64,7 @@ export function CollectForm({ householdId, branchId, due, advance, preselect, to
     setError(undefined);
     const r = await request<{ id: string }>("/api/payments", "POST", {
       requestId,
-      householdId,
+      memberId,
       branchId,
       amountPaise: String(paise),
       method,

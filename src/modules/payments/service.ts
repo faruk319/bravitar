@@ -14,7 +14,7 @@ import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { getHousehold, guardiansOfMembers } from "@/modules/students/repo";
+import { guardiansOfMembers } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
@@ -24,7 +24,8 @@ import {
   insertRefund,
   lockPayer,
   lockPayerOf,
-  memberIdsOfFamily,
+  memberHeader,
+  memberIdsWithSiblings,
   lockPayment,
   moveMoney,
   openInvoices,
@@ -92,7 +93,7 @@ async function requirePayment(tx: Tx, ctx: ScopedCtx, id: string): Promise<Payme
 
 export const paymentSchema = z.object({
   requestId: z.uuid(), // made by the collect form; the same id again is the same payment
-  householdId: z.uuid(),
+  memberId: z.uuid(), // the member the collect screen was opened on; the siblings who share a guardian come with them
   branchId: z.uuid(),
   amountPaise: paise,
   method: z.enum(HAND_METHODS).default("cash"),
@@ -119,18 +120,17 @@ function checkReceivedOn(receivedOn: string, today: string, fyStartMonth: number
   if (receivedOn < receivedOnRange(today, fyStartMonth).earliest) throw new BadRequestError("Not before this financial year began");
 }
 
-export type CollectScreen = { account: FamilyAccount; householdName: string; branchName: string; today: string; earliest: string };
+export type CollectScreen = { account: FamilyAccount; memberName: string; branchName: string; today: string; earliest: string };
 
-// Everything the collect screen needs for one family at one branch.
-export async function collectScreen(tx: Tx, ctx: ScopedCtx, householdId: string, branchId: string, opts: { now?: Date } = {}): Promise<CollectScreen> {
+// Everything the collect screen needs for one member (and their siblings) at one branch.
+export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, branchId: string, opts: { now?: Date } = {}): Promise<CollectScreen> {
   assertCan(ctx, "fees:collect");
-  const [account, household, branch, { today, fyStartMonth }] = await Promise.all([familyAccount(tx, ctx, householdId, branchId), getHousehold(tx, householdId), getBranch(tx, branchId), clock(tx, opts.now)]);
-  return { account, householdName: household?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
+  const [account, member, branch, { today, fyStartMonth }] = await Promise.all([familyAccount(tx, ctx, memberId, branchId), memberHeader(tx, memberId), getBranch(tx, branchId), clock(tx, opts.now)]);
+  return { account, memberName: member?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
 }
 
-// The collect screen is opened on one family key (the UI's contract until Task 8), which
-// memberIdsOfFamily turns into the members whose fees are collected. Everything below goes by
-// those members, the payer, or a guardian link, never by the household.
+// The collect screen is opened on one member; memberIdsWithSiblings turns that into the members
+// whose fees are collected. Everything below goes by those members, the payer, or a guardian link.
 
 // A payment has exactly one payer, and only ever pays that payer's invoices:
 // money never crosses payers. It is the payer asked for, else the payer of the
@@ -175,14 +175,15 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   assertCan(ctx, "fees:collect");
   const data = paymentSchema.parse(input);
   await requireBranch(tx, ctx, data.branchId);
-  if (!(await getHousehold(tx, data.householdId))) throw new NotFoundError("Family");
+  const member = await memberHeader(tx, data.memberId);
+  if (!member) throw new NotFoundError("Member");
   const { today, fyStartMonth } = await clock(tx, opts.now);
   const receivedOn = data.receivedOn ?? today;
   checkReceivedOn(receivedOn, today, fyStartMonth);
 
   // A retry is the same payment, so its payer is the one already recorded; the invoices it paid are no longer open to name one.
   // An issued invoice's payer never changes, so the payer is safe to read before the lock.
-  const memberIds = await memberIdsOfFamily(tx, data.householdId);
+  const memberIds = await memberIdsWithSiblings(tx, data.memberId);
   const earlier = await paymentByRequest(tx, data.requestId);
   const payer = earlier ? payerOfRow(earlier) : await payerOfPayment(tx, data, memberIds);
   await lockPayer(tx, payer);
@@ -200,7 +201,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const payment = await insertPayment(tx, {
     tenantId: ctx.tenantId,
     branchId: data.branchId,
-    householdId: data.householdId,
+    householdId: member.householdId,
     payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
     payerMemberId: payer.kind === "member" ? payer.memberId : null,
     requestId: data.requestId,
@@ -371,13 +372,13 @@ export async function releaseInvoice(tx: Tx, by: Actor, invoice: Pick<Invoice, "
 export type OpenInvoiceRow = Pick<Invoice, "id" | "number" | "dueDate" | "totalPaise" | "paidPaise" | "status"> & { balancePaise: Paise };
 export type FamilyAccount = { open: OpenInvoiceRow[]; advancePaise: Paise };
 
-// What the collect screen shows for a family in one branch: its open invoices,
-// oldest first, and its advance (docs/03 §9: visible on the family).
-export async function familyAccount(tx: Tx, ctx: ScopedCtx, householdId: string, branchId: string): Promise<FamilyAccount> {
+// What the collect screen shows for a member and their siblings (members sharing a guardian)
+// in one branch: open invoices, oldest first, and the advance (docs/03 §9: visible on the family).
+export async function familyAccount(tx: Tx, ctx: ScopedCtx, memberId: string, branchId: string): Promise<FamilyAccount> {
   if (!allows(ctx, "fees:collect") && !allows(ctx, "invoices:read")) throw new ForbiddenError("Not allowed: fees");
   await requireBranch(tx, ctx, branchId);
-  if (!(await getHousehold(tx, householdId))) throw new NotFoundError("Family");
-  const memberIds = await memberIdsOfFamily(tx, householdId);
+  if (!(await memberHeader(tx, memberId))) throw new NotFoundError("Member");
+  const memberIds = await memberIdsWithSiblings(tx, memberId);
   const [open, unused] = await Promise.all([openInvoicesOfMembers(tx, memberIds, branchId), payersOfMembers(tx, memberIds).then((payers) => unusedPaymentsOfPayers(tx, payers, branchId))]);
   return {
     open: open.map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, totalPaise: i.totalPaise, paidPaise: i.paidPaise, status: i.status, balancePaise: i.totalPaise - i.paidPaise })),

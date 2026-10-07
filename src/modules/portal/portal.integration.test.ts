@@ -22,7 +22,7 @@ import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice } from "@/modules/messaging/public";
 import { addFamilyMember, removeFamilyMember } from "@/modules/students/family";
 import { billedToMe, childPage, childrenOf, familyReceipts, type GuardianCtx, payLink, portalReceipt, saveFamilyAccess } from "./service";
@@ -81,7 +81,7 @@ beforeAll(async () => {
   }
 
   // Each family pays once; the Deshmukhs owe ₹800 on Aarav's invoice.
-  const pay = (householdId: string, rupees: number) => withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: aarav.student.branchId, amountPaise: String(rupees * 100), method: "cash" }));
+  const pay = (householdId: string, rupees: number) => withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: aarav.student.branchId, amountPaise: String(rupees * 100), method: "cash" }));
   receipt.a = (await pay(aarav.household.id, 500)).id;
   receipt.b = (await pay(zoya.household.id, 300)).id;
   await withTenant(T, async (tx) => {
@@ -165,7 +165,7 @@ describe("a payer with no members left (spec: invoice history stays readable)", 
       const made = await insertInvoice(tx, { tenantId: T, branchId: imran.student.branchId, householdId: imran.household.id, payerGuardianId: uncle.id, billToName: "Aslam Khan", studentId: imran.student.id, issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 60_000n, totalPaise: 60_000n });
       return updateInvoice(tx, made.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
     });
-    const paid = await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: imran.household.id, branchId: imran.student.branchId, amountPaise: "20000", method: "cash", allocations: [{ invoiceId: inv.id, amountPaise: "20000" }] }));
+    const paid = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, imran.household.id), branchId: imran.student.branchId, amountPaise: "20000", method: "cash", allocations: [{ invoiceId: inv.id, amountPaise: "20000" }] }));
     expect(paid.payerGuardianId).toBe(uncle.id);
 
     await withTenant(T, (tx) => removeFamilyMember(tx, owner, imran.student.id, uncle.id));

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
@@ -7,7 +7,7 @@ import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
-import { students } from "@/modules/students/schema";
+import { guardians, studentGuardians, students } from "@/modules/students/schema";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
 // Every money move for a payer takes turns: recording, cancelling, refunding,
@@ -366,7 +366,17 @@ export async function payerInScope(tx: Tx, memberIds: string[], payer: Payer): P
   return (await payersOfMembers(tx, memberIds)).some((p) => payerKey(p) === key);
 }
 
-// The members under one family key, deleted ones too: their invoices are still owed. The only read of the household left on the collect path, until Task 8 names a member instead.
-export async function memberIdsOfFamily(tx: Tx, householdId: string): Promise<string[]> {
-  return (await tx.select({ id: students.id }).from(students).where(eq(students.householdId, householdId)).orderBy(asc(students.createdAt), asc(students.id))).map((r) => r.id);
+// The member and the members who share a guardian with them (siblings), deleted ones too: their invoices are still owed. Removed links and deleted guardians share nothing.
+export async function memberIdsWithSiblings(tx: Tx, memberId: string): Promise<string[]> {
+  const live = and(isNull(studentGuardians.removedAt), isNull(guardians.deletedAt));
+  const mine = tx.select({ id: studentGuardians.guardianId }).from(studentGuardians).innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId)).where(and(eq(studentGuardians.studentId, memberId), live));
+  const shared = tx.select({ id: studentGuardians.studentId }).from(studentGuardians).innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId)).where(and(inArray(studentGuardians.guardianId, mine), live));
+  const rows = await tx.select({ id: students.id }).from(students).where(or(eq(students.id, memberId), inArray(students.id, shared))).orderBy(asc(students.createdAt), asc(students.id));
+  return rows.map((r) => r.id);
+}
+
+// A member's name and household (written on the payment until Task 9 drops the column), deleted ones too.
+export async function memberHeader(tx: Tx, id: string): Promise<{ name: string; householdId: string } | undefined> {
+  const [row] = await tx.select({ name: students.fullName, householdId: students.householdId }).from(students).where(eq(students.id, id));
+  return row;
 }

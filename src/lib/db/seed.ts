@@ -196,7 +196,7 @@ async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZo
     const balance = inv.totalPaise - inv.paidPaise;
     const amount = String(half ? (split(balance, 2)[0] ?? balance) : balance);
     const reference = { cash: "", upi: `UPI 4471 ${on.slice(5).replace("-", "")}`, cheque: "000451" }[method];
-    const input = { requestId: uuidv7(), householdId: inv.householdId, branchId: inv.branchId, amountPaise: amount, method, ...(reference ? { reference } : {}), allocations: [{ invoiceId: inv.id, amountPaise: amount }] };
+    const input = { requestId: uuidv7(), memberId: inv.studentId ?? "", branchId: inv.branchId, amountPaise: amount, method, ...(reference ? { reference } : {}), allocations: [{ invoiceId: inv.id, amountPaise: amount }] };
     return recordPayment(tx, ctx, input, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
   };
   const methods = ["cash", "upi", "cheque"] as const;

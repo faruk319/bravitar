@@ -20,11 +20,11 @@ import { addFamilyMember } from "@/modules/students/family";
 import { guardians } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { collectedByMonth, familyContact, insertPayment } from "./repo";
 import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
-import { cancelPayment, collectedToday, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
+import { cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
 
 // docs/04 "Test list": the database guards under the payments code
 // (migration 0015) in academy G, and the payments service in academy T, where
@@ -241,7 +241,7 @@ describe("payments", () => {
   const draftBill = (householdId: string, amount: number, dueDate: string, payerGuardianId = payerOfFamily.get(householdId) ?? null): Promise<Invoice> =>
     withTenant(T, (tx) => insertInvoice(tx, { tenantId: T, branchId: main, householdId, studentId: childOfFamily.get(householdId) ?? null, payerGuardianId, issueDate: "2026-09-01", dueDate, subtotalPaise: rupees(amount), totalPaise: rupees(amount) }));
   const pay = (householdId: string, amount: number, extra: Partial<PaymentInput> = {}, as: ScopedCtx = desk, now = NOW): Promise<Payment> =>
-    withTenant(T, (tx) => recordPayment(tx, as, { requestId: uuidv7(), householdId, branchId: main, amountPaise: String(rupees(amount)), ...extra }, { now }));
+    withTenant(T, async (tx) => recordPayment(tx, as, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: main, amountPaise: String(rupees(amount)), ...extra }, { now }));
   const refund = (paymentId: string, amount: number, extra: { reason?: string; invoiceId?: string } = {}, as: ScopedCtx = owner) =>
     withTenant(T, (tx) => refundPayment(tx, as, paymentId, { amountPaise: String(rupees(amount)), reason: extra.reason ?? "Refund", ...(extra.invoiceId ? { invoiceId: extra.invoiceId } : {}) }, { now: NOW }));
   const cancel = (paymentId: string, as: ScopedCtx, now = NOW) => withTenant(T, (tx) => cancelPayment(tx, as, paymentId, { reason: "Wrong entry" }, { now }));
@@ -249,7 +249,7 @@ describe("payments", () => {
     const [i] = await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, id)));
     return [i?.status, i?.paidPaise];
   };
-  const advanceOf = async (householdId: string, branchId = main) => (await withTenant(T, (tx) => familyAccount(tx, desk, householdId, branchId))).advancePaise;
+  const advanceOf = async (householdId: string, branchId = main) => (await withTenant(T, (tx) => familyAccount(tx, desk, childOfFamily.get(householdId) ?? "", branchId))).advancePaise;
   const receiptOf = (id: string) => withTenant(T, (tx) => receipt(tx, desk, id));
   const actions = async (entityId: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, entityId)))).map((r) => r.a).sort();
 
@@ -270,9 +270,9 @@ describe("payments", () => {
         SELECT 'allocation ' || a.payment_id || ' on ' || a.invoice_id || ': below zero' FROM app.payment_allocations a
          GROUP BY a.payment_id, a.invoice_id HAVING sum(a.amount_paise) < 0
         UNION ALL
-        SELECT 'allocation ' || a.id || ': another family, payer or branch' FROM app.payment_allocations a
+        SELECT 'allocation ' || a.id || ': another payer or branch' FROM app.payment_allocations a
           JOIN app.payments p ON p.id = a.payment_id JOIN app.invoices i ON i.id = a.invoice_id
-         WHERE p.household_id <> i.household_id OR p.branch_id <> i.branch_id
+         WHERE p.branch_id <> i.branch_id
             OR p.payer_guardian_id IS DISTINCT FROM i.payer_guardian_id OR p.payer_member_id IS DISTINCT FROM i.payer_member_id
       `),
     );
@@ -309,7 +309,7 @@ describe("payments", () => {
       const h = await family();
       const inv = await bill(h, 1500);
       await pay(h, 1000);
-      const account = await withTenant(T, (tx) => familyAccount(tx, desk, h, main));
+      const account = await withTenant(T, (tx) => familyAccount(tx, desk, childOfFamily.get(h) ?? "", main));
       expect(account.open.map((o) => [o.id, o.status, o.balancePaise])).toEqual([[inv.id, "part_paid", rupees(500)]]);
     });
 
@@ -333,7 +333,7 @@ describe("payments", () => {
       await bill(h2, 1500);
       await pay(h2, 5000);
       expect(await advanceOf(h2)).toBe(rupees(2000));
-      expect((await withTenant(T, (tx) => familyAccount(tx, desk, h2, main))).open).toEqual([]);
+      expect((await withTenant(T, (tx) => familyAccount(tx, desk, childOfFamily.get(h2) ?? "", main))).open).toEqual([]);
     });
 
     it("with nothing picked, the earliest due date goes first, then the lower number", async () => {
@@ -466,7 +466,7 @@ describe("payments", () => {
       const h = await family();
       const first = await pay(h, 100);
       await withTenant(T, async (tx) => {
-        await recordPayment(tx, desk, { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "10000" }, { now: NOW });
+        await recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "10000" }, { now: NOW });
         throw new Error("printer jammed");
       }).catch(() => {});
       expect(seq(await pay(h, 100))).toBe(seq(first) + 1);
@@ -522,36 +522,53 @@ describe("payments", () => {
     });
 
     it("a guardian linked to a member of two families pays for either, and the advance is theirs on both screens", async () => {
-      const [a, b] = [await family(), await family()];
+      const [a, b, c] = [await family(), await family(), await family()];
       const shared = payerOfFamily.get(a) ?? "";
       await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: childOfFamily.get(b) ?? "", guardianId: shared, relation: "mother" }));
       const invB = await bill(b, 1000, "2026-09-10", main, { payerGuardianId: shared });
-      // Family B's own mother cannot be asked for on A's screen, but the shared guardian can be on both.
-      await expect(pay(a, 500, { payerGuardianId: payerOfFamily.get(b) ?? "" })).rejects.toMatchObject({ status: 400 });
+      // An unrelated family's mother cannot be asked for on A's screen, but the shared guardian can be on both.
+      await expect(pay(a, 500, { payerGuardianId: payerOfFamily.get(c) ?? "" })).rejects.toMatchObject({ status: 400 });
       const p = await pay(b, 1500, { payerGuardianId: shared });
       expect(await state(invB.id)).toEqual(["paid", rupees(1000)]);
       expect([await advanceOf(a), await advanceOf(b)]).toEqual([rupees(500), rupees(500)]);
       expect(p.payerGuardianId).toBe(shared);
-      // A's screen lists only A's members' invoices, whoever pays them.
+      // A and B are siblings through the shared guardian, so either screen lists both children's open invoices; C's stay off it.
       const invA = await bill(a, 300, "2026-09-10", main, { payerGuardianId: shared });
-      expect((await withTenant(T, (tx) => familyAccount(tx, desk, a, main))).open.map((o) => o.id)).toEqual([invA.id]);
+      const invB2 = await bill(b, 200, "2026-09-11", main, { payerGuardianId: shared });
+      await bill(c, 400);
+      const open = (h: string) => withTenant(T, async (tx) => (await familyAccount(tx, desk, childOfFamily.get(h) ?? "", main)).open.map((o) => o.id).sort());
+      expect(await open(a)).toEqual([invA.id, invB2.id].sort());
+      expect(await open(b)).toEqual([invA.id, invB2.id].sort());
     });
 
-    it("a shared guardian paying with nothing ticked settles only the screen's family; the rest stays as an advance", async () => {
-      const [a, b] = [await family(), await family()];
+    it("a shared guardian paying with nothing ticked settles the screen's siblings oldest first, and never an unrelated family's", async () => {
+      const [a, b, c] = [await family(), await family(), await family()];
       const shared = payerOfFamily.get(a) ?? "";
       await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: childOfFamily.get(b) ?? "", guardianId: shared, relation: "mother" }));
-      // B's invoice is the older one, so oldest-first over everything the payer owes would reach it first.
       const invB = await bill(b, 1000, "2026-09-01", main, { payerGuardianId: shared });
       const invA = await bill(a, 1000, "2026-09-10", main, { payerGuardianId: shared });
+      const invC = await bill(c, 1000, "2026-09-05");
       const p = await pay(a, 1500, { payerGuardianId: shared });
-      expect([await state(invA.id), await state(invB.id)]).toEqual([["paid", rupees(1000)], ["issued", 0n]]);
-      expect((await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, p.id)))).map((x) => [x.invoiceId, x.amountPaise])).toEqual([[invA.id, rupees(1000)]]);
-      expect(await advanceOf(a)).toBe(rupees(500));
-      // Ticking the other family's invoice from this screen is refused, and B's screen settles B.
-      await expect(pay(a, 500, { payerGuardianId: shared, allocations: [{ invoiceId: invB.id, amountPaise: String(rupees(500)) }] })).rejects.toMatchObject({ status: 400 });
-      await pay(b, 1000, { payerGuardianId: shared });
-      expect(await state(invB.id)).toEqual(["paid", rupees(1000)]);
+      expect([await state(invB.id), await state(invA.id), await state(invC.id)]).toEqual([["paid", rupees(1000)], ["part_paid", rupees(500)], ["issued", 0n]]);
+      expect((await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, p.id)))).map((x) => [x.invoiceId, x.amountPaise]).sort()).toEqual([[invA.id, rupees(500)], [invB.id, rupees(1000)]].sort());
+      expect(await advanceOf(a)).toBe(0n);
+      // Ticking an unrelated family's invoice from this screen is refused.
+      await expect(pay(a, 500, { payerGuardianId: shared, allocations: [{ invoiceId: invC.id, amountPaise: String(rupees(500)) }] })).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("siblings are members who share a live guardian link: a removed link or an unknown member shares nothing", async () => {
+      const [a, b] = [await family(), await family()];
+      const shared = payerOfFamily.get(a) ?? "";
+      const [childA, childB] = [childOfFamily.get(a) ?? "", childOfFamily.get(b) ?? ""];
+      const invB = await bill(b, 300, "2026-09-10", main, { payerGuardianId: shared });
+      const openOn = async (m: string) => (await withTenant(T, (tx) => collectScreen(tx, desk, m, main, { now: NOW }))).account.open.map((o) => o.id);
+      expect(await openOn(childA)).toEqual([]);
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: childB, guardianId: shared, relation: "mother" }));
+      expect(await openOn(childA)).toEqual([invB.id]);
+      expect((await withTenant(T, (tx) => collectScreen(tx, desk, childA, main, { now: NOW }))).memberName).toMatch(/^Child/);
+      await withTenant(T, (tx) => removeFamilyLink(tx, childB, shared, NOW));
+      expect(await openOn(childA)).toEqual([]);
+      await expect(withTenant(T, (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: uuidv7(), branchId: main, amountPaise: "100" }, { now: NOW }))).rejects.toMatchObject({ status: 404 });
     });
 
     it("a link goes to the payer; a member paying for themselves with no guardian gets their own name and number", async () => {
@@ -907,7 +924,7 @@ describe("payments", () => {
     it("recording needs fees:collect, returns the payment, and a repeat returns the same one", async () => {
       const h = await family();
       await bill(h, 1500);
-      const body = { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "150000" };
+      const body = { requestId: uuidv7(), memberId: childOfFamily.get(h) ?? "", branchId: main, amountPaise: "150000" };
       expect((await call(recordPaymentRoute, "/api/payments", "teacher", body)).status).toBe(403);
       const res = await call(recordPaymentRoute, "/api/payments", "desk", body);
       expect(res.status).toBe(201);
@@ -919,14 +936,14 @@ describe("payments", () => {
 
     it("refunding needs fees:refund at the route", async () => {
       const h = await family();
-      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "50000" })).json()) as { id: string };
+      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), memberId: childOfFamily.get(h) ?? "", branchId: main, amountPaise: "50000" })).json()) as { id: string };
       expect((await call(refundPaymentRoute, `/api/payments/${p.id}/refund`, "desk", { amountPaise: "10000", reason: "Overpaid" })).status).toBe(403);
       expect((await call(refundPaymentRoute, `/api/payments/${p.id}/refund`, "owner", { amountPaise: "10000", reason: "Overpaid" })).status).toBe(201);
     });
 
     it("the collector cancels their own payment on the day", async () => {
       const h = await family();
-      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), householdId: h, branchId: main, amountPaise: "5000" })).json()) as { id: string };
+      const p = (await (await call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), memberId: childOfFamily.get(h) ?? "", branchId: main, amountPaise: "5000" })).json()) as { id: string };
       const out = await call(cancelPaymentRoute, `/api/payments/${p.id}/cancel`, "desk", { reason: "Typed the wrong family" });
       expect(out.status).toBe(200);
       expect(((await out.json()) as { status: string }).status).toBe("cancelled");

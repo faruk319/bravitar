@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -127,7 +127,7 @@ describe("an activity in a branch stands alone", () => {
     // Reading, fees and winding down still work.
     expect((await withTenant(A, (tx) => batchDetail(tx, owner, batch.dance))).name).toBe("Kothrud Dance");
     expect((await withTenant(A, (tx) => classRoster(tx, teacher, danceClass))).entries.map((x) => x.name)).toEqual(["Meher"]);
-    await withTenant(A, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: kothrud, amountPaise: "50000" }));
+    await withTenant(A, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: kothrud, amountPaise: "50000" }));
     await withTenant(A, (tx) => leaveEnrollment(tx, owner, danceEnrollment));
 
     expect(await withTenant(A, (tx) => lockedActivities(tx, []))).toEqual([{ activity: danceName, branch: "Kothrud Centre", status: "paused" }]);

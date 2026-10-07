@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -83,7 +83,7 @@ describe("messages follow the payer", () => {
   });
 
   it("a receipt is queued for the payer of what it paid", async () => {
-    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: household, branchId, amountPaise: "80000", method: "cash", allocations: [{ invoiceId: bill.father.id, amountPaise: "80000" }] }, { now }));
+    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, household), branchId, amountPaise: "80000", method: "cash", allocations: [{ invoiceId: bill.father.id, amountPaise: "80000" }] }, { now }));
     const receipts = (await log()).filter((m) => m.templateKey === "receipt");
     expect(receipts.map((m) => m.toPhone)).toEqual([FATHER]);
   });

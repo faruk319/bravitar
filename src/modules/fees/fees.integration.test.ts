@@ -22,7 +22,7 @@ import { addFamilyMember } from "@/modules/students/family";
 import { removeFamilyLink, updateGuardian } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { addMonths } from "./billing";
 import { generateInvoices, resolvePayers } from "./invoicing";
 import type { Enrollment } from "@/modules/enrollments/schema";
@@ -324,9 +324,9 @@ describe("leaving and moving", () => {
     expect(await gen(M0, [karate, dance])).toEqual({ invoices: 1, lines: 2, skipped: [] });
     const [inv] = await withTenant(T, async (tx) => issueInvoices(tx, owner, [(await invoicesOf(f.householdId))[0]?.id ?? ""], { now: at(M0) }));
     const branchId = inv?.branchId ?? "";
-    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "180000" }));
+    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, f.householdId), branchId, amountPaise: "180000" }));
     expect((await invoicesOf(f.householdId))[0]).toMatchObject({ status: "paid", paidPaise: 180000n });
-    const advance = async () => (await withTenant(T, (tx) => familyAccount(tx, owner, f.householdId, branchId))).advancePaise;
+    const advance = async () => (await withTenant(T, (tx) => familyAccount(tx, owner, f.ids[0] ?? "", branchId))).advancePaise;
 
     await withTenant(T, (tx) => leaveEnrollment(tx, owner, karate, { date: addDays(M0, -1) }));
     const [voided, redraft] = await invoicesOf(f.householdId);
@@ -350,8 +350,8 @@ describe("leaving and moving", () => {
     const [first, second, third] = await invoicesOf(f.householdId);
     // Installment 1 paid in full.
     const full = String(first?.totalPaise ?? 0n);
-    await withTenant(T, (tx) =>
-      recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId: first?.branchId ?? "", amountPaise: full, allocations: [{ invoiceId: first?.id ?? "", amountPaise: full }] }),
+    await withTenant(T, async (tx) =>
+      recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, f.householdId), branchId: first?.branchId ?? "", amountPaise: full, allocations: [{ invoiceId: first?.id ?? "", amountPaise: full }] }),
     );
     const snapshot = async () => Promise.all([second, third].map(async (i) => ({ invoice: (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, i?.id ?? ""))))[0], lines: await linesOn(i?.id ?? "") })));
     const before = await snapshot();
@@ -500,7 +500,7 @@ describe("one payment for siblings' invoices", () => {
     const drafts = await invoicesOf(f.householdId);
     const issued = await withTenant(T, (tx) => issueInvoices(tx, owner, drafts.map((d) => d.id), { now: at(M1) }));
     const branchId = issued[0]?.branchId ?? "";
-    const payment = await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId: f.householdId, branchId, amountPaise: "250000" }));
+    const payment = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, f.householdId), branchId, amountPaise: "250000" }));
 
     const after = await invoicesOf(f.householdId);
     // Three invoices of 80000 each; a per-family balance bug would pay one invoice or none.
@@ -508,7 +508,7 @@ describe("one payment for siblings' invoices", () => {
     const rows = await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.paymentId, payment.id)));
     expect(rows.map((r) => r.invoiceId).sort()).toEqual(after.map((i) => i.id).sort());
     expect(sum(rows.map((r) => r.amountPaise))).toBe(240000n);
-    expect((await withTenant(T, (tx) => familyAccount(tx, owner, f.householdId, branchId))).advancePaise).toBe(10000n);
+    expect((await withTenant(T, (tx) => familyAccount(tx, owner, f.ids[0] ?? "", branchId))).advancePaise).toBe(10000n);
   });
 });
 

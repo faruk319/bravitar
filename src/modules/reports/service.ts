@@ -7,7 +7,7 @@ import { type Paise, sum } from "@/lib/money/paise";
 import { type BatchMarks, type MarkCounts, marksByBatch, marksByStudent, type StudentMarks } from "@/modules/attendance/repo";
 import { attendancePercent } from "@/modules/attendance/service";
 import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
-import { duesByFamily, type FamilyDues, payersOverdue } from "@/modules/fees/repo";
+import { duesByPayer, type PayerDues, payersOverdue } from "@/modules/fees/repo";
 import { paymentsRecordedBetween, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
 import { payerKey } from "@/modules/students/payer";
@@ -56,16 +56,16 @@ export async function collectionRegister(tx: Tx, ctx: ScopedCtx, input: Range): 
   };
 }
 
-export type DuesTotals = Omit<FamilyDues, "householdId" | "name">;
-export type DuesReport = { asOf: string; families: FamilyDues[]; totals: DuesTotals };
+export type DuesTotals = Omit<PayerDues, "payerKey" | "name">;
+export type DuesReport = { asOf: string; payers: PayerDues[]; totals: DuesTotals };
 
 // A snapshot as of today: what is owed now, aged by days past the due date.
 export async function outstandingDues(tx: Tx, ctx: ScopedCtx): Promise<DuesReport> {
   assertCan(ctx, "reports:view");
   const asOf = await tenantToday(tx);
-  const families = await duesByFamily(tx, ctx.branchIds, asOf);
-  const add = (k: "notDue" | "days0to30" | "days31to60" | "over60") => sum(families.map((f) => f[k]));
-  return { asOf, families, totals: { invoices: families.reduce((n, f) => n + f.invoices, 0), notDue: add("notDue"), days0to30: add("days0to30"), days31to60: add("days31to60"), over60: add("over60") } };
+  const payers = await duesByPayer(tx, ctx.branchIds, asOf);
+  const add = (k: "notDue" | "days0to30" | "days31to60" | "over60") => sum(payers.map((f) => f[k]));
+  return { asOf, payers, totals: { invoices: payers.reduce((n, f) => n + f.invoices, 0), notDue: add("notDue"), days0to30: add("days0to30"), days31to60: add("days31to60"), over60: add("over60") } };
 }
 
 export type AdmissionsReport = Range & { joined: StudentMove[]; left: StudentMove[] };

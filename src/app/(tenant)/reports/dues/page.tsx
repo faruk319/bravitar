@@ -19,7 +19,7 @@ const COLUMNS = [
 ] as const;
 const cell = (p: bigint) => (p ? formatPaise(p) : "—");
 
-// docs/03 §11: what each family owes now, aged by days past the due date (agreed 2026-09-25).
+// docs/03 §11: what each payer owes now, aged by days past the due date (agreed 2026-09-25).
 export default async function DuesReportPage() {
   const session = await requireStaffPage();
   const ctx = { ...scopedCtx(session), branchIds: await selectedBranchIds(session) };
@@ -43,7 +43,7 @@ export default async function DuesReportPage() {
         <table className="w-full min-w-[40rem] text-body">
           <thead>
             <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
-              <th className="px-4 py-2 font-medium">Family</th>
+              <th className="px-4 py-2 font-medium">Payer</th>
               {COLUMNS.map(([k, label]) => (
                 <th key={k} className="py-2 pr-4 text-right font-medium">
                   {label}
@@ -53,8 +53,8 @@ export default async function DuesReportPage() {
             </tr>
           </thead>
           <tbody>
-            {r.families.map((f) => (
-              <tr key={f.householdId} className="border-t border-neutral-100">
+            {r.payers.map((f) => (
+              <tr key={f.payerKey} className="border-t border-neutral-100">
                 <td className="px-4 py-2">
                   {f.name}
                   <span className="text-caption text-muted-foreground"> · {f.invoices}</span>
@@ -78,7 +78,7 @@ export default async function DuesReportPage() {
             </tr>
           </tbody>
         </table>
-        {r.families.length ? null : <p className="p-6 text-center text-body text-muted-foreground">Nothing owed.</p>}
+        {r.payers.length ? null : <p className="p-6 text-center text-body text-muted-foreground">Nothing owed.</p>}
       </Card>
     </Gate>
   );

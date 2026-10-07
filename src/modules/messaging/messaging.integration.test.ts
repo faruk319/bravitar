@@ -20,7 +20,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { getDefaultBranch } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice, sharedReceipt } from "./public";
 import { type ComposeRequest, composeMessage } from "./compose";
 
@@ -79,7 +79,7 @@ beforeAll(async () => {
   invoiceId = draft?.id ?? "";
   await withTenant(T, (tx) => issueInvoices(tx, owner, [invoiceId], { now: at("2026-10-01T04:00:00Z") }));
   const branch = await withTenant(T, getDefaultBranch);
-  paymentId = (await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: branch?.id ?? "", amountPaise: "50000" }))).id;
+  paymentId = (await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: branch?.id ?? "", amountPaise: "50000" }))).id;
 });
 
 afterAll(async () => {

@@ -18,7 +18,6 @@ import { enroll } from "@/modules/enrollments/service";
 import { addMonths } from "@/modules/fees/billing";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { memberIdsOfFamily } from "@/modules/payments/repo";
 import { recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
@@ -30,14 +29,14 @@ import { students } from "@/modules/students/schema";
 import { billableFamily } from "@/lib/db/isolation/family";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { dashboardData } from "./service";
 
 // docs/06 Prompt 19: Today, Money, At risk and Pipeline, each number from
 // known data, and only for those who may see the list behind it.
 
 // The guardian ids of a household's members, lead first.
-const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, await memberIdsOfFamily(tx, householdId))).map((g) => g.id);
+const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, [await memberOfHousehold(tx, householdId)])).map((g) => g.id);
 const stamp = Math.random().toString(36).slice(2, 8);
 const TZ = "Asia/Kolkata";
 let T = "";
@@ -60,12 +59,12 @@ const owe = (householdId: string, rupees: number, late: number) =>
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
     const [payer] = await familyGuardians(tx, householdId);
-    const [studentId] = await memberIdsOfFamily(tx, householdId);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, studentId: studentId ?? null, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const studentId = await memberOfHousehold(tx, householdId);
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, studentId, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: string) =>
-  withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), householdId, branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
+  withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
 
 beforeAll(async () => {
   const t = await testAcademy({ name: `Dash ${stamp}`, slug: `dash-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `dash-owner-${stamp}@example.test` } });
@@ -212,7 +211,7 @@ describe("the dashboard", () => {
       const rao = await withTenant(t.tenant.id, (tx) => billableFamily(tx, ctx, "Rao"));
       const house = rao.id;
       const receive = (rupees: number, on: string) =>
-        withTenant(t.tenant.id, (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), householdId: house, branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
+        withTenant(t.tenant.id, async (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, house), branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
       const inMonth = (back: number) => `${addMonths(start, -back).slice(0, 7)}-10`;
       await receive(900, inMonth(8)); // before the window
       await receive(100, inMonth(7)); // first month in the window

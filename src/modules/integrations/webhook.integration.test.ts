@@ -16,7 +16,7 @@ import { cancelPayment, collectionSheet, familyAccount, recordPayment, refundPay
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { billableFamily } from "@/lib/db/isolation/family";
-import { testAcademy } from "@/lib/db/isolation/academy";
+import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
 import { fakeRazorpay } from "./fake-razorpay";
 import { razorpayWebhookRoute } from "./routes";
 import { webhookEvents } from "./schema";
@@ -184,11 +184,11 @@ describe("the Razorpay webhook", () => {
   it("paying more than the balance keeps the rest as the family's advance", async () => {
     const inv = await bill(A, 1500);
     const l = await linkFor(A, inv);
-    await withTenant(A.id, (tx) => recordPayment(tx, A.owner, { requestId: uuidv7(), householdId: inv.householdId, branchId: A.branch, amountPaise: "50000" }));
+    await withTenant(A.id, async (tx) => recordPayment(tx, A.owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, inv.householdId), branchId: A.branch, amountPaise: "50000" }));
     const payId = `pay_${stamp}_${++pay}`;
     await deliver(A.slug, linkPaid(l, A.id, payId, 150000), A.secret); // the old link, for the full ₹1,500
     expect(await invoiceOf(A, inv.id)).toMatchObject({ status: "paid", paidPaise: 150000n });
-    expect((await withTenant(A.id, (tx) => familyAccount(tx, A.owner, inv.householdId, A.branch))).advancePaise).toBe(50000n);
+    expect((await withTenant(A.id, (tx) => familyAccount(tx, A.owner, inv.studentId ?? "", A.branch))).advancePaise).toBe(50000n);
   });
 
   it("a malformed reference id falls back to the link's notes", async () => {

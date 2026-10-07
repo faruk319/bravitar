@@ -24,16 +24,18 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
   const [invoiceId, studentId] = [param("invoice"), param("student")];
 
   const found = await withTenant(session.tenant.id, async (tx) => {
-    let who: { householdId: string; branchId: string; preselect?: string[] } | undefined;
+    let who: { memberId: string; branchId: string; preselect?: string[] } | undefined;
     if (invoiceId) {
       const inv = await getInvoice(tx, ctx.branchIds, invoiceId);
       if (!inv) throw new NotFoundError("Invoice");
-      who = { householdId: inv.householdId, branchId: inv.branchId, preselect: [inv.id] };
+      const memberId = inv.studentId ?? inv.payerMemberId;
+      if (!memberId) throw new NotFoundError("Member");
+      who = { memberId, branchId: inv.branchId, preselect: [inv.id] };
     } else if (studentId) {
       const s = await requireStudent(tx, ctx, studentId);
-      who = { householdId: s.householdId, branchId: s.branchId };
+      who = { memberId: s.id, branchId: s.branchId };
     }
-    return who ? { who, screen: await collectScreen(tx, ctx, who.householdId, who.branchId) } : undefined;
+    return who ? { who, screen: await collectScreen(tx, ctx, who.memberId, who.branchId) } : undefined;
   }).catch((e: unknown) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
@@ -57,7 +59,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
     <Gate permission="fees:collect">
       <PageHeader title="Collect payment">
         <p className="mt-1 text-caption text-muted-foreground">
-          {screen.householdName}
+          {screen.memberName}
           {session.branchIds.length !== 1 ? ` · ${screen.branchName}` : ""} ·{" "}
           <Link href="/payments/new" className="text-accent-600 hover:underline">
             Another family
@@ -66,7 +68,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
       </PageHeader>
       <Card>
         <CollectForm
-          householdId={who.householdId}
+          memberId={who.memberId}
           branchId={who.branchId}
           due={due}
           advance={String(screen.account.advancePaise)}

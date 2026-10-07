@@ -29,8 +29,8 @@ export function duesRows(r: DuesReport): string[][] {
   return [
     ["Outstanding dues", `as of ${r.asOf}`, "days past the due date"],
     [],
-    ["Family", "Invoices", "Not yet due", "0-30 days", "31-60 days", "Over 60 days", "Total"],
-    ...r.families.map((f) => [f.name, String(f.invoices), ...[f.notDue, f.days0to30, f.days31to60, f.over60, f.notDue + f.days0to30 + f.days31to60 + f.over60].map(rupeesText)]),
+    ["Payer", "Invoices", "Not yet due", "0-30 days", "31-60 days", "Over 60 days", "Total"],
+    ...r.payers.map((f) => [f.name, String(f.invoices), ...[f.notDue, f.days0to30, f.days31to60, f.over60, f.notDue + f.days0to30 + f.days31to60 + f.over60].map(rupeesText)]),
     ["Total", String(t.invoices), ...[t.notDue, t.days0to30, t.days31to60, t.over60, t.notDue + t.days0to30 + t.days31to60 + t.over60].map(rupeesText)],
   ];
 }

@@ -70,7 +70,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
     return {
       ...overview,
       // docs/03 §9: the family's advance is visible on the family.
-      account: showFees ? await familyAccount(tx, ctx, overview.student.householdId, overview.student.branchId) : undefined,
+      account: showFees ? await familyAccount(tx, ctx, overview.student.id, overview.student.branchId) : undefined,
       batches: await studentBatches(tx, ctx, id),
       choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
       attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,

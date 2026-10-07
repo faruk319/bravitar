@@ -348,29 +348,37 @@ export async function lockDrafts(tx: Tx, branchIds: string[], ids: string[]): Pr
     .for("update");
 }
 
-export type FamilyDues = { householdId: string; name: string; invoices: number; notDue: bigint; days0to30: bigint; days31to60: bigint; over60: bigint };
+export type PayerDues = { payerKey: string; name: string; invoices: number; notDue: bigint; days0to30: bigint; days31to60: bigint; over60: bigint };
 
-// Outstanding dues aged by days past the due date (agreed 2026-09-25).
-export async function duesByFamily(tx: Tx, branchIds: string[], today: string): Promise<FamilyDues[]> {
+// Outstanding dues aged by days past the due date (agreed 2026-09-25), one row per payer. An invoice with no payer is one "No payer" row.
+export async function duesByPayer(tx: Tx, branchIds: string[], today: string): Promise<PayerDues[]> {
   const owed = sql`${invoices.totalPaise} - ${invoices.paidPaise}`;
   const late = sql`(${today}::date - ${invoices.dueDate})`;
   const bucket = (when: SQL) => sql<string>`coalesce(sum(${owed}) FILTER (WHERE ${when}), 0)::text`;
   const rows = await tx
     .select({
-      householdId: invoices.householdId,
-      name: sql<string>`max(${billToName})`,
+      payerGuardianId: invoices.payerGuardianId,
+      payerMemberId: invoices.payerMemberId,
       invoices: sql<number>`count(*)::int`,
       notDue: bucket(sql`${late} < 0`),
       days0to30: bucket(sql`${late} BETWEEN 0 AND 30`),
       days31to60: bucket(sql`${late} BETWEEN 31 AND 60`),
       over60: bucket(sql`${late} > 60`),
+      owed: sql<string>`sum(${owed})::text`,
     })
     .from(invoices)
-    .innerJoin(households, eq(households.id, invoices.householdId))
     .where(and(inArray(invoices.status, [...OWED]), invoiceScope(branchIds)))
-    .groupBy(invoices.householdId)
-    .orderBy(desc(sql`sum(${owed})`), asc(sql`max(${billToName})`));
-  return rows.map((r) => ({ ...r, notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) }));
+    .groupBy(invoices.payerGuardianId, invoices.payerMemberId);
+  const payers = rows.flatMap((r) => payerOf(r) ?? []);
+  const names = await payerNames(tx, payers);
+  return rows
+    .map(({ payerGuardianId, payerMemberId, owed: total, ...r }) => {
+      const payer = payerOf({ payerGuardianId, payerMemberId });
+      const key = payer ? payerKey(payer) : "none";
+      return { total: BigInt(total), row: { ...r, payerKey: key, name: (payer && names.get(key)) || "No payer", notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) } };
+    })
+    .sort((a, b) => (a.total === b.total ? a.row.name.localeCompare(b.row.name) : a.total > b.total ? -1 : 1))
+    .map((x) => x.row);
 }
 
 // Payers with at least `min` invoices past their due date and not fully paid.
