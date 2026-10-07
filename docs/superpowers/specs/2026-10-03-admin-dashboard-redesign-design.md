@@ -26,7 +26,7 @@ These were settled in conversation and are not open in implementation.
 2. **One accent colour.** The per-academy-type accents agreed 2026-09-26
    (deeniyat turquoise, karate maroon, dance violet, sports sky) are
    **dropped**. Every academy gets `#2563EB`. This reverses that decision
-   deliberately; `docs/07-ui-ux.md` §2 must be rewritten to match.
+   deliberately; `docs/07-ui-ux.md` §2 is rewritten to match in this slice.
 3. **Real data only.** No mock data anywhere. Sections the DB cannot answer
    today get their query added in this slice.
 4. **Nav keeps every real destination**, reorganised into MAIN / MANAGEMENT.
@@ -83,7 +83,7 @@ navigation, and never carries meaning alone — an icon or a word goes with it.
 
 Delete the four `[data-vertical="…"]` blocks. `data-vertical` then has no
 remaining consumer (verified: `grep -rn "data-vertical" src docs` matches only
-`globals.css`, `layout.tsx:31` and the `docs/07` paragraph describing it), so
+`globals.css`, `layout.tsx:31` and the old `docs/07` paragraph, now rewritten), so
 also remove the attribute and the `resolveTenantBySlug()` lookup at
 `src/app/layout.tsx:28-30`. That lookup is a database query on **every page
 render** whose only purpose was picking the accent; dropping it is a free
@@ -232,7 +232,5 @@ not migrate it to Recharts.
 
 ## Follow-ups (not this slice)
 
-- `docs/07-ui-ux.md` §2 rewritten: one accent, the new palette, the two-tier
-  status tokens, and the removal of the per-type table.
 - Per-page polish passes for the rest of the tenant area.
 - Coach shell, portal and platform.

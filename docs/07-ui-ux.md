@@ -39,39 +39,34 @@ one thing: "this is the action, or this is where you are."
 
 ```
 neutral-0    #FFFFFF   page background (light)
-neutral-50   #F7F7F6   card / hover background
-neutral-100  #EDEDEA   dividers, disabled fills
-neutral-300  #C9C9C4   borders
-neutral-500  #77776F   secondary text
-neutral-700  #464642   body text
-neutral-900  #1A1A18   headings, primary buttons
+neutral-50   #F7F8FA   card / hover background
+neutral-100  #F3F4F6   dividers, disabled fills
+neutral-300  #E5E7EB   borders
+neutral-500  #6B7280   secondary text
+neutral-700  #374151   body text
+neutral-900  #111827   headings, primary buttons
 
-accent-600   #2B5FD9   primary button, active nav, links
-accent-50    #EEF3FD   active nav background, selected row
+accent-600   #2563EB   primary button, active nav, links
+accent-50    #EFF6FF   active nav background, selected row
 ```
 
-**The accent by academy type** (agreed 2026-09-26). The academy's type sets
-`data-vertical` on `<html>` and re-points the two accent tokens (`globals.css`);
-neutrals and status colours never change. Each accent was checked against
-present, absent and late, so a type never paints its buttons in a status colour.
-It follows the type; there is no theme picker.
-
-| Type | accent-600 | accent-50 | Why |
-|---|---|---|---|
-| general, tuition | #2B5FD9 blue | #EEF3FD | the default |
-| deeniyat | #0C6B8A turquoise | #E7F3F7 | masjid-tile turquoise; green would read as Present |
-| karate | #7F1D1D maroon | #FBEFEF | dojo red, kept apart from Absent |
-| dance | #7C3AED violet | #F5F3FF | |
-| sports | #0369A1 sky | #F0F9FF | |
+**One accent for every academy** (2026-10-03). The per-academy-type accents
+(deeniyat turquoise, karate maroon and so on) and the `data-vertical` attribute
+on `<html>` that drove them are removed. Do not re-add either: every academy
+gets `#2563EB`, and there is no theme picker.
 
 Status colours are a **separate system** from the accent. They never appear on
-buttons or navigation, only on data.
+buttons or navigation, only on data. Each has two steps: `-600` is the bright
+fill for dots, bars and tints; `-700` is the darker step for any text.
 
 ```
-success-600  #1F7A46   present, paid
-danger-600   #C1392B                absent, overdue
-warning-600  #A9640A                unmarked, due soon
+            -600 fill   -700 text
+success     #16A34A     #15803D    present, paid
+danger      #EF4444     #B91C1C    absent, overdue
+warning     #F59E0B     #B45309    unmarked, due soon
 ```
+
+Never set text in a `-600` status colour: it fails 4.5:1 on white.
 
 Rules:
 
