@@ -55,7 +55,7 @@ export default async function FeePlansPage() {
           </PlanEditor>
         }
       />
-      <div className="grid items-start gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_360px]">
         <Card className="overflow-hidden p-0 md:p-0">
           {plans.length ? (
             <ul className="divide-y divide-neutral-100">

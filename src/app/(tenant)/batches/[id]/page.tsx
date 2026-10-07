@@ -92,7 +92,7 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
         </p>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_340px]">
         <div className="flex min-w-0 flex-col gap-5">
           <Card>
             <CardHeader

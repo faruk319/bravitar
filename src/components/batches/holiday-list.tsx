@@ -38,7 +38,7 @@ export function HolidayList({ holidays, canManage, allBranches, today }: { holid
     <div className="flex max-w-xl flex-col gap-4">
       {canManage ? (
         <Card>
-        <form onSubmit={add} className="grid gap-3 md:grid-cols-2">
+        <form onSubmit={add} className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Date" id="date">
             <Input id="date" name="date" type="date" required min={today} />
           </Field>

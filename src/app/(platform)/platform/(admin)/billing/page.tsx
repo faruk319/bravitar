@@ -35,7 +35,7 @@ export default async function BillingPage() {
   return (
     <>
       <h1 className="mb-4 text-display">Billing</h1>
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label={`Overdue · ${o.overdueCount} ${o.overdueCount === 1 ? "bill" : "bills"}`} value={formatPaise(o.overduePaise)} icon={TriangleAlert} href="#owed" />
         <StatCard label="Still owed" value={formatPaise(o.owedPaise)} icon={Wallet} href="#owed" />
         <StatCard label="Received this month" value={formatPaise(o.receivedPaise)} icon={Banknote} href="#payments" />

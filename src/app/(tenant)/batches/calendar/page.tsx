@@ -44,7 +44,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/batches
         ) : null}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-7 md:gap-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-7 md:gap-2">
         {cal.days.map((d) => (
           <section key={d.date} className={cn("rounded-2xl border border-neutral-100 bg-card shadow-card md:min-h-48", d.date === cal.today && "border-accent-600")}>
             <header className={cn("flex items-baseline gap-2 border-b border-border px-3 py-2", d.date === cal.today && "bg-accent-50")}>

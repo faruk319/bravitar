@@ -148,7 +148,7 @@ export function ImportWizard() {
             </li>
           ))}
         </ul>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="Parent is usually" id="relation">
             <select id="relation" value={relation} onChange={(e) => setRelation(e.target.value as Relation)} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
               <option value="father">Father</option>

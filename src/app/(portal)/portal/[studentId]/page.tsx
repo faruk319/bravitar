@@ -126,7 +126,7 @@ export default async function ChildPortalPage({ params, searchParams }: PageProp
   return (
     <div className="flex flex-col">
       {p.children.length > 1 ? <SegmentedTabs label="Children" items={p.children.map((k) => ({ href: `/portal/${k.id}`, label: k.fullName, active: k.id === c.id }))} /> : null}
-      <div className="grid items-start gap-4 md:grid-cols-[300px_1fr]">
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[300px_1fr]">
         <Card className="flex flex-col items-center text-center">
           <Avatar name={c.fullName} size="lg" />
           <h1 className="mt-3 text-display">{c.fullName}</h1>

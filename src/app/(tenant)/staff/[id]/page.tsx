@@ -29,7 +29,7 @@ export default async function StaffMemberPage({ params }: PageProps<"/staff/[id]
   return (
     <Gate permission="staff:read">
       <PageHeader title={s.fullName} entity />
-      <div className="grid items-start gap-5 lg:grid-cols-[340px_1fr]">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[340px_1fr]">
         <Card className="flex flex-col items-center text-center">
           <Avatar name={s.fullName} size="lg" />
           <div className="mt-3 flex flex-wrap justify-center gap-2">

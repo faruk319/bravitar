@@ -66,7 +66,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
         </div>
       </PageHeader>
 
-      <div className="grid items-start gap-5 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_320px]">
         <Card>
           <InvoiceLines d={d} />
           {d.receipts.length ? (

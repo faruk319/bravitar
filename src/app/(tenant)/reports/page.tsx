@@ -17,7 +17,7 @@ export default function ReportsPage() {
   return (
     <Gate permission="reports:view">
       <PageHeader title="Reports" />
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {REPORTS.map((r) => (
           <Link key={r.href} href={r.href}>
             <Card className="h-full hover:bg-neutral-50">
