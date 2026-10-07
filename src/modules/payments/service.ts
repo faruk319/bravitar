@@ -129,20 +129,21 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, householdId: string,
 
 // A payment has exactly one payer, and only ever pays that payer's invoices:
 // money never crosses payers. It is the payer asked for, else the payer of the
-// invoices ticked (they must all agree), else the only payer with dues, else
-// the lead guardian of the family's members. Never guessed between several.
+// invoices ticked (they must all agree), else the family's only guardian, else its
+// only member. Who owes is never taken to be who is paying; never guessed between several.
 async function payerOfPayment(tx: Tx, data: z.output<typeof paymentSchema>): Promise<Payer> {
   if (data.payerGuardianId && data.payerMemberId) throw new BadRequestError("Pick one payer");
   const asked: Payer | undefined = data.payerGuardianId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId ? { kind: "member", memberId: data.payerMemberId } : undefined;
-  const open = await openInvoicesOfHousehold(tx, data.householdId, data.branchId);
-  const ticked = data.allocations ? open.filter((i) => data.allocations?.some((a) => a.invoiceId === i.id)) : open;
+  // Only invoices ticked name a payer. Who happens to owe is not who is paying: an advance for the mother must not land on the father.
+  const open = data.allocations ? await openInvoicesOfHousehold(tx, data.householdId, data.branchId) : [];
+  const ticked = open.filter((i) => data.allocations?.some((a) => a.invoiceId === i.id));
   const payers = new Map(ticked.map((i) => [payerKey(payerOfRow(i)), payerOfRow(i)] as const));
   if (asked) {
     if (data.allocations && [...payers.keys()].some((k) => k !== payerKey(asked))) throw new BadRequestError("Those invoices are billed to someone else");
     if (!(await belongsToFamily(tx, data.householdId, asked))) throw new BadRequestError("That payer isn't in this family");
     return asked;
   }
-  if (payers.size > 1) throw new BadRequestError(data.allocations ? "These invoices are billed to different people. Record one payment for each." : "Say who is paying");
+  if (payers.size > 1) throw new BadRequestError("These invoices are billed to different people. Record one payment for each.");
   const [found] = payers.values();
   if (found) return found;
   const lead = await familyGuardians(tx, data.householdId);

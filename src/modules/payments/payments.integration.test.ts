@@ -546,6 +546,14 @@ describe("payments", () => {
       expect(await state(dads.id)).toEqual(["issued", 0n]);
     });
 
+    it("an advance with nobody named and nothing ticked is never put on the one payer who happens to owe", async () => {
+      const { h, dad } = await twoPayers();
+      const dads = await bill(h, 1500, "2026-09-10", main, { payerGuardianId: dad });
+      await expect(pay(h, 1500)).rejects.toMatchObject({ status: 400 });
+      expect(await state(dads.id)).toEqual(["issued", 0n]);
+      expect((await withTenant(T, (tx) => tx.select().from(paymentAllocations).where(eq(paymentAllocations.invoiceId, dads.id)))).length).toBe(0);
+    });
+
     it("with several payers owing and nobody named, it asks who; naming one pays only theirs, oldest first", async () => {
       const { h, mum, dad } = await twoPayers();
       const [mums, dads] = [await bill(h, 1000, "2026-09-20", main, { payerGuardianId: mum }), await bill(h, 1000, "2026-09-05", main, { payerGuardianId: dad })];
@@ -570,7 +578,7 @@ describe("payments", () => {
       const h = await family();
       const self = childOfFamily.get(h) ?? "";
       const inv = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: null, payerMemberId: self });
-      const p = await pay(h, 1000);
+      const p = await pay(h, 1000, { payerMemberId: self });
       expect([p.payerGuardianId, p.payerMemberId]).toEqual([null, self]);
       expect(await state(inv.id)).toEqual(["paid", rupees(1000)]);
     });
@@ -589,7 +597,7 @@ describe("payments", () => {
     it("a receipt keeps the name it was made with after the payer is renamed, on the receipt and on the day's sheet", async () => {
       const { h, mum } = await twoPayers();
       await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
-      const p = await pay(h, 1000);
+      const p = await pay(h, 1000, { payerGuardianId: mum });
       const named = (await receiptOf(p.id)).householdName;
       expect(named).toMatch(/^Mother /);
       await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Renamed Person" }).where(eq(guardians.id, mum)));
