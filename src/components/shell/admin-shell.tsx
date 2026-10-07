@@ -72,26 +72,24 @@ function Disclosure({ parent, compact, onNavigate, others }: { parent: NavParent
   const [open, setOpen] = useState(() => parent.children.some((c) => isActive(pathname, c.href, others)));
   const panelId = useId();
   const links = parent.children.map((c) => <NavLink key={c.href} item={c} compact={compact} onNavigate={onNavigate} others={others} />);
-  // Too narrow for a popover: the children show as a flat icon list.
-  if (compact) return <div className="flex flex-col gap-0.5 border-y border-neutral-100 py-1">{links}</div>;
+  // One tree for both rail widths so focus survives a resize. Collapsed hides
+  // the button and shows the children as a flat icon list (no room for a popover).
   return (
-    <div>
+    <div className={cn(compact && "border-y border-neutral-100 py-1")}>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(!open)}
-        className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-body whitespace-nowrap text-neutral-700 outline-none hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn("min-h-12 w-full items-center gap-3 rounded-lg px-3 text-body whitespace-nowrap text-neutral-700 outline-none hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring", compact ? "hidden" : "flex")}
       >
         <NavIcon name={parent.icon} />
         <span className="truncate">{label}</span>
         <ChevronDown className={cn("ml-auto size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")} aria-hidden />
       </button>
-      {open ? (
-        <div id={panelId} className="ml-6 flex flex-col gap-0.5 border-l border-neutral-100 pl-2">
-          {links}
-        </div>
-      ) : null}
+      <div id={panelId} className={cn("flex flex-col gap-0.5", !compact && "ml-6 border-l border-neutral-100 pl-2", !compact && !open && "hidden")}>
+        {links}
+      </div>
     </div>
   );
 }

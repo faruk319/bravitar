@@ -39,7 +39,7 @@ export function NavLink({ item, compact, onNavigate, others }: { item: NavItem; 
       )}
     >
       <NavIcon name={item.icon} />
-      {compact ? <span className="sr-only">{label}</span> : <span className="truncate">{label}</span>}
+      <span className={compact ? "sr-only" : "truncate"}>{label}</span>
       {!compact && item.count ? <span className="ml-auto rounded-full bg-neutral-100 px-2 py-0.5 text-caption text-neutral-700 tabular-nums">{item.count}</span> : null}
     </Link>
   );
