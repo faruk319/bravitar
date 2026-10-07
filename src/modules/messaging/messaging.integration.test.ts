@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
@@ -27,6 +27,13 @@ import { type ComposeRequest, composeMessage } from "./compose";
 const stamp = Math.random().toString(36).slice(2, 8);
 const slug = `msg-${stamp}`;
 const at = (s: string) => new Date(s);
+const PINNED = "2026-10-05T14:00:00Z";
+// Pin only Date, so addHoliday's reconcile (real clock) never sees the 7 Oct 18:00 class as started.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(PINNED));
+});
+afterEach(() => vi.useRealTimers());
 let T = "";
 let owner: ScopedCtx;
 let teacher: ScopedCtx;
