@@ -3,7 +3,6 @@
 import * as icons from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isActive, type NavItem } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { useLabel } from "./tenant-provider";
@@ -22,13 +21,12 @@ export function NavIcon({ name, className }: { name: string; className?: string 
 
 export { isActive } from "@/lib/auth/nav";
 
-// One row in the rail, the sheet or the bottom nav. `compact` = icon only,
-// with a tooltip (never when the label is showing).
+// One row in the rail, the sheet or the bottom nav. `compact` = icon only.
 export function NavLink({ item, compact, onNavigate, others }: { item: NavItem; compact?: boolean | undefined; onNavigate?: (() => void) | undefined; others?: string[] }) {
   const pathname = usePathname();
   const active = isActive(pathname, item.href, others);
   const label = useNavLabel(item);
-  const link = (
+  return (
     <Link
       href={item.href}
       {...(onNavigate ? { onClick: onNavigate } : {})}
@@ -44,14 +42,5 @@ export function NavLink({ item, compact, onNavigate, others }: { item: NavItem; 
       {compact ? <span className="sr-only">{label}</span> : <span className="truncate">{label}</span>}
       {!compact && item.count ? <span className="ml-auto rounded-full bg-neutral-100 px-2 py-0.5 text-caption text-neutral-700 tabular-nums">{item.count}</span> : null}
     </Link>
-  );
-  if (!compact) return link;
-  return (
-    <Tooltip>
-      <TooltipTrigger render={link} />
-      <TooltipContent side="right">
-        {label}
-      </TooltipContent>
-    </Tooltip>
   );
 }

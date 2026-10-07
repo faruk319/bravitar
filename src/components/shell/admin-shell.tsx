@@ -8,7 +8,6 @@ import { Avatar } from "@/components/avatar";
 import { OfflineBanner, SyncBadge } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { isActive, isParent, type NavEntry, type NavGroup, type NavItem, type NavParent } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
 import { AcademyMenu } from "./academy-menu";
@@ -23,9 +22,23 @@ const HOVER_QUERY = "(hover: hover) and (pointer: fine)";
 const ENTER_MS = 120;
 const LEAVE_MS = 200;
 
-// The pin, remembered per browser; the server always renders collapsed.
-function useRailPinned(): [boolean, () => void] {
-  const pinned = useSyncExternalStore(
+// No hover (touch, tablets) means no way to peek; the server assumes hover so
+// it renders collapsed, and a touch client flips after hydration.
+function useCanHover(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(HOVER_QUERY);
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(HOVER_QUERY).matches,
+    () => true,
+  );
+}
+
+// The saved choice (null = none yet), per browser; the server renders collapsed.
+function useRailChoice(): [boolean | null, (open: boolean) => void] {
+  const raw = useSyncExternalStore(
     (cb) => {
       window.addEventListener("storage", cb);
       window.addEventListener(RAIL_EVENT, cb);
@@ -36,20 +49,20 @@ function useRailPinned(): [boolean, () => void] {
     },
     () => {
       try {
-        return localStorage.getItem(RAIL_KEY) === "open";
+        return localStorage.getItem(RAIL_KEY);
       } catch {
-        return false;
+        return null;
       }
     },
-    () => false,
+    () => null,
   );
-  const toggle = () => {
+  const save = (open: boolean) => {
     try {
-      localStorage.setItem(RAIL_KEY, pinned ? "closed" : "open");
+      localStorage.setItem(RAIL_KEY, open ? "open" : "closed");
     } catch {}
     window.dispatchEvent(new Event(RAIL_EVENT));
   };
-  return [pinned, toggle];
+  return [raw === null ? null : raw === "open", save];
 }
 
 // Parents seed open on their own route, then stay as the person left them.
@@ -110,7 +123,10 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
 function Rail({ groups }: { groups: NavGroup[] }) {
   const tenantName = useTenantName();
   const me = useSession().actor.name;
-  const [pinned, togglePin] = useRailPinned();
+  const canHover = useCanHover();
+  const [choice, save] = useRailChoice();
+  // A saved choice wins; without one, touch starts expanded.
+  const pinned = choice ?? !canHover;
   const [hovered, setHovered] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const open = pinned || hovered;
@@ -129,9 +145,8 @@ function Rail({ groups }: { groups: NavGroup[] }) {
     if (!e.currentTarget.contains(e.relatedTarget)) schedule(false, LEAVE_MS);
   };
 
-  const pinLabel = pinned ? "Unpin menu" : "Pin menu";
-  const pinButton = (
-    <Button variant="ghost" size="icon-sm" onClick={togglePin} aria-label={pinLabel} aria-pressed={pinned}>
+    const pinButton = (
+    <Button variant="ghost" size="icon-sm" onClick={() => save(!pinned)} aria-label={pinned ? "Unpin menu" : "Pin menu"} aria-pressed={pinned}>
       {pinned ? <PanelLeftClose /> : <PanelLeftOpen />}
     </Button>
   );
@@ -150,7 +165,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
   );
 
   return (
-    <div className="sticky top-0 z-30 hidden h-screen w-[72px] shrink-0 md:block print:hidden">
+    <div className={cn("sticky top-0 z-30 hidden h-screen shrink-0 md:block print:hidden", !canHover && pinned ? "w-[248px]" : "w-[72px]")}>
       <aside
         data-expanded={open}
         onPointerEnter={(e) => {
@@ -172,27 +187,13 @@ function Rail({ groups }: { groups: NavGroup[] }) {
       >
         <div className={cn("mb-4 flex h-12 shrink-0 items-center", open ? "justify-between pl-3" : "justify-center")}>
           {open ? <div className="truncate text-heading">{tenantName}</div> : null}
-          {open ? (
-            pinButton
-          ) : (
-            <Tooltip>
-              <TooltipTrigger render={pinButton} />
-              <TooltipContent side="right">{pinLabel}</TooltipContent>
-            </Tooltip>
-          )}
+          {pinButton}
         </div>
         <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
           <NavGroups groups={groups} compact={!open} />
         </div>
         <div className="mt-2 shrink-0 border-t border-neutral-100 pt-2">
-          {open ? (
-            profile
-          ) : (
-            <Tooltip>
-              <TooltipTrigger render={profile} />
-              <TooltipContent side="right">{`${me}, ${tenantName}`}</TooltipContent>
-            </Tooltip>
-          )}
+          {profile}
         </div>
       </aside>
     </div>
