@@ -60,7 +60,7 @@ export default async function BillingPage() {
           <p className="text-body whitespace-pre-line text-muted-foreground">{d.howToPay ?? "Bravitar will tell you how to pay."}</p>
         </Card>
       ) : null}
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         {d.branches.map((b) => (
           <Card key={b.id}>
             <CardHeader title={b.name} action={can.rename ? <RenameBranch branchId={b.id} name={b.name} /> : null} />

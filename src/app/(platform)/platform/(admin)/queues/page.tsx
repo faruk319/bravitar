@@ -16,7 +16,7 @@ export default async function QueuesPage() {
   return (
     <>
       <h1 className="mb-4 text-display">Queues</h1>
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <Section title="Failed messages" empty={!q.messages.length}>
           {q.messages.map((m) => (
             <li key={m.id} className="flex items-start justify-between gap-3 py-3">

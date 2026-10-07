@@ -40,7 +40,7 @@ export default async function BillingPage() {
         <StatCard label="Still owed" value={formatPaise(o.owedPaise)} icon={Wallet} href="#owed" />
         <StatCard label="Received this month" value={formatPaise(o.receivedPaise)} icon={Banknote} href="#payments" />
       </div>
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <Section id="owed" title="Bills owed" empty={!o.owed.length}>
           {o.owed.map((b) => (
             <li key={b.id} className="flex items-start justify-between gap-3 py-3">

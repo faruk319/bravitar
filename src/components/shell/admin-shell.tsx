@@ -147,7 +147,7 @@ function Rail({ groups }: { groups: NavGroup[] }) {
   };
 
   const pinButton = (
-    <Button variant="ghost" size="icon-sm" onClick={() => save(!pinned)} aria-label={pinned ? "Unpin menu" : "Pin menu"} aria-pressed={pinned}>
+    <Button variant="ghost" size="icon-sm" className="size-11" onClick={() => save(!pinned)} aria-label={pinned ? "Unpin menu" : "Pin menu"} aria-pressed={pinned}>
       {pinned ? <PanelLeftClose /> : <PanelLeftOpen />}
     </Button>
   );

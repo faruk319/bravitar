@@ -60,7 +60,7 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
         <CardHeader title="By day" />
         <Columns label="Collected by day" columns={byDay(r)} />
       </Card>
-      <div className="mb-5 grid items-start gap-5 lg:grid-cols-2">
+      <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <Totals title="By method" rows={r.byMethod} of={r.total.totalPaise} label={(k) => METHOD_LABEL[k as PaymentMethod]} />
         <Totals title="By staff" rows={r.byCollector} of={r.total.totalPaise} />
       </div>

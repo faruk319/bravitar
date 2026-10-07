@@ -19,7 +19,7 @@ export function EnquiryReport({ r, csv }: { r: Report; csv: boolean }) {
   return (
     <div className="flex flex-col">
       <RangeForm from={r.from} to={r.to} keep={{ view: "report" }} {...(csv ? { csv: `/api/reports/enquiries?from=${r.from}&to=${r.to}` } : {})} />
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <Card>
           <CardHeader title={`${f.received} received`} />
           <BarList

@@ -77,7 +77,7 @@ export default async function MessagesPage({ searchParams }: PageProps<"/message
       </PageHeader>
       <SegmentedTabs label="Messages" items={tabs} />
       {view === "templates" ? (
-        <div className="grid items-start gap-5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
           {data.templates.map((t) => (
             <TemplateEditor key={`${t.key}-${t.body}-${t.isActive}-${t.providerTemplateName}`} t={t} />
           ))}

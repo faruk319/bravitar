@@ -29,7 +29,7 @@ export default async function AtRiskPage() {
         </p>
       </PageHeader>
       {reports ? <RangeForm csv="/api/reports/at-risk" /> : null}
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         {r.attendance ? (
           <Card>
             <CardHeader title={`Attendance under ${AT_RISK.below}%`} />

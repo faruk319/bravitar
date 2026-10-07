@@ -93,7 +93,7 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
           </Link>
         ) : null}
       </PageHeader>
-      <div className="grid items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-body font-medium tabular-nums">{formatPhone(e.phone)}</span>

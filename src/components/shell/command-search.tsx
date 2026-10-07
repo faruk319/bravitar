@@ -48,7 +48,7 @@ export function CommandSearch() {
   return (
     <Sheet open={open} onOpenChange={(o) => { setOpen(o); if (!o) setHits([]); }}>
       <SheetTrigger
-        render={<button type="button" aria-label="Search" className="flex size-10 shrink-0 items-center justify-center gap-2 rounded-full text-muted-foreground hover:bg-neutral-50 md:h-10 md:w-full md:max-w-sm md:justify-start md:border md:border-neutral-100 md:bg-canvas md:px-4" />}
+        render={<button type="button" aria-label="Search" className="flex size-11 shrink-0 items-center justify-center gap-2 rounded-full text-muted-foreground outline-none hover:bg-neutral-50 focus-visible:ring-2 focus-visible:ring-ring md:h-11 md:w-full md:max-w-sm md:justify-start md:border md:border-neutral-100 md:bg-canvas md:px-4" />}
       >
         <Search className="size-5 md:size-4" aria-hidden />
         <span className="hidden flex-1 text-left text-label md:inline">Search students, parents, phone</span>

@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
+import pkg from "./package.json";
 
 const nextConfig: NextConfig = {
+  // Inlined at build time, so no runtime file read.
+  env: { NEXT_PUBLIC_APP_VERSION: pkg.version },
   // The service worker must never be served stale (Next PWA guide).
   async headers() {
     return [

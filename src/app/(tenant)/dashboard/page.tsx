@@ -77,7 +77,7 @@ export default async function DashboardPage() {
             {collected ? <StatCard label="This month" value={formatPaise(collected.total)} trend={trend} note={trend === null || trend === undefined ? count(collected.count, "receipt", "receipts") : "so far vs all of last month"} icon={IndianRupee} href="/payments" /> : null}
           </div>
           <QuickActions actions={actions} />
-          <div className="grid items-start gap-5 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
             {today ? (
               <Card>
                 <CardHeader title="Today's schedule" />
