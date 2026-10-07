@@ -64,16 +64,30 @@ export const COUNTED = new Set<Payment["status"]>(["confirmed", "refunded"]);
   collection *register* records what came in that day, and a refund is a separate
   outgoing event.
 
-This is the open item recorded during the dashboard work ("whether refunds should
-be netted off is still the user's call"), and the brief leans the other way
-without settling it. **Ask before changing it** — it moves every revenue figure
-on the dashboard and in every report, and both readings are defensible.
+**DECIDED 2026-10-07 (user): keep counting them, and show refunds separately.**
+`COUNTED` stays as it is. The collection register reports what came in that day,
+matching the cash box an owner reconciles against; refunds appear as their own
+outgoing line rather than silently shrinking a past day's total. Every existing
+figure on the dashboard and in reports is therefore correct as it stands, and no
+back-dated number changes.
+
+This closes the item left open during the dashboard redesign ("whether refunds
+should be netted off is still the user's call"). The brief's "cancelled/reversed"
+wording is satisfied by cancelled already being excluded.
+
+**What this obliges Reports to do:** anywhere a collection total is shown, the
+refunds for that period must be visible too — a line, a column, or a second
+figure. The number is only honest when the refund beside it is visible.
 
 ## Export — the only part needing a dependency
 
 `reports:export` already exists and is described as "Export reports as CSV", so
-CSV was the plan and needs no dependency. **Excel (.xlsx) and PDF do.** The
-project rule is to state why before adding one.
+CSV was the plan and needs no dependency. **Excel (.xlsx) and PDF do.**
+
+**DECIDED 2026-10-07 (user): CSV first; Excel and PDF later if asked for.** No
+new dependency for this module. CSV opens in Excel and Google Sheets and covers
+the real need, which is getting the filtered rows out. Revisit when someone
+actually asks to forward a formatted sheet to an accountant.
 
 Export must run **server-side**: it has to respect RLS, the caller's branch
 scope and `reports:export`, and the brief requires the file to contain exactly
