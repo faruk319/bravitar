@@ -64,6 +64,26 @@ The student-facing concept gets a **different name** — "Fee arrangement" or
 Subscriptions in one product is the same trap the migration spec already hit
 once with the word "payer on the subscription".
 
+### 4. Collections and Collect payment are one page
+
+Decided 2026-10-07. `/payments/new` stops being its own route; collecting a
+payment happens **on the Collections page**, from a `+ Collect Payment` button
+opening a drawer or modal. This is what the original brief described, and it
+removes a route whose page today is a dead end.
+
+**Why it matters now:** the collect form still asks for a **"Family"**
+(placeholder "Child, parent or phone") — the entity this migration removes — and
+has no payer field. Since Task 6, a family with several payers and nothing
+ticked is refused with "Say who is paying", and the form gives staff no way to
+answer. Confined to multi-payer families, so nothing is broken for demo data
+today, but the collect flow must become payer-aware when it is rebuilt:
+
+1. pick the member or payer,
+2. show what that payer owes, their advance credit, and their active fee
+   arrangements,
+3. allocate oldest-first by default, editable by authorised staff,
+4. never allocate across two payers in one payment — the API refuses it.
+
 ## Sequencing
 
 1. Finish the Member + Guardian + Payer migration (Tasks 5-10). Finance is the
