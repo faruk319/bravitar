@@ -65,7 +65,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/invoice
               <li key={i.id}>
                 <Link href={`/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 hover:bg-neutral-50 md:px-5">
                   <span className="min-w-0">
-                    <span className="block truncate text-body font-medium text-neutral-900">{i.householdName}</span>
+                    <span className="block truncate text-body font-medium text-neutral-900">{i.billToName}</span>
                     <span className="block truncate text-caption text-muted-foreground">{[i.number ?? "Draft", i.students.join(", "), `due ${formatDate(i.dueDate)}`].filter(Boolean).join(" · ")}</span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">

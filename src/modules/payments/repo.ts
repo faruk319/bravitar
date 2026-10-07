@@ -190,16 +190,16 @@ const receivedFrom = sql<string>`coalesce(
   ${livePayerName},
   '')`;
 
-export async function receiptNames(tx: Tx, p: Payment): Promise<{ householdName: string; collectorName: string | null }> {
+export async function receiptNames(tx: Tx, p: Payment): Promise<{ billToName: string; collectorName: string | null }> {
   const [r] = await tx.select({ name: receivedFrom }).from(payments).where(eq(payments.id, p.id));
   const [s] = p.receivedBy ? await tx.select({ name: staffUsers.fullName }).from(staffUsers).where(eq(staffUsers.id, p.receivedBy)) : [];
-  return { householdName: r?.name ?? "", collectorName: s?.name ?? null };
+  return { billToName: r?.name ?? "", collectorName: s?.name ?? null };
 }
 
 // ---- the collection sheet (docs/04 "The daily reconciliation screen")
 
 export type SheetPayment = Pick<Payment, "id" | "receiptNumber" | "amountPaise" | "method" | "reference" | "receivedOn" | "recordedOn" | "status" | "cancelReason" | "receivedBy" | "createdAt"> & {
-  householdName: string;
+  billToName: string;
   collectorName: string | null;
 };
 
@@ -217,7 +217,7 @@ const recorded = (tx: Tx, where: SQL | undefined) =>
       cancelReason: payments.cancelReason,
       receivedBy: payments.receivedBy,
       createdAt: payments.createdAt,
-      householdName: receivedFrom,
+      billToName: receivedFrom,
       collectorName: staffUsers.fullName,
     })
     .from(payments)
@@ -235,7 +235,7 @@ export async function paymentsRecordedBetween(tx: Tx, branchIds: string[], from:
   return recorded(tx, and(paymentScope(branchIds), gte(payments.recordedOn, from), lte(payments.recordedOn, to)));
 }
 
-export type SheetRefund = Pick<Refund, "id" | "paymentId" | "amountPaise" | "method" | "reason" | "refundedAt"> & { receiptNumber: string; householdName: string };
+export type SheetRefund = Pick<Refund, "id" | "paymentId" | "amountPaise" | "method" | "reason" | "refundedAt"> & { receiptNumber: string; billToName: string };
 
 // Money paid back on a day against one branch's payments.
 export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<SheetRefund[]> {
@@ -248,7 +248,7 @@ export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<
       reason: refunds.reason,
       refundedAt: refunds.refundedAt,
       receiptNumber: payments.receiptNumber,
-      householdName: receivedFrom,
+      billToName: receivedFrom,
     })
     .from(refunds)
     .innerJoin(payments, eq(payments.id, refunds.paymentId))

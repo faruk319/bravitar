@@ -40,7 +40,7 @@ export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (inv
       </div>
 
       <dl className="divide-y divide-neutral-100">
-        <Fact label="Received from">{r.householdName}</Fact>
+        <Fact label="Received from">{r.billToName}</Fact>
         <Fact label="Amount">
           <Money paise={p.amountPaise} className="text-number" />
         </Fact>

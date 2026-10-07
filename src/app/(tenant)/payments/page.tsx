@@ -72,7 +72,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
                   <Link href={`/payments/${p.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
                     <span className="min-w-0">
                       <span className="block truncate text-body text-neutral-900">
-                        {p.householdName} <span className="text-caption tabular-nums text-muted-foreground">{p.receiptNumber}</span>
+                        {p.billToName} <span className="text-caption tabular-nums text-muted-foreground">{p.receiptNumber}</span>
                       </span>
                       <span className={cn("block truncate text-caption", cancelled ? "text-danger-700" : "text-muted-foreground")}>{facts.filter(Boolean).join(" · ")}</span>
                     </span>
@@ -92,7 +92,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
                     <Link href={`/payments/${r.paymentId}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
                       <span className="min-w-0">
                         <span className="block truncate text-body text-neutral-900">
-                          {r.householdName} <span className="text-caption tabular-nums text-muted-foreground">{r.receiptNumber}</span>
+                          {r.billToName} <span className="text-caption tabular-nums text-muted-foreground">{r.receiptNumber}</span>
                         </span>
                         <span className="block truncate text-caption text-muted-foreground">
                           {timeIn(timeZone, r.refundedAt)} · {METHOD_LABEL[r.method]} · {r.reason}

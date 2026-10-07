@@ -388,7 +388,7 @@ export async function familyAccount(tx: Tx, ctx: ScopedCtx, memberId: string, br
 
 export type Receipt = {
   payment: Payment;
-  householdName: string;
+  billToName: string;
   collectorName: string | null;
   lines: ReceiptLine[];
   advancePaise: Paise;

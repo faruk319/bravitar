@@ -469,6 +469,17 @@ describe("student_guardians is the only family link", () => {
     expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Kavya Ask", "Kiran Ask"]);
   });
 
+  it("linkGuardianId is ignored when the phone matches no guardian: a new guardian is made, the named one is not touched", async () => {
+    const a = await mk("Zoya Raw", "Nadia Raw", P(219));
+    const made = await withTenant(T, (tx) =>
+      createStudent(tx, ownerCtx, { fullName: "Yusuf Raw", dateOfBirth: "2017-03-12", guardian: { fullName: "Other Raw", phone: P(220), relation: "father" }, linkGuardianId: a.guardian.id, consents }),
+    );
+    expect(made.guardian.id).not.toBe(a.guardian.id);
+    expect(made.guardian.fullName).toBe("Other Raw");
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Zoya Raw"]);
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, made.guardian.id))).map((k) => k.fullName)).toEqual(["Yusuf Raw"]);
+  });
+
   it("createStudent shows a restricted staff member only the members they may see, and never links a guardian they cannot see", async () => {
     const far = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Far Kid", branchId: otherBranch, guardian: { fullName: "Far Parent", phone: P(217), relation: "father" }, consents }));
     await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Near Kid", branchId: mainBranch, guardian: { fullName: "Far Parent", phone: P(217), relation: "father" }, linkGuardianId: far.guardian.id, consents }));

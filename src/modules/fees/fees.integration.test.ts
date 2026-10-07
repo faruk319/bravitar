@@ -470,7 +470,7 @@ describe("the owed summary", () => {
     expect(await withTenant(T, (tx) => owedSummary(tx, [branch], today))).toEqual({
       invoices: 5,
       owedPaise: 365_000n, // 750 + 300 + 100 + 500 + 2,000 rupees
-      overdueFamilies: 1,
+      overduePayers: 1,
       overduePaise: 75_000n, // only the overdue invoice, and only what is left on it
       dueTomorrow: 1,
     });
@@ -486,11 +486,11 @@ describe("the owed summary", () => {
         await updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", financialYear(today)), fy: financialYear(today), status: "issued", issuedAt: new Date() });
       }
     });
-    expect(await withTenant(T, (tx) => owedSummary(tx, [branchTwo], today))).toMatchObject({ invoices: 2, overdueFamilies: 2 });
+    expect(await withTenant(T, (tx) => owedSummary(tx, [branchTwo], today))).toMatchObject({ invoices: 2, overduePayers: 2 });
   });
 
   it("is all zeroes for a branch with nothing owed", async () => {
-    expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overdueFamilies: 0, overduePaise: 0n, dueTomorrow: 0 });
+    expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overduePayers: 0, overduePaise: 0n, dueTomorrow: 0 });
   });
 });
 
@@ -609,8 +609,8 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     expect(issued?.billToName).toBe("Mother Issue");
     await withTenant(T, (tx) => updateGuardian(tx, s.guardian.id, { fullName: "Mother Later" }));
     // A live read would show Mother Later (or the household's name).
-    expect((await listed(issued?.id ?? ""))?.householdName).toBe("Mother Issue");
-    expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, issued?.id ?? "", { now: at(M1) }))).householdName).toBe("Mother Issue");
+    expect((await listed(issued?.id ?? ""))?.billToName).toBe("Mother Issue");
+    expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, issued?.id ?? "", { now: at(M1) }))).billToName).toBe("Mother Issue");
   });
 
   it("a guardian left with no members, even a deleted one, leaves their invoices readable under the name they were issued with", async () => {
@@ -620,16 +620,19 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     const [inv] = await issue((await invoicesOf(s.household.id))[0]?.id ?? "", M1);
     await withTenant(T, (tx) => removeFamilyLink(tx, s.student.id, s.guardian.id, new Date()));
     await withTenant(T, (tx) => updateGuardian(tx, s.guardian.id, { fullName: "Renamed Away", deletedAt: new Date() }));
-    expect((await listed(inv?.id ?? ""))?.householdName).toBe("Mother Gone");
-    expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, inv?.id ?? "", { now: at(M1) }))).householdName).toBe("Mother Gone");
+    expect((await listed(inv?.id ?? ""))?.billToName).toBe("Mother Gone");
+    expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, inv?.id ?? "", { now: at(M1) }))).billToName).toBe("Mother Gone");
   });
 
-  it("a row that never got a bill-to name still shows the household's", async () => {
+  it("a row that never got a bill-to name shows blank, not the household's", async () => {
     const s = await one("Legacy Kid", "Mother Legacy");
     const e = await join(s.student.id, "Karate A", M0);
     await gen(M1, [e]);
     const [inv] = await issue((await invoicesOf(s.household.id))[0]?.id ?? "", M1);
     await withTenant(T, (tx) => tx.update(invoices).set({ billToName: null }).where(eq(invoices.id, inv?.id ?? "")));
-    expect((await listed(inv?.id ?? ""))?.householdName).toBe(s.household.name);
+    const row = await listed(inv?.id ?? "");
+    expect(row?.id).toBe(inv?.id); // found, so the blank is the name and not a missing row
+    expect(row?.billToName).toBe("");
+    expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, inv?.id ?? "", { now: at(M1) }))).billToName).toBe("");
   });
 });

@@ -15,7 +15,7 @@ export function collectionRows(r: CollectionRegister): string[][] {
     ["Collection register", `${r.from} to ${r.to}`],
     [],
     ["Recorded on", "Receipt", "Family", "Method", "Collected by", "Amount", "Status"],
-    ...r.rows.map((p) => [p.recordedOn, p.receiptNumber, p.householdName, METHOD_LABEL[p.method], p.collectorName ?? "Online", rupeesText(p.amountPaise), p.status === "cancelled" ? `Cancelled: ${p.cancelReason ?? ""}` : ""]),
+    ...r.rows.map((p) => [p.recordedOn, p.receiptNumber, p.billToName, METHOD_LABEL[p.method], p.collectorName ?? "Online", rupeesText(p.amountPaise), p.status === "cancelled" ? `Cancelled: ${p.cancelReason ?? ""}` : ""]),
     ["Total", String(r.total.count), "", "", "", rupeesText(r.total.totalPaise), ""],
     [],
     ...totals("By day", r.byDay),

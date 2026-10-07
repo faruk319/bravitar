@@ -15,6 +15,7 @@ import { issueInvoices, voidInvoice } from "@/modules/fees/service";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { collectionRegister } from "@/modules/reports/service";
 import { createHousehold, guardiansOfMembers, removeFamilyLink, upsertFamilyLink } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
 import { guardians } from "@/modules/students/schema";
@@ -700,12 +701,14 @@ describe("payments", () => {
       const { h, mum } = await twoPayers();
       await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
       const p = await pay(h, 1000, { payerGuardianId: mum });
-      const named = (await receiptOf(p.id)).householdName;
+      const named = (await receiptOf(p.id)).billToName;
       expect(named).toMatch(/^Mother /);
       await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Renamed Person" }).where(eq(guardians.id, mum)));
-      expect((await receiptOf(p.id)).householdName).toBe(named);
+      expect((await receiptOf(p.id)).billToName).toBe(named);
       const sheet = await withTenant(T, (tx) => collectionSheet(tx, owner, { branchId: main }, { now: NOW }));
-      expect(sheet.payments.find((x) => x.id === p.id)?.householdName).toBe(named);
+      expect(sheet.payments.find((x) => x.id === p.id)?.billToName).toBe(named);
+      const register = await withTenant(T, (tx) => collectionRegister(tx, owner, { from: "2026-09-01", to: "2026-09-30" }));
+      expect(register.rows.find((x) => x.id === p.id)?.billToName).toBe(named);
     });
 
     it("a receipt from before names were stored takes the name of the invoice it paid, else the payer's name today", async () => {
@@ -718,10 +721,10 @@ describe("payments", () => {
       const onInvoice = await legacy();
       await withTenant(T, (tx) => tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId: T, paymentId: onInvoice.id, invoiceId: inv.id, kind: "receipt", amountPaise: rupees(1000) }));
       await withTenant(T, (tx) => tx.update(invoices).set({ paidPaise: rupees(1000), status: "paid" }).where(eq(invoices.id, inv.id)));
-      expect((await receiptOf(onInvoice.id)).householdName).toBe("Mother");
+      expect((await receiptOf(onInvoice.id)).billToName).toBe("Mother");
       const advanceOnly = await legacy();
       await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Mother Today" }).where(eq(guardians.id, mum)));
-      expect((await receiptOf(advanceOnly.id)).householdName).toBe("Mother Today");
+      expect((await receiptOf(advanceOnly.id)).billToName).toBe("Mother Today");
     });
   });
 

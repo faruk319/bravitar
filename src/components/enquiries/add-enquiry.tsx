@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { selectClass } from "@/components/fees/plan-editor";
 import { Field, SheetForm, useAction } from "@/components/sheet-form";
-import { knownLine } from "@/components/students/known-guardian";
+import { knownLine } from "@/components/students/known-line";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";

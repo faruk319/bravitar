@@ -11,7 +11,6 @@ import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { applyAdvance } from "@/modules/payments/service";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { getHousehold } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
 import { isOverdue } from "./billing";
@@ -241,7 +240,7 @@ async function requireInvoice(tx: Tx, ctx: ScopedCtx, id: string): Promise<Invoi
 export type InvoiceDetail = {
   invoice: Invoice;
   overdue: boolean;
-  householdName: string;
+  billToName: string;
   lines: LineRow[];
   academy: { name: string; gstin: string | null; branch: string; address: string | null };
 };
@@ -254,12 +253,12 @@ export async function invoiceDetail(tx: Tx, ctx: ScopedCtx, id: string, opts: { 
 // What staff and the family's private link both show; callers check access.
 export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
   const id = invoice.id;
-  const [lines, household, tenant, branch] = await Promise.all([linesOf(tx, [id]), getHousehold(tx, invoice.householdId), getOwnTenant(tx), getBranch(tx, invoice.branchId)]);
+  const [lines, tenant, branch] = await Promise.all([linesOf(tx, [id]), getOwnTenant(tx), getBranch(tx, invoice.branchId)]);
   const today = todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now);
   return {
     invoice,
     overdue: isOverdue(invoice, today),
-    householdName: invoice.billToName ?? household?.name ?? "",
+    billToName: invoice.billToName ?? "",
     lines,
     academy: { name: tenant?.name ?? "", gstin: tenant?.gstin ?? null, branch: branch?.name ?? "", address: branch?.address ?? null },
   };
@@ -298,7 +297,7 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
   const names = await payerNames(tx, drafts.flatMap((d) => payerIfValid(d)));
   for (const d of drafts) {
     // The bill-to name is frozen here (the payer's name today, else the one the draft carries); a draft with no name stays a draft.
-    const billToName = currentPayerName(names, d) ?? d.billToName ?? (await getHousehold(tx, d.householdId))?.name;
+    const billToName = currentPayerName(names, d) ?? d.billToName;
     if (!billToName) continue;
     const number = await allocateNumber(tx, ctx.tenantId, "invoice", fy);
     // Nothing to pay (a full waiver) is paid on issue.

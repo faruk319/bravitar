@@ -176,7 +176,7 @@ describe("student CSV import", () => {
     const m = { fullName: 0, guardianName: 1, guardianPhone: 2, dateOfBirth: 3 };
     const seen = await run({ ...ownerCtx, branchIds: [mainBranch] }, csv, m, true);
     expect(seen).toMatchObject({ studentsCreated: 0, linkedToExisting: 0, guardiansCreated: 0 });
-    expect(seen.errors.map((e) => e.message)).toEqual(["This number is used at another branch"]);
+    expect(seen.errors.map((e) => e.message)).toEqual(["This number is used at another branch. Ask an owner to import this row."]);
     expect(await run(ownerCtx, csv, m, true)).toMatchObject({ studentsCreated: 1, linkedToExisting: 1, guardiansCreated: 0, errors: [] });
   });
 

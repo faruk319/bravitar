@@ -38,7 +38,7 @@ export type Dashboard = {
     last30?: { from: string; to: string; byDay: { key: string; count: number; totalPaise: Paise }[] };
     byMonth?: { month: string; count: number; totalPaise: Paise }[];
     trendPct?: number | null;
-    owed?: { invoices: number; owedPaise: Paise; overdueFamilies: number };
+    owed?: { invoices: number; owedPaise: Paise; overduePayers: number };
     overduePaise?: Paise;
     dueTomorrow?: number;
     admissions?: number;
@@ -104,7 +104,7 @@ export async function dashboardData(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
     }
     if (allows(ctx, "invoices:read")) {
       const owed = await owedSummary(tx, ctx.branchIds, today);
-      money.owed = { invoices: owed.invoices, owedPaise: owed.owedPaise, overdueFamilies: owed.overdueFamilies };
+      money.owed = { invoices: owed.invoices, owedPaise: owed.owedPaise, overduePayers: owed.overduePayers };
       money.overduePaise = owed.overduePaise;
       money.dueTomorrow = owed.dueTomorrow;
     }

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ConvertEnquiry } from "@/components/enquiries/convert-enquiry";
 import { BookTrial, CancelTrial, EditEnquiry, LogActivity, MarkLost, Reopen } from "@/components/enquiries/enquiry-actions";
 import { PageHeader } from "@/components/page-header";
-import { knownLine } from "@/components/students/known-guardian";
+import { knownLine } from "@/components/students/known-line";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";

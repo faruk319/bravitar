@@ -81,7 +81,7 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
               <tr key={p.id} className={cn("border-t border-neutral-100", p.status === "cancelled" && "text-muted-foreground line-through")}>
                 <td className="px-4 py-2">{formatDate(p.recordedOn)}</td>
                 <td className="py-2 tabular-nums">{p.receiptNumber}</td>
-                <td className="py-2">{p.householdName}</td>
+                <td className="py-2">{p.billToName}</td>
                 <td className="py-2">{METHOD_LABEL[p.method]}</td>
                 <td className="py-2">{p.collectorName ?? "Online"}</td>
                 <td className="px-4 py-2 text-right tabular-nums">{formatPaise(p.amountPaise)}</td>

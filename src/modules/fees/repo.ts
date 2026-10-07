@@ -6,7 +6,7 @@ import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardians, households, students } from "@/modules/students/schema";
+import { guardians, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
 // ---- fee plans
@@ -270,10 +270,10 @@ export async function openInstallments(tx: Tx, branchIds: string[], studentId: s
 
 export const INVOICE_VIEWS = ["draft", "unpaid", "overdue", "month", "void"] as const;
 export type InvoiceView = (typeof INVOICE_VIEWS)[number];
-// The name the invoice was issued with; the live household name only for a row that never got one.
-const billToName = sql<string>`coalesce(${invoices.billToName}, ${households.name})`;
+// A draft that never got a name cannot be issued; it lists blank.
+const billToName = sql<string>`coalesce(${invoices.billToName}, '')`;
 
-export type InvoiceRow = Invoice & { householdName: string; students: string[] };
+export type InvoiceRow = Omit<Invoice, "billToName"> & { billToName: string; students: string[] };
 
 // Overdue is worked out when reading (due date passed), never stored.
 const OWED = ["issued", "part_paid"] as const;
@@ -305,15 +305,14 @@ function viewFilter(view: InvoiceView, today: string): SQL | undefined {
 export async function listInvoices(tx: Tx, branchIds: string[], opts: { view?: InvoiceView; today: string; studentId?: string; limit?: number }): Promise<InvoiceRow[]> {
   const forStudent = opts.studentId ? sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND l.student_id = ${opts.studentId})` : undefined;
   const rows = await tx
-    .select({ inv: invoices, householdName: billToName })
+    .select({ inv: invoices, billToName })
     .from(invoices)
-    .innerJoin(households, eq(households.id, invoices.householdId))
     .where(and(invoiceScope(branchIds), opts.view ? viewFilter(opts.view, opts.today) : undefined, forStudent))
     .orderBy(...(opts.view === "draft" ? [asc(invoices.issueDate), asc(billToName)] : [desc(invoices.issueDate), desc(invoices.number), desc(invoices.id)]))
     .limit(opts.limit ?? 200);
   const names = new Map<string, Set<string>>();
   for (const l of await linesOf(tx, rows.map((r) => r.inv.id))) if (l.studentName) names.set(l.invoiceId, (names.get(l.invoiceId) ?? new Set()).add(l.studentName));
-  return rows.map((r) => ({ ...r.inv, householdName: r.householdName, students: [...(names.get(r.inv.id) ?? [])] }));
+  return rows.map((r) => ({ ...r.inv, billToName: r.billToName, students: [...(names.get(r.inv.id) ?? [])] }));
 }
 
 export async function draftSummary(tx: Tx, branchIds: string[]): Promise<{ count: number; total: bigint }> {
@@ -395,14 +394,14 @@ export async function payersOverdue(tx: Tx, branchIds: string[], today: string, 
   });
 }
 
-// What is owed now, how much of it and how many families are past due, and how many invoices fall due tomorrow.
-export async function owedSummary(tx: Tx, branchIds: string[], today: string): Promise<{ invoices: number; owedPaise: bigint; overdueFamilies: number; overduePaise: bigint; dueTomorrow: number }> {
+// What is owed now, how much of it and how many payers are past due, and how many invoices fall due tomorrow.
+export async function owedSummary(tx: Tx, branchIds: string[], today: string): Promise<{ invoices: number; owedPaise: bigint; overduePayers: number; overduePaise: bigint; dueTomorrow: number }> {
   const tomorrow = addDays(today, 1);
   const [r] = await tx
     .select({
       invoices: sql<number>`count(*)::int`,
       owed: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}), 0)::text`,
-      overdueFamilies: sql<number>`count(DISTINCT coalesce(${invoices.payerGuardianId}, ${invoices.payerMemberId})) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
+      overduePayers: sql<number>`count(DISTINCT coalesce(${invoices.payerGuardianId}, ${invoices.payerMemberId})) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
       overdue: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}) FILTER (WHERE ${invoices.dueDate} < ${today}), 0)::text`,
       dueTomorrow: sql<number>`count(*) FILTER (WHERE ${invoices.dueDate} = ${tomorrow})::int`,
     })
@@ -411,7 +410,7 @@ export async function owedSummary(tx: Tx, branchIds: string[], today: string): P
   return {
     invoices: r?.invoices ?? 0,
     owedPaise: BigInt(r?.owed ?? "0"),
-    overdueFamilies: r?.overdueFamilies ?? 0,
+    overduePayers: r?.overduePayers ?? 0,
     overduePaise: BigInt(r?.overdue ?? "0"),
     dueTomorrow: r?.dueTomorrow ?? 0,
   };

@@ -14,7 +14,7 @@ import { collectScreen } from "@/modules/payments/service";
 import { requireStudent } from "@/modules/students/service";
 
 // docs/07 §7.4. Opened from a student (their family and branch), from an
-// invoice (just that one ticked), or from the menu (find the family first).
+// invoice (just that one ticked), or from the menu (find the member first).
 export default async function CollectPage({ searchParams }: PageProps<"/payments/new">) {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
@@ -62,7 +62,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
           {screen.memberName}
           {session.branchIds.length !== 1 ? ` · ${screen.branchName}` : ""} ·{" "}
           <Link href="/payments/new" className="text-accent-600 hover:underline">
-            Another family
+            Another member
           </Link>
         </p>
       </PageHeader>

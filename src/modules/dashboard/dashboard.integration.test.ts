@@ -118,7 +118,7 @@ describe("the dashboard", () => {
   it("Today, Money, At risk and Pipeline from known data", async () => {
     const d = await withTenant(T, (tx) => dashboardData(tx, owner, { now: noon }));
     expect(d.today).toMatchObject({ held: 3, marked: 1, notMarked: 1, present: { here: 2, marked: 3 } });
-    expect(d.money).toMatchObject({ collectedToday: { count: 2, total: 80_000n }, owed: { invoices: 3, owedPaise: 200_000n, overdueFamilies: 1 }, admissions: 4 });
+    expect(d.money).toMatchObject({ collectedToday: { count: 2, total: 80_000n }, owed: { invoices: 3, owedPaise: 200_000n, overduePayers: 1 }, admissions: 4 });
     const earlier = addDays(today, -3) >= `${today.slice(0, 7)}-01`;
     expect(d.money?.thisMonth).toEqual(earlier ? { count: 3, total: 100_000n } : { count: 2, total: 80_000n });
     expect(d.money?.last30?.byDay.map((x) => [x.key, x.totalPaise])).toEqual([

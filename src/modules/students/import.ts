@@ -25,7 +25,7 @@ import {
   validateMapping,
 } from "./import-fields";
 import { findGuardianByPhone, studentsOfGuardian } from "./repo";
-import { createStudent, type NewStudentInput, type StudentCtx } from "./service";
+import { createStudent, KnownGuardianError, type NewStudentInput, type StudentCtx } from "./service";
 
 export const importRequestSchema = z.object({
   csv: z.string().max(IMPORT_MAX_CHARS, "The file is too large; split it into smaller files"),
@@ -148,6 +148,7 @@ function rowMessage(e: unknown): string {
     const path = issue?.path.join(".") ?? "";
     return issue ? `${FIELD_NAMES[path] ?? path}: ${issue.message}` : "Invalid row";
   }
+  if (e instanceof KnownGuardianError && !e.known.guardianId) return `${e.message}. Ask an owner to import this row.`;
   if (e instanceof AppError) return e.message;
   console.error("student import row failed", e);
   return "Could not save this row";
@@ -201,6 +202,7 @@ export async function importStudents(tx: Tx, ctx: StudentCtx, input: ImportReque
       try {
         const outcome = await sp.transaction(async (rowTx): Promise<RowOutcome> => {
           const existing = await findGuardianByPhone(rowTx, plan.contact.phone);
+          // Not branch-scoped, accepted: it only matches a name and phone the importer typed, so it reveals nothing new.
           if (existing && (await studentsOfGuardian(rowTx, existing.id)).some((s) => nameKey(s.fullName) === plan.key)) return { kind: "skipped" };
 
           const base = {

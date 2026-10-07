@@ -56,7 +56,7 @@ export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeReque
       const to = recipients(await payerContacts(tx, inv));
       return {
         key: req.key,
-        drafts: [draft(d.householdName, to, { student_names: joinNames(names), amount: formatPaise(inv.totalPaise - inv.paidPaise), due_date: formatDate(inv.dueDate), invoice_number: inv.number ?? "", link: await link("invoice", inv.id) })],
+        drafts: [draft(d.billToName, to, { student_names: joinNames(names), amount: formatPaise(inv.totalPaise - inv.paidPaise), due_date: formatDate(inv.dueDate), invoice_number: inv.number ?? "", link: await link("invoice", inv.id) })],
       };
     }
     case "receipt": {
@@ -65,7 +65,7 @@ export async function composeMessage(tx: Tx, ctx: ScopedCtx, input: ComposeReque
       const to = recipients(await payerContacts(tx, r.payment));
       return {
         key: "receipt",
-        drafts: [draft(r.householdName, to, { amount: formatPaise(r.payment.amountPaise), date: formatDate(r.payment.receivedOn), receipt_number: r.payment.receiptNumber, link: await link("receipt", r.payment.id) })],
+        drafts: [draft(r.billToName, to, { amount: formatPaise(r.payment.amountPaise), date: formatDate(r.payment.receivedOn), receipt_number: r.payment.receiptNumber, link: await link("receipt", r.payment.id) })],
       };
     }
     case "absent": {
