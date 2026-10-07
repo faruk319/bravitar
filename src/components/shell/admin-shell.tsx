@@ -100,7 +100,7 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
   const leaves = (e: NavEntry): NavItem[] => (isParent(e) ? e.children : [e]);
   const hrefs = groups.flatMap((g) => g.items.flatMap((e) => leaves(e).map((i) => i.href)));
   return (
-    <nav className="flex flex-col gap-4">
+    <nav aria-label="Main" className="flex flex-col gap-4">
       {groups.map((g) => (
         <div key={g.title}>
           {!compact ? <div className="px-3 pb-1 text-caption font-medium uppercase tracking-wide text-muted-foreground">{g.title}</div> : null}

@@ -14,13 +14,15 @@ export function AcademyMenu({ academies, action }: { academies: AcademyChoice[];
   // A <details> ignores Escape and outside clicks; close on both, focus back on the summary.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+    const close = () => {
       root.current?.removeAttribute("open");
       root.current?.querySelector("summary")?.focus();
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
     const onDown = (e: PointerEvent) => {
-      if (e.target instanceof Node && !root.current?.contains(e.target)) root.current?.removeAttribute("open");
+      if (e.target instanceof Node && !root.current?.contains(e.target)) close();
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onDown);
