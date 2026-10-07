@@ -28,7 +28,7 @@ export default async function StaffMemberPage({ params }: PageProps<"/staff/[id]
 
   return (
     <Gate permission="staff:read">
-      <PageHeader title={s.fullName} crumbs={[{ label: "{staff.many}", href: "/staff" }]} />
+      <PageHeader title={s.fullName} entity />
       <div className="grid items-start gap-5 lg:grid-cols-[340px_1fr]">
         <Card className="flex flex-col items-center text-center">
           <Avatar name={s.fullName} size="lg" />

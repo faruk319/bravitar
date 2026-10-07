@@ -50,7 +50,7 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
   const r = await withTenant(session.tenant.id, async (tx) => collectionRegister(tx, ctx, pickRange(sp, await thisMonth(tx))));
   return (
     <Gate permission="reports:view">
-      <PageHeader title="Collection register" crumbs={[{ href: "/reports", label: "Reports" }]}>
+      <PageHeader title="Collection register">
         <p className="text-caption text-muted-foreground">
           {receipts(r.total.count)} · {formatPaise(r.total.totalPaise)}
         </p>

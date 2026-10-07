@@ -46,7 +46,7 @@ export default async function AdmissionsReportPage({ searchParams }: PageProps<"
   const r = await withTenant(session.tenant.id, async (tx) => admissionsReport(tx, ctx, pickRange(sp, await thisMonth(tx))));
   return (
     <Gate permission="reports:view">
-      <PageHeader title="Admissions and dropouts" crumbs={[{ href: "/reports", label: "Reports" }]} />
+      <PageHeader title="Admissions and dropouts" />
       <RangeForm from={r.from} to={r.to} csv={`/api/reports/admissions?from=${r.from}&to=${r.to}`} />
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <List title="Joined" rows={r.joined} />

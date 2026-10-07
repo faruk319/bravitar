@@ -29,7 +29,7 @@ export default async function NewBatchPage() {
     : undefined;
   return (
     <Gate permission="batches:manage">
-      <PageHeader title="Add {batch.one}" crumbs={[{ label: "Programs & {batch.many}", href: "/batches" }]} />
+      <PageHeader title="Add {batch.one}" />
       {data ? (
         <Card className="max-w-2xl">
           <BatchForm {...data} canAddProgram={can(ctx, "batches", "programs:manage")} />

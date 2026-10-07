@@ -93,22 +93,43 @@ export function isActive(pathname: string, href: string, others: string[] = []):
   return under(href) && !others.some((h) => h.length > href.length && under(h));
 }
 
-// href null = not a link (the Finance parent, or a leaf the URL cannot name).
+// href null = not a link (the Finance parent, or the page you are on).
 export type Crumb = { label: NavLabel; href: string | null };
 
-// Crumbs for a pathname from the static config. `leaf` names the entity under
-// the matched item ("Aarav Sharma"); without it the entity shows as "…".
+// Static subroutes that are not nav items but have a fixed name.
+const STATIC_TITLES: Record<string, NavLabel> = {
+  "/batches/calendar": { text: "Calendar" },
+  "/batches/holidays": { text: "Holidays" },
+  "/batches/new": { labelKey: "batch", form: "one", prefix: "Add " },
+  "/students/new": { labelKey: "student", form: "one", prefix: "Add " },
+  "/students/import": { labelKey: "student", form: "many", prefix: "Import " },
+  "/staff/roles": { text: "Roles" },
+  "/reports/attendance": { text: "Attendance summary" },
+  "/reports/collection": { text: "Collection register" },
+  "/reports/dues": { text: "Outstanding dues" },
+  "/reports/admissions": { text: "Admissions and dropouts" },
+  "/reports/at-risk": { text: "At risk" },
+};
+
+// Crumbs for a pathname from the config. `leaf` names the entity under the
+// matched item ("Aarav Sharma"); until the page supplies it, the trail stops
+// one level up rather than showing a placeholder.
 export function crumbsFor(pathname: string, leaf?: string, groups: NavGroup[] = NAV_GROUPS): Crumb[] {
   if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return [];
   const flat = groups.flatMap((g) => g.items.flatMap((e): { item: NavItem; parent: NavParent | null }[] => (isParent(e) ? e.children.map((item) => ({ item, parent: e })) : [{ item: e, parent: null }])));
   const hrefs = flat.map((f) => f.item.href);
   const hit = flat.find((f) => isActive(pathname, f.item.href, hrefs));
   if (!hit) return [];
+  const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
+  const named = Object.keys(STATIC_TITLES)
+    .filter((k) => k.length > hit.item.href.length && under(k))
+    .sort((a, b) => b.length - a.length)[0];
+  const end = named ?? hit.item.href;
   const trail: Crumb[] = [];
   if (hit.parent) trail.push({ label: hit.parent.title, href: null });
-  const entity = pathname !== hit.item.href;
-  trail.push({ label: hit.item.label, href: entity ? hit.item.href : null });
-  if (entity) trail.push({ label: { text: leaf ?? "…" }, href: null });
+  trail.push({ label: hit.item.label, href: pathname !== hit.item.href ? hit.item.href : null });
+  if (named) trail.push({ label: STATIC_TITLES[named] as NavLabel, href: pathname !== named ? named : null });
+  if (pathname !== end && leaf) trail.push({ label: { text: leaf }, href: null });
   return trail;
 }
 

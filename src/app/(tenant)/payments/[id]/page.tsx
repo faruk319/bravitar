@@ -43,7 +43,7 @@ export default async function PaymentPage({ params }: PageProps<"/payments/[id]"
       <div className="print:hidden">
         <PageHeader
           title={p.receiptNumber}
-          crumbs={allows(ctx, "payments:read") ? [{ label: "Collection", href: `/payments?day=${p.recordedOn}` }] : [{ label: "Collect payment", href: "/payments/new" }]}
+          entity
           actions={
             <>
               <PrintReceipt />

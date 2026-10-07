@@ -29,7 +29,7 @@ export default async function DuesReportPage() {
   const owed = t.notDue + t.days0to30 + t.days31to60 + t.over60;
   return (
     <Gate permission="reports:view">
-      <PageHeader title="Outstanding dues" crumbs={[{ href: "/reports", label: "Reports" }]}>
+      <PageHeader title="Outstanding dues">
         <p className="text-caption text-muted-foreground">As of {formatDate(r.asOf)}, by days past the due date</p>
       </PageHeader>
       <RangeForm csv="/api/reports/dues" />

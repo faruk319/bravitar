@@ -6,7 +6,7 @@ import { AddStudentForm } from "@/components/students/add-student-form";
 export default function NewStudentPage() {
   return (
     <Gate permission="students:create">
-      <PageHeader title="Add {student.one}" crumbs={[{ label: "{student.many}", href: "/students" }]} />
+      <PageHeader title="Add {student.one}" />
       <Card className="max-w-2xl">
         <AddStudentForm />
       </Card>

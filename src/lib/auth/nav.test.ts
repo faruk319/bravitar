@@ -97,12 +97,35 @@ describe("crumbsFor", () => {
     expect(crumbsFor("/students")).toEqual([{ label: { labelKey: "student", form: "many" }, href: null }]);
   });
 
-  it("an entity route links its section and ends in the supplied name, or an ellipsis", () => {
+  it("an entity route links its section and ends in the supplied name", () => {
     expect(crumbsFor("/students/123", "Aarav Sharma")).toEqual([
       { label: { labelKey: "student", form: "many" }, href: "/students" },
       { label: { text: "Aarav Sharma" }, href: null },
     ]);
-    expect(crumbsFor("/students/123").at(-1)).toEqual({ label: { text: "…" }, href: null });
+  });
+
+  it("an entity route without a name stops at its section, never a placeholder", () => {
+    expect(crumbsFor("/students/123")).toEqual([{ label: { labelKey: "student", form: "many" }, href: "/students" }]);
+  });
+
+  it("static subroutes carry their own title and never an ellipsis", () => {
+    expect(crumbsFor("/batches/calendar").at(-1)).toEqual({ label: { text: "Calendar" }, href: null });
+    expect(crumbsFor("/students/import").at(-1)).toEqual({ label: { labelKey: "student", form: "many", prefix: "Import " }, href: null });
+    expect(crumbsFor("/reports/dues")).toEqual([
+      { label: { text: "Reports" }, href: "/reports" },
+      { label: { text: "Outstanding dues" }, href: null },
+    ]);
+    for (const path of ["/batches/holidays", "/batches/new", "/students/new", "/staff/roles", "/reports/at-risk"]) {
+      expect(JSON.stringify(crumbsFor(path))).not.toContain("…");
+    }
+  });
+
+  it("a named page under a static subroute keeps the subroute as a link", () => {
+    expect(crumbsFor("/staff/roles/9", "Accountant")).toEqual([
+      { label: { labelKey: "staff", form: "many" }, href: "/staff" },
+      { label: { text: "Roles" }, href: "/staff/roles" },
+      { label: { text: "Accountant" }, href: null },
+    ]);
   });
 
   it("/payments/new is Collect payment under Finance, not Collections", () => {

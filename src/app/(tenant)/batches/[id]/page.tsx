@@ -68,7 +68,7 @@ export default async function BatchPage({ params }: PageProps<"/batches/[id]">) 
     <Gate permission="batches:read">
       <PageHeader
         title={b.name}
-        crumbs={[{ label: "Programs & {batch.many}", href: "/batches" }]}
+        entity
         actions={
           canManage ? (
             <>

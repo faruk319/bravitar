@@ -41,7 +41,7 @@ export default async function BillPage({ params }: PageProps<"/billing/bills/[id
   return (
     <>
       <div className="print:hidden">
-        <PageHeader title={b.number} crumbs={[{ label: "Billing", href: "/billing" }]} actions={<PrintReceipt />} />
+        <PageHeader title={b.number} entity actions={<PrintReceipt />} />
       </div>
       <Card className="mx-auto max-w-xl">
         <div className="flex flex-wrap items-start justify-between gap-3">

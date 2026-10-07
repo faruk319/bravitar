@@ -27,7 +27,7 @@ export default async function RolePage({ params }: PageProps<"/staff/roles/[id]"
 
   return (
     <Gate permission="staff:read">
-      <PageHeader title={role.name} crumbs={[{ label: "Roles", href: "/staff/roles" }]}>
+      <PageHeader title={role.name} entity>
         <p className="text-caption text-muted-foreground">{role.holders} staff hold this role</p>
       </PageHeader>
       <Card className="max-w-3xl">

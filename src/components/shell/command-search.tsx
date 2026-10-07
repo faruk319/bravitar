@@ -7,6 +7,7 @@ import { Avatar } from "@/components/avatar";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { formatPhone } from "@/lib/phone";
+import { useModKey } from "./mod-key";
 import { useSession } from "./tenant-provider";
 
 type Hit = { id: string; name: string; code: string; guardian: string };
@@ -15,6 +16,7 @@ type Row = { student: { id: string; fullName: string; code: string }; guardianNa
 // docs/07 §4: ⌘K finds a student by name, parent or phone.
 export function CommandSearch() {
   const session = useSession();
+  const mod = useModKey();
   const [open, setOpen] = useState(false);
   const [hits, setHits] = useState<Hit[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -50,7 +52,7 @@ export function CommandSearch() {
       >
         <Search className="size-5 md:size-4" aria-hidden />
         <span className="hidden flex-1 text-left text-label md:inline">Search students, parents, phone</span>
-        <kbd className="hidden rounded border border-neutral-300 px-1.5 text-caption md:inline">⌘K</kbd>
+        <kbd className="hidden rounded border border-neutral-300 px-1.5 text-caption md:inline">{mod === "⌘" ? "⌘K" : "Ctrl K"}</kbd>
       </SheetTrigger>
       <SheetContent side="top" className="mx-auto max-w-xl rounded-b-2xl p-4">
         <SheetTitle className="sr-only">Search</SheetTitle>

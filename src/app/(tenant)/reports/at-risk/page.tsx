@@ -23,7 +23,7 @@ export default async function AtRiskPage() {
   const reports = allows(ctx, "reports:view");
   return (
     <Gate permission="students:read">
-      <PageHeader title="At risk" crumbs={reports ? [{ href: "/reports", label: "Reports" }] : []}>
+      <PageHeader title="At risk">
         <p className="text-caption text-muted-foreground">
           {formatDate(r.from)} to {formatDate(r.to)}
         </p>

@@ -5,16 +5,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FocusEvent, type ReactNode, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Avatar } from "@/components/avatar";
-import { OfflineBanner, SyncBadge } from "@/components/offline/offline-sync";
+import { OfflineBanner } from "@/components/offline/offline-sync";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { isActive, isParent, type NavEntry, type NavGroup, type NavItem, type NavParent } from "@/lib/auth/nav";
 import { cn } from "@/lib/utils";
-import { AcademyMenu } from "./academy-menu";
-import { BranchSwitcher } from "./branch-switcher";
-import { CommandSearch } from "./command-search";
+import { CrumbLeafProvider } from "./crumb-leaf";
+import { Header } from "./header";
 import { NavIcon, NavLink, useNavLabel } from "./nav-link";
-import { useAcademies, useSession, useTenantName } from "./tenant-provider";
+import { useSession, useTenantName } from "./tenant-provider";
 
 const RAIL_KEY = "bravitar.rail";
 const RAIL_EVENT = "bravitar:rail";
@@ -75,6 +74,7 @@ function Disclosure({ parent, compact, onNavigate, others }: { parent: NavParent
   // One tree for both rail widths. Collapsed hides the button and shows the
   // children flat (no room for a popover). Hiding is CSS-only and never applies
   // to an element holding focus, so a focus-driven resize cannot drop focus.
+  // Button :focus, panel :focus-within (a child may hold it); a clicked button stays visible until focus moves. Don't simplify to !open.
   return (
     <div className={cn(compact && "border-y border-neutral-100 py-1")}>
       <button
@@ -204,43 +204,36 @@ function Rail({ groups }: { groups: NavGroup[] }) {
 // on touch and phones.
 export function AdminShell({ groups, children }: { groups: NavGroup[]; children: ReactNode }) {
   const tenantName = useTenantName();
-  const me = useSession().actor.name;
-  const academies = useAcademies();
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex min-h-full">
-      <Rail groups={groups} />
+    <CrumbLeafProvider>
+      <div className="flex min-h-full">
+        <Rail groups={groups} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-[env(safe-area-inset-top,0px)] z-10 flex h-16 items-center gap-2 border-b border-neutral-100 bg-background px-3 md:gap-4 md:px-6 print:hidden">
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
-              <Menu />
-            </SheetTrigger>
-            <SheetContent side="left" className="overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-              <SheetTitle className="text-heading">{tenantName}</SheetTitle>
-              <div className="mt-3">
-                <NavGroups groups={groups} onNavigate={() => setOpen(false)} />
-              </div>
-            </SheetContent>
-          </Sheet>
-          <div className="min-w-0 flex-1 truncate text-heading md:hidden">{tenantName}</div>
-          <CommandSearch />
-          <div className="flex items-center gap-2 md:ml-auto">
-            <SyncBadge />
-            <AcademyMenu academies={academies} action="/switch" />
-            <BranchSwitcher />
-            <Link href="/me" aria-label="My account" className="rounded-full">
-              <Avatar name={me} size="sm" />
-            </Link>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header
+            groups={groups}
+            menu={
+              <Sheet open={open} onOpenChange={setOpen}>
+                <SheetTrigger render={<Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" />}>
+                  <Menu />
+                </SheetTrigger>
+                <SheetContent side="left" className="overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+                  <SheetTitle className="text-heading">{tenantName}</SheetTitle>
+                  <div className="mt-3">
+                    <NavGroups groups={groups} onNavigate={() => setOpen(false)} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            }
+          />
+          <div className="print:hidden">
+            <OfflineBanner />
           </div>
-        </header>
-        <div className="print:hidden">
-          <OfflineBanner />
+          <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 print:p-0">{children}</main>
         </div>
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 print:p-0">{children}</main>
       </div>
-    </div>
+    </CrumbLeafProvider>
   );
 }

@@ -72,7 +72,7 @@ export default async function AttendanceReportPage({ searchParams }: PageProps<"
   const tab = (view?: string) => `/reports/attendance?${new URLSearchParams({ ...(view ? { view } : {}), from: r.from, to: r.to })}`;
   return (
     <Gate permission="reports:view">
-      <PageHeader title="Attendance summary" crumbs={[{ href: "/reports", label: "Reports" }]}>
+      <PageHeader title="Attendance summary">
         <p className="text-caption text-muted-foreground">
           {overall === null ? "Nothing marked" : `${overall}% attendance`} · {classes} {classes === 1 ? "class" : "classes"} marked
         </p>

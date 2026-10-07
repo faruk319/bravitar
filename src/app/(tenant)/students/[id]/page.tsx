@@ -102,7 +102,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
     <Gate permission="students:read">
       <PageHeader
         title={s.fullName}
-        crumbs={[{ label: "{student.many}", href: "/students" }]}
+        entity
         actions={
           <>
             {allows(ctx, "fees:collect") ? (

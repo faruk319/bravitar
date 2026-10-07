@@ -43,7 +43,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
     <Gate permission="invoices:read">
       <PageHeader
         title={inv.number ?? "Draft invoice"}
-        crumbs={[{ label: "Invoices", href: "/invoices" }]}
+        entity
         actions={
           canManage || canCollect || canRemind ? (
             <>

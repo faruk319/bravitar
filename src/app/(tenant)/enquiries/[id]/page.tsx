@@ -85,7 +85,7 @@ export default async function EnquiryPage({ params }: PageProps<"/enquiries/[id]
 
   return (
     <Gate permission="enquiries:read">
-      <PageHeader title={e.name} crumbs={[{ href: "/enquiries", label: "Enquiries" }]}>
+      <PageHeader title={e.name} entity>
         <span className={cn("mt-1 inline-block rounded-full px-2 py-0.5 text-label", STATUS_CLASS[e.status] ?? "bg-accent-50 text-accent-600")}>{STATUS_LABELS[e.status]}</span>
         {e.convertedStudentId ? (
           <Link href={`/students/${e.convertedStudentId}`} className="ml-2 text-label text-accent-600 hover:underline">

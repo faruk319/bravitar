@@ -6,7 +6,7 @@ import { ImportWizard } from "@/components/students/import-wizard";
 export default function ImportStudentsPage() {
   return (
     <Gate permission="students:import">
-      <PageHeader title="Import {student.many}" crumbs={[{ label: "{student.many}", href: "/students" }]} />
+      <PageHeader title="Import {student.many}" />
       <Card className="max-w-2xl">
         <ImportWizard />
       </Card>
