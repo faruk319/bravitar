@@ -253,6 +253,7 @@ describe("join date", () => {
   });
 });
 
+// Reads household_id and app.households: rewrite or delete when migration 0040 drops them.
 describe("payer backfill (migration 0039)", () => {
   it("gives each invoice, payment and enrollment the right payer", async () => {
     const own = postgres(getEnv().DATABASE_URL_MIGRATOR ?? "", { max: 1, onnotice: () => {} });
@@ -280,7 +281,26 @@ describe("payer backfill (migration 0039)", () => {
           VALUES (${T}, ${mainBranch}, ${household}, ${`BF-R/${stamp}/${n}`}, '2026-27', 'cash', 5000, ${today}, ${today}) RETURNING id`;
         return { inv: inv?.id as string, pay: pay?.id as string };
       };
+      // Household 3: a soft-deleted primary, older, beside a live guardian: the live one must win.
+      const d = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Ansari", dateOfBirth: "2014-01-01", guardian: { fullName: "Live Ansari", phone: P(904), relation: "mother" }, consents }));
+      const dOld = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dawood Ansari", dateOfBirth: "2015-01-01", householdId: d.household.id, guardian: { fullName: "Gone Ansari", phone: P(905), relation: "father" }, consents }));
+      await own`UPDATE app.guardians SET is_primary = (id = ${dOld.guardian.id}), created_at = CASE WHEN id = ${dOld.guardian.id} THEN created_at - interval '1 day' ELSE created_at END,
+        deleted_at = CASE WHEN id = ${dOld.guardian.id} THEN now() END WHERE household_id = ${d.household.id}`;
+      // Households 4 and 5: two live guardians with the same flags and created_at; the lower id wins.
+      // Rewrite them in opposite orders so neither storage order lets a missing id tiebreak pass.
+      const tied = async (n: number, lowerLast: boolean) => {
+        const x = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} One`, dateOfBirth: "2014-01-01", guardian: { fullName: `Tie${n} One`, phone: P(910 + n * 2), relation: "mother" }, consents }));
+        const y = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} Two`, dateOfBirth: "2015-01-01", householdId: x.household.id, guardian: { fullName: `Tie${n} Two`, phone: P(911 + n * 2), relation: "father" }, consents }));
+        const [lower = "", higher = ""] = [x.guardian.id, y.guardian.id].sort();
+        for (const id of lowerLast ? [higher, lower] : [lower, higher]) await own`UPDATE app.guardians SET is_primary = false, created_at = '2026-01-01T00:00:00Z' WHERE id = ${id}`;
+        return { household: x.household.id, lower };
+      };
+      const t4 = await tied(4, true);
+      const t5 = await tied(5, false);
       const m1 = await money(a.household.id, 1);
+      const m3 = await money(d.household.id, 3);
+      const m4 = await money(t4.household, 4);
+      const m5 = await money(t5.household, 5);
       const m2 = await money(c.household.id, 2);
 
       const migration = readFileSync(join(process.cwd(), "migrations/0039_member_guardian_payer.sql"), "utf8");
@@ -292,6 +312,12 @@ describe("payer backfill (migration 0039)", () => {
       expect((await payerOf("payments", m1.pay))).toEqual({ payer_guardian_id: a.guardian.id, payer_member_id: null });
       expect((await payerOf("invoices", m2.inv))?.payer_guardian_id).toBe(c.guardian.id);
       expect((await payerOf("payments", m2.pay))?.payer_guardian_id).toBe(c.guardian.id);
+      expect((await payerOf("invoices", m3.inv))?.payer_guardian_id).toBe(d.guardian.id);
+      expect((await payerOf("payments", m3.pay))?.payer_guardian_id).toBe(d.guardian.id);
+      expect((await payerOf("invoices", m4.inv))?.payer_guardian_id).toBe(t4.lower);
+      expect((await payerOf("payments", m4.pay))?.payer_guardian_id).toBe(t4.lower);
+      expect((await payerOf("invoices", m5.inv))?.payer_guardian_id).toBe(t5.lower);
+      expect((await payerOf("payments", m5.pay))?.payer_guardian_id).toBe(t5.lower);
       expect((await payerOf("enrollments", ea.id))?.payer_guardian_id).toBe(a.guardian.id);
       expect((await payerOf("enrollments", eb.id))?.payer_guardian_id).toBe(b.guardian.id);
       expect((await payerOf("enrollments", ec.id))?.payer_guardian_id).toBe(c.guardian.id);
