@@ -38,6 +38,7 @@ import {
   archiveStudent,
   createStudent,
   DuplicateGuardianError,
+  KnownGuardianError,
   lookupGuardian,
   requireStudent,
   setStudentCode,
@@ -417,23 +418,44 @@ describe("student_guardians is the only family link", () => {
     expect((await withTenant(T, (tx) => studentsOfGuardian(tx, b.guardian.id))).map((k) => k.fullName)).toEqual(["Hamid Odd"]);
   });
 
-  it("addFamilyMember asks the join table: a linked guardian is in the family whatever household_id says", async () => {
+  it("addFamilyMember asks the join table: a guardian linked to another member is asked about, whatever household_id says", async () => {
     const a = await mk("Dina Row", "Esha Row", P(211));
     const b = await mk("Dev Row", "Farid Row", P(212));
     const b2 = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Row", dateOfBirth: "2016-03-12", householdId: b.household.id, guardian: { fullName: "Farid Row", phone: P(212), relation: "father" }, consents }));
     // Esha's row points at household A, but she is linked to Dev in household B.
     await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "cousin" }));
-    const added = await withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b2.student.id, { fullName: "Esha Row", phone: P(211), relation: "cousin" }));
-    expect(added.id).toBe(a.guardian.id);
+    const add = (linkGuardianId?: string) => withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b2.student.id, { fullName: "Esha Row", phone: P(211), relation: "cousin", ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    const err = await add().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KnownGuardianError);
+    expect((err as KnownGuardianError).known.members.map((m) => m.fullName).sort()).toEqual(["Dev Row", "Dina Row"]);
+    expect((await add(a.guardian.id)).id).toBe(a.guardian.id);
     expect((await withTenant(T, (tx) => guardiansOfStudent(tx, b2.student.id))).map((g) => g.fullName).sort()).toEqual(["Esha Row", "Farid Row"]);
   });
 
-  it("addFamilyMember still refuses a number whose household_id matches but who is linked to no one there", async () => {
+  it("a guardian in two families is asked about, not refused, and then sees both members", async () => {
     const a = await mk("Gita Decoy", "Hira Decoy", P(213));
     const b = await mk("Gus Decoy", "Imran Decoy", P(214));
+    // Even with household_id pointing at B, Hira is linked to no one in B.
     await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { householdId: b.household.id }));
-    await expect(withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b.student.id, { fullName: "Hira Decoy", phone: P(213), relation: "cousin" }))).rejects.toThrow("This number belongs to another family here");
+    const add = (linkGuardianId?: string) => withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b.student.id, { fullName: "Hira Decoy", phone: P(213), relation: "cousin", ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    const err = await add().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KnownGuardianError);
+    expect((err as KnownGuardianError).known).toMatchObject({ guardianId: a.guardian.id, linked: false, members: [{ studentId: a.student.id, fullName: "Gita Decoy", relation: "mother" }] });
+    await add(a.guardian.id);
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Gita Decoy", "Gus Decoy"]);
   });
+
+  it("createStudent into a chosen family asks about a known number from elsewhere, and links on the answer", async () => {
+    const a = await mk("Kiran Ask", "Laxmi Ask", P(215));
+    const b = await mk("Kabir Ask", "Mohan Ask", P(216));
+    const make = (linkGuardianId?: string) =>
+      withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Kavya Ask", dateOfBirth: "2017-03-12", householdId: b.household.id, guardian: { fullName: "Laxmi Ask", phone: P(215), relation: "other" }, consents, ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    await expect(make()).rejects.toBeInstanceOf(KnownGuardianError);
+    const made = await make(a.guardian.id);
+    expect(made.guardian.id).toBe(a.guardian.id);
+    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, a.guardian.id))).map((k) => k.fullName)).toEqual(["Kavya Ask", "Kiran Ask"]);
+  });
+
   describe("siblings share a guardian", () => {
     const sibs = async (id: string) => (await withTenant(T, (tx) => siblingsOf(tx, id))).map((k) => k.fullName);
 

@@ -6,6 +6,7 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
+import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
@@ -13,16 +14,16 @@ import { addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
+import { memberIdsOfFamily } from "@/modules/payments/repo";
 import { cancelPayment, collectionSheet, recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
-import { createGuardian, upsertFamilyLink } from "@/modules/students/repo";
+import { createGuardian, guardiansOfMembers, upsertFamilyLink } from "@/modules/students/repo";
 import { guardians } from "@/modules/students/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { billableFamily } from "@/lib/db/isolation/family";
-import { familyGuardians } from "@/modules/payments/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -33,6 +34,8 @@ import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collecti
 // aged by days past the due date, attendance, admissions and dropouts; the
 // at-risk list (all agreed 2026-09-25).
 
+// The guardian ids of a household's members, lead first.
+const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, await memberIdsOfFamily(tx, householdId))).map((g) => g.id);
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
 let owner: ScopedCtx;
@@ -52,7 +55,8 @@ const owe = (household: string, rupees: number, late: number, at = branch) =>
     const due = addDays(today, -late);
     const [payer] = await familyGuardians(tx, household);
     const [who] = payer ? await tx.select({ name: guardians.fullName }).from(guardians).where(eq(guardians.id, payer)) : [];
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, householdId: household, payerGuardianId: payer ?? null, billToName: who?.name ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const [studentId] = await memberIdsOfFamily(tx, household);
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, householdId: household, studentId: studentId ?? null, payerGuardianId: payer ?? null, billToName: who?.name ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const family = (name: string) => withTenant(T, (tx) => billableFamily(tx, owner, name));

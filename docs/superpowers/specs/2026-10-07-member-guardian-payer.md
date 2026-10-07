@@ -132,6 +132,19 @@ This is one extra column and the migration is the moment to add it.
 Anything that depends on sibling relationships — the sibling discount in the seed
 is one — must be re-expressed through the guardian link.
 
+## A known number is a question, not a refusal (decided 2026-10-07)
+
+Guardians are many-to-many, so "This number belongs to another family here" was a
+bug: a grandparent paying for grandchildren from two sons, a divorced parent and an
+uncle are each one person in two families.
+
+- When a number already belongs to a guardian, **staff are shown who it is** ("Salim
+  Shaikh, parent of Ayaan") and choose: the same person, link them; or a different
+  person, use another number. The system never refuses and never links on its own,
+  because only staff know whether it is the same human.
+- **Linking grants visibility.** The guardian sees every member they are linked to,
+  as family access already works. There is no separate paying-without-parenting role.
+
 ## Scope, measured 2026-10-07
 
 Not a UI change. Measured against the codebase at `daca038`:

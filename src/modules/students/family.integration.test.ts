@@ -7,11 +7,12 @@ import { testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { uuidv7 } from "@/lib/ids";
 import { linkedChildren } from "@/modules/portal/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { addFamilyMember, removeFamilyMember, setManager } from "./family";
 import { getGuardian, guardiansOfStudent } from "./repo";
-import { createStudent } from "./service";
+import { createStudent, KnownGuardianError, lookupKnownGuardian } from "./service";
 
 // Family access (agreed 2026-10-03): family members with access to a
 // student, one of them the manager; removing access keeps the record.
@@ -59,9 +60,31 @@ describe("family members", () => {
     ]);
   });
 
-  it("a number from another family here is refused", async () => {
-    await admit("Zoya", "Neighbour", NEIGHBOUR);
-    await expect(withTenant(T, (tx) => addFamilyMember(tx, ctx, studentId, { fullName: "Xavi", phone: NEIGHBOUR, relation: "cousin" }))).rejects.toThrow("This number belongs to another family here");
+  it("a number that is a guardian in another family is a question: who they are, then staff decide", async () => {
+    const zoya = await admit("Zoya", "Neighbour", NEIGHBOUR);
+    const kabir = await admit("Kabir", "Other Parent", phone());
+    const add = (linkGuardianId?: string) =>
+      withTenant(T, (tx) => addFamilyMember(tx, ctx, kabir.student.id, { fullName: "Xavi", phone: NEIGHBOUR, relation: "guardian", ...(linkGuardianId ? { linkGuardianId } : {}) }));
+    const err = await add().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KnownGuardianError);
+    expect((err as KnownGuardianError).known).toEqual({ guardianId: zoya.guardian.id, fullName: "Neighbour", phone: zoya.guardian.phone, linked: false, members: [{ studentId: zoya.student.id, fullName: "Zoya", relation: "father" }] });
+    // Nothing happened, and naming someone else is not the answer.
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, kabir.student.id))).map((g) => g.fullName)).toEqual(["Other Parent"]);
+    await expect(add(uuidv7())).rejects.toBeInstanceOf(KnownGuardianError);
+    // Staff say it is the same person: linked, and they see both members.
+    expect((await add(zoya.guardian.id)).id).toBe(zoya.guardian.id);
+    expect((await withTenant(T, (tx) => guardiansOfStudent(tx, kabir.student.id))).map((g) => g.fullName).sort()).toEqual(["Neighbour", "Other Parent"]);
+    expect((await withTenant(T, (tx) => linkedChildren(tx, zoya.guardian.id))).map((c) => c.id).sort()).toEqual([zoya.student.id, kabir.student.id].sort());
+    expect((await withTenant(T, (tx) => lookupKnownGuardian(tx, ctx, zoya.guardian.phone, kabir.student.id)))?.linked).toBe(true);
+    // Once linked, adding them again is not a question.
+    await add();
+  });
+
+  it("looking up a number reports the person and their members, or nothing", async () => {
+    const dad = (await family())[0];
+    const found = await withTenant(T, (tx) => lookupKnownGuardian(tx, ctx, dad?.phone ?? "", studentId));
+    expect(found).toMatchObject({ fullName: "Imran", linked: true, members: [{ studentId, fullName: "Ayaan", relation: "father" }] });
+    expect(await withTenant(T, (tx) => lookupKnownGuardian(tx, ctx, phone()))).toBeUndefined();
   });
 
   it("the manager moves; neither the manager nor the family's main contact can be removed", async () => {

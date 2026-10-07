@@ -5,9 +5,9 @@ import type { Tx } from "@/lib/db/client";
 import { ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { FAMILY_RELATIONS } from "./relations";
-import { createGuardian, findGuardianByPhone, guardiansOfHouseholdMembers, guardiansOfStudent, moveManager, removeFamilyLink, upsertFamilyLink } from "./repo";
+import { createGuardian, findGuardianByPhone, guardiansOfMembers, guardiansOfStudent, moveManager, removeFamilyLink, upsertFamilyLink } from "./repo";
 import type { Guardian } from "./schema";
-import { requireStudent, type StudentCtx } from "./service";
+import { describeGuardian, KnownGuardianError, requireStudent, type StudentCtx } from "./service";
 
 // A student's family members (agreed 2026-10-03): people in the student's
 // family with access to them, one of them the manager. Staff who edit
@@ -17,18 +17,20 @@ const familyMemberSchema = z.object({
   fullName: z.string().trim().min(2, "Give their name").max(120),
   phone: phoneSchema,
   relation: z.enum(FAMILY_RELATIONS),
+  linkGuardianId: z.uuid().optional(), // staff's answer when the number is a known guardian: the same person, link them
 });
 
 const actor = (ctx: StudentCtx) => ({ actorType: "staff" as const, actorId: ctx.staffId, tenantId: ctx.tenantId });
 
-// Someone linked to the family, even once removed, is linked (again); a number from another
-// family here is refused, since a number is one person in an academy.
+// Someone already linked to this member, even once removed, is linked (again). A number that is
+// another known guardian is asked, never refused or linked on its own: staff know if it is the same person.
+// Linking gives them access to this member too; they stay linked to the others.
 export async function addFamilyMember(tx: Tx, ctx: StudentCtx, studentId: string, input: z.input<typeof familyMemberSchema>): Promise<Guardian> {
   assertCan(ctx, "students:update");
   const student = await requireStudent(tx, ctx, studentId);
   const d = familyMemberSchema.parse(input);
   const existing = await findGuardianByPhone(tx, d.phone);
-  if (existing && !(await guardiansOfHouseholdMembers(tx, student.householdId, { includeRemoved: true })).some((m) => m.id === existing.id)) throw new ConflictError("This number belongs to another family here");
+  if (existing && d.linkGuardianId !== existing.id && !(await guardiansOfMembers(tx, [studentId], { includeRemoved: true })).some((m) => m.id === existing.id)) throw new KnownGuardianError(await describeGuardian(tx, existing, studentId));
   const guardian =
     existing ??
     (await createGuardian(tx, { tenantId: ctx.tenantId, householdId: student.householdId, fullName: d.fullName, phone: d.phone }).catch((e: unknown) => {

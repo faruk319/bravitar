@@ -5,6 +5,8 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
+import { guardiansOfMembers } from "@/modules/students/repo";
+import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
@@ -16,6 +18,7 @@ import { enroll } from "@/modules/enrollments/service";
 import { addMonths } from "@/modules/fees/billing";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
+import { memberIdsOfFamily } from "@/modules/payments/repo";
 import { recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
@@ -25,7 +28,6 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { students } from "@/modules/students/schema";
 import { billableFamily } from "@/lib/db/isolation/family";
-import { familyGuardians } from "@/modules/payments/repo";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -34,6 +36,8 @@ import { dashboardData } from "./service";
 // docs/06 Prompt 19: Today, Money, At risk and Pipeline, each number from
 // known data, and only for those who may see the list behind it.
 
+// The guardian ids of a household's members, lead first.
+const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, await memberIdsOfFamily(tx, householdId))).map((g) => g.id);
 const stamp = Math.random().toString(36).slice(2, 8);
 const TZ = "Asia/Kolkata";
 let T = "";
@@ -56,7 +60,8 @@ const owe = (householdId: string, rupees: number, late: number) =>
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
     const [payer] = await familyGuardians(tx, householdId);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const [studentId] = await memberIdsOfFamily(tx, householdId);
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, studentId: studentId ?? null, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: string) =>
@@ -217,7 +222,7 @@ describe("the dashboard", () => {
       const bill = (rupees: number, due: string) =>
         withTenant(t.tenant.id, async (tx) => {
           const total = BigInt(rupees) * 100n;
-          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, payerGuardianId: rao.guardianId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, studentId: rao.studentId, payerGuardianId: rao.guardianId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
           return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, t.tenant.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
         });
       await bill(250, addDays(day, -2));

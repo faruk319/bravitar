@@ -49,7 +49,7 @@ const bill = (x: Academy, rupees: number): Promise<Invoice> =>
   withTenant(x.id, async (tx) => {
     const h = await billableFamily(tx, x.owner, `Family ${++evt}`);
     const total = BigInt(rupees) * 100n;
-    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, householdId: h.id, payerGuardianId: h.guardianId, billToName: "Family", issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, householdId: h.id, studentId: h.studentId, payerGuardianId: h.guardianId, billToName: "Family", issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, x.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: NOW });
   });
 const linkFor = async (x: Academy, inv: Invoice) => {

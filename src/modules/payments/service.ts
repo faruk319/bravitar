@@ -14,23 +14,24 @@ import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { getHousehold } from "@/modules/students/repo";
+import { getHousehold, guardiansOfMembers } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
   collectedOn,
-  familyGuardians,
-  familyMembers,
   getPayment,
   insertPayment,
   insertRefund,
   lockPayer,
   lockPayerOf,
+  memberIdsOfFamily,
   lockPayment,
   moveMoney,
   openInvoices,
-  openInvoicesOfHousehold,
+  openInvoicesOfMembers,
+  payerInScope,
   payerOfRow,
+  payersOfMembers,
   paidByPayment,
   paymentByGatewayId,
   paymentByRequest,
@@ -48,7 +49,7 @@ import {
   type SheetPayment,
   type SheetRefund,
   unusedPayments,
-  unusedPaymentsOfHousehold,
+  unusedPaymentsOfPayers,
   updatePayment,
 } from "./repo";
 import { PAYMENT_METHODS, type Payment, type PaymentMethod, type Refund } from "./schema";
@@ -127,37 +128,44 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, householdId: string,
   return { account, householdName: household?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
 }
 
+// The collect screen is opened on one family key (the UI's contract until Task 8), which
+// memberIdsOfFamily turns into the members whose fees are collected. Everything below goes by
+// those members, the payer, or a guardian link, never by the household.
+
 // A payment has exactly one payer, and only ever pays that payer's invoices:
 // money never crosses payers. It is the payer asked for, else the payer of the
-// invoices ticked (they must all agree), else the family's only guardian, else its
+// invoices ticked (they must all agree), else the members' only guardian, else the
 // only member. Who owes is never taken to be who is paying; never guessed between several.
-async function payerOfPayment(tx: Tx, data: z.output<typeof paymentSchema>): Promise<Payer> {
+async function payerOfPayment(tx: Tx, data: z.output<typeof paymentSchema>, memberIds: string[]): Promise<Payer> {
   if (data.payerGuardianId && data.payerMemberId) throw new BadRequestError("Pick one payer");
   const asked: Payer | undefined = data.payerGuardianId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId ? { kind: "member", memberId: data.payerMemberId } : undefined;
   // Only invoices ticked name a payer. Who happens to owe is not who is paying: an advance for the mother must not land on the father.
-  const open = data.allocations ? await openInvoicesOfHousehold(tx, data.householdId, data.branchId) : [];
+  const open = data.allocations ? await openInvoicesOfMembers(tx, memberIds, data.branchId) : [];
   const ticked = open.filter((i) => data.allocations?.some((a) => a.invoiceId === i.id));
   const payers = new Map(ticked.map((i) => [payerKey(payerOfRow(i)), payerOfRow(i)] as const));
   if (asked) {
     if (data.allocations && [...payers.keys()].some((k) => k !== payerKey(asked))) throw new BadRequestError("Those invoices are billed to someone else");
-    if (!(await belongsToFamily(tx, data.householdId, asked))) throw new BadRequestError("That payer isn't in this family");
+    if (!(await payerInScope(tx, memberIds, asked))) throw new BadRequestError("That payer isn't one of these members' payers");
     return asked;
   }
   if (payers.size > 1) throw new BadRequestError("These invoices are billed to different people. Record one payment for each.");
   const [found] = payers.values();
   if (found) return found;
-  const lead = await familyGuardians(tx, data.householdId);
-  const [guardianId] = lead;
-  if (lead.length === 1 && guardianId) return { kind: "guardian", guardianId };
-  const members = await familyMembers(tx, data.householdId);
-  const [only] = members;
-  if (!lead.length && members.length === 1 && only) return { kind: "member", memberId: only };
+  const lead = await guardiansOfMembers(tx, memberIds);
+  const [only] = lead;
+  if (lead.length === 1 && only) return { kind: "guardian", guardianId: only.id };
+  const [member] = memberIds;
+  if (!lead.length && memberIds.length === 1 && member) return { kind: "member", memberId: member };
   throw new BadRequestError("Say who is paying");
 }
 
-async function belongsToFamily(tx: Tx, householdId: string, payer: Payer): Promise<boolean> {
-  if (payer.kind === "member") return (await familyMembers(tx, householdId)).includes(payer.memberId);
-  return (await familyGuardians(tx, householdId, { includeRemoved: true })).includes(payer.guardianId);
+// The same payment sent again: same branch and amount, a payer of these members, and the payer asked for, if any, the one recorded.
+async function isReplay(tx: Tx, again: Payment, data: z.output<typeof paymentSchema>, memberIds: string[]): Promise<boolean> {
+  if (again.branchId !== data.branchId || again.amountPaise !== data.amountPaise) return false;
+  const recorded = payerOfRow(again);
+  const asked = data.payerGuardianId ?? data.payerMemberId;
+  if (asked && asked !== (recorded.kind === "guardian" ? recorded.guardianId : recorded.memberId)) return false;
+  return payerInScope(tx, memberIds, recorded);
 }
 
 // Oldest invoice first unless invoices are picked; what is left is the family's
@@ -172,13 +180,16 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const receivedOn = data.receivedOn ?? today;
   checkReceivedOn(receivedOn, today, fyStartMonth);
 
-  // An issued invoice's payer never changes, so it is safe to read before the lock.
-  const payer = await payerOfPayment(tx, data);
+  // A retry is the same payment, so its payer is the one already recorded; the invoices it paid are no longer open to name one.
+  // An issued invoice's payer never changes, so the payer is safe to read before the lock.
+  const memberIds = await memberIdsOfFamily(tx, data.householdId);
+  const earlier = await paymentByRequest(tx, data.requestId);
+  const payer = earlier ? payerOfRow(earlier) : await payerOfPayment(tx, data, memberIds);
   await lockPayer(tx, payer);
   // Checked under the lock, so a double tap waits for the first and returns it.
   const again = await paymentByRequest(tx, data.requestId);
   if (again) {
-    if (again.householdId !== data.householdId || again.branchId !== data.branchId || again.amountPaise !== data.amountPaise) throw new ConflictError("This form was already used for a different payment");
+    if (!(await isReplay(tx, again, data, memberIds))) throw new ConflictError("This form was already used for a different payment");
     return again;
   }
   const open = (await openInvoices(tx, payer, data.branchId)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
@@ -365,7 +376,8 @@ export async function familyAccount(tx: Tx, ctx: ScopedCtx, householdId: string,
   if (!allows(ctx, "fees:collect") && !allows(ctx, "invoices:read")) throw new ForbiddenError("Not allowed: fees");
   await requireBranch(tx, ctx, branchId);
   if (!(await getHousehold(tx, householdId))) throw new NotFoundError("Family");
-  const [open, unused] = await Promise.all([openInvoicesOfHousehold(tx, householdId, branchId), unusedPaymentsOfHousehold(tx, householdId, branchId)]);
+  const memberIds = await memberIdsOfFamily(tx, householdId);
+  const [open, unused] = await Promise.all([openInvoicesOfMembers(tx, memberIds, branchId), payersOfMembers(tx, memberIds).then((payers) => unusedPaymentsOfPayers(tx, payers, branchId))]);
   return {
     open: open.map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, totalPaise: i.totalPaise, paidPaise: i.paidPaise, status: i.status, balancePaise: i.totalPaise - i.paidPaise })),
     advancePaise: sum(unused.map((u) => u.unused)),
