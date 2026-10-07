@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { sql as runtimeSql } from "@/lib/db/client";
@@ -18,6 +18,12 @@ import { messageAction, messageLogView, messageTemplates, messagingSettings, que
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const NOW = new Date("2026-10-05T14:00:00Z"); // 19:30 in Kolkata, after the evening hour
+// Pin only Date, so code that stamps "now" itself (retry) agrees with NOW and the test cannot rot.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => vi.useRealTimers());
 let T = "";
 let owner: ScopedCtx;
 let teacher: ScopedCtx;
