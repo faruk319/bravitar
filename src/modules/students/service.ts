@@ -26,8 +26,8 @@ import {
   linkGuardian,
   recordConsent,
   type Scope,
+  siblingsOf,
   studentsOfGuardian,
-  studentsOfHousehold,
   updateGuardian,
   updateStudent,
 } from "./repo";
@@ -287,8 +287,8 @@ export async function studentOverview(tx: Tx, ctx: StudentCtx, id: string) {
   const [household, guardians, siblings, consents] = await Promise.all([
     getHousehold(tx, student.householdId),
     guardiansOfStudent(tx, id),
-    studentsOfHousehold(tx, student.householdId),
+    siblingsOf(tx, id),
     currentConsents(tx, id),
   ]);
-  return { student, household, guardians, siblings: siblings.filter((s) => s.id !== id), consents };
+  return { student, household, guardians, siblings, consents };
 }

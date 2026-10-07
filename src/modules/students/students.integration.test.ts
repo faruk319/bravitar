@@ -25,9 +25,11 @@ import {
   moveManager,
   removeFamilyLink,
   searchStudents,
+  siblingsOf,
   studentsOfGuardian,
   studentsOfHousehold,
   updateGuardian,
+  updateStudent,
   upsertFamilyLink,
 } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
@@ -428,5 +430,64 @@ describe("student_guardians is the only family link", () => {
     const b = await mk("Gus Decoy", "Imran Decoy", P(214));
     await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { householdId: b.household.id }));
     await expect(withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b.student.id, { fullName: "Hira Decoy", phone: P(213), relation: "cousin" }))).rejects.toThrow("This number belongs to another family here");
+  });
+  describe("siblings share a guardian", () => {
+    const sibs = async (id: string) => (await withTenant(T, (tx) => siblingsOf(tx, id))).map((k) => k.fullName);
+
+    it("two members sharing a guardian are siblings, both ways", async () => {
+      const a = await mk("Aziz Sib", "Bano Sib", P(9301));
+      const b = await mk("Basma Sib", "Chand Sib", P(9302));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+      expect(await sibs(a.student.id)).toEqual(["Basma Sib"]);
+      expect(await sibs(b.student.id)).toEqual(["Aziz Sib"]);
+      expect((await withTenant(T, (tx) => studentOverview(tx, ownerCtx, a.student.id))).siblings.map((k) => k.fullName)).toEqual(["Basma Sib"]);
+    });
+
+    it("members whose guardians differ are not siblings, even in one household", async () => {
+      const a = await mk("Dawood Dec", "Eman Dec", P(9303));
+      const b = await mk("Eshal Dec", "Fahad Dec", P(9304));
+      await withTenant(T, (tx) => updateStudent(tx, b.student.id, { householdId: a.household.id }));
+      expect((await withTenant(T, (tx) => studentsOfHousehold(tx, a.household.id))).map((k) => k.fullName)).toEqual(["Dawood Dec", "Eshal Dec"]);
+      expect(await sibs(a.student.id)).toEqual([]);
+      expect(await sibs(b.student.id)).toEqual([]);
+    });
+
+    it("a member with two guardians, each with another child, has all of them as siblings", async () => {
+      const a = await mk("Faiz Tri", "Gul Tri", P(9305));
+      const g2 = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Hasan Tri", phone: P(9306) }));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g2.id, relation: "father" }));
+      const b = await mk("Gazala Tri", "Ilyas Tri", P(9307));
+      const c = await mk("Hiba Tri", "Jamal Tri", P(9308));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: c.student.id, guardianId: g2.id, relation: "father" }));
+      expect(await sibs(a.student.id)).toEqual(["Gazala Tri", "Hiba Tri"]);
+      expect(await sibs(b.student.id)).toEqual(["Faiz Tri"]);
+      // Sharing both guardians with a sibling lists them once.
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: g2.id, relation: "father" }));
+      expect(await sibs(a.student.id)).toEqual(["Gazala Tri", "Hiba Tri"]);
+    });
+
+    it("a removed link creates no sibling", async () => {
+      const a = await mk("Idris Rem", "Kausar Rem", P(9309));
+      const b = await mk("Jaweria Rem", "Latif Rem", P(9310));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+      expect(await sibs(a.student.id)).toEqual(["Jaweria Rem"]);
+      await withTenant(T, (tx) => removeFamilyLink(tx, b.student.id, a.guardian.id, new Date()));
+      expect(await sibs(a.student.id)).toEqual([]);
+      expect(await sibs(b.student.id)).toEqual([]);
+    });
+
+    it("a soft-deleted member is not a sibling, and neither is one reached through a deleted guardian", async () => {
+      const a = await mk("Kamal Del2", "Laila Del2", P(9311));
+      const b = await mk("Lubna Del2", "Mansur Del2", P(9312));
+      const c = await mk("Maaz Del2", "Nargis Del2", P(9313));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: c.student.id, guardianId: a.guardian.id, relation: "mother" }));
+      expect(await sibs(a.student.id)).toEqual(["Lubna Del2", "Maaz Del2"]);
+      await withTenant(T, (tx) => updateStudent(tx, b.student.id, { deletedAt: new Date() }));
+      expect(await sibs(a.student.id)).toEqual(["Maaz Del2"]);
+      await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { deletedAt: new Date() }));
+      expect(await sibs(a.student.id)).toEqual([]);
+    });
   });
 });

@@ -1,4 +1,5 @@
-import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, or, type SQL, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { enrollments } from "@/modules/enrollments/schema";
@@ -48,6 +49,25 @@ export async function studentsOfHousehold(tx: Tx, householdId: string): Promise<
   return tx.select().from(students).where(and(eq(students.householdId, householdId), isNull(students.deletedAt))).orderBy(asc(students.fullName));
 }
 
+// Siblings are members who share a guardian: through live links, either side, no deleted guardian or member, never the member.
+export async function siblingsOf(tx: Tx, studentId: string): Promise<Student[]> {
+  const mine = alias(studentGuardians, "mine");
+  const shared = tx
+    .select({ guardianId: mine.guardianId })
+    .from(mine)
+    .innerJoin(guardians, eq(guardians.id, mine.guardianId))
+    .where(and(eq(mine.studentId, studentId), isNull(mine.removedAt), isNull(guardians.deletedAt)));
+  const siblingIds = tx
+    .select({ id: studentGuardians.studentId })
+    .from(studentGuardians)
+    .where(and(inArray(studentGuardians.guardianId, shared), isNull(studentGuardians.removedAt)));
+  return tx
+    .select()
+    .from(students)
+    .where(and(inArray(students.id, siblingIds), ne(students.id, studentId), isNull(students.deletedAt)))
+    .orderBy(asc(students.fullName), asc(students.id));
+}
+
 export type NewStudentRow = Omit<typeof students.$inferInsert, "id">;
 
 export async function insertStudent(tx: Tx, row: NewStudentRow): Promise<Student> {
@@ -76,6 +96,7 @@ export type FamilyMember = Guardian & { relation: Relation; isManager: boolean }
 
 // The people with access to any of these members, once each, a manager first;
 // removed links (unless asked for) and deleted guardians aren't (student_guardians is the only link we read).
+// includeRemoved is only for "is this number already known to this family": never for access checks, it resurfaces ended access.
 export async function guardiansOfMembers(tx: Tx, studentIds: string[], opts: { includeRemoved?: boolean } = {}): Promise<FamilyMember[]> {
   if (!studentIds.length) return [];
   const rows = await tx
