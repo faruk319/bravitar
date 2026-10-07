@@ -55,6 +55,9 @@ let mainBranch = "";
 let otherBranch = "";
 let ownerCtx: StudentCtx;
 const P = (n: number) => `+919${String(100_000_000 + n).padStart(9, "0")}`;
+// New fixtures call freshPhone(): the hand-picked P(n) ranges above stay below 10_000.
+let phoneSeq = 0;
+const freshPhone = () => P(1_000_000 + ++phoneSeq);
 const consents = { dataProcessing: true };
 
 const ctxFor = async (staffId: string, tenantId = T): Promise<StudentCtx> => {
@@ -488,6 +491,14 @@ describe("student_guardians is the only family link", () => {
       expect(await sibs(a.student.id)).toEqual(["Maaz Del2"]);
       await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { deletedAt: new Date() }));
       expect(await sibs(a.student.id)).toEqual([]);
+    });
+
+    it("freshPhone hands out a number nobody picked by hand, each time a new one", async () => {
+      const [x, y] = [freshPhone(), freshPhone()];
+      expect(x).not.toBe(y);
+      const a = await mk("Fresh One", "Parent One", x);
+      const b = await mk("Fresh Two", "Parent Two", y);
+      expect(a.guardian.id).not.toBe(b.guardian.id);
     });
   });
 });
