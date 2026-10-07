@@ -5,7 +5,7 @@ import { formatPaise } from "@/lib/money/format";
 import { absencesOn } from "@/modules/attendance/repo";
 import { linesOf, owedDueBetween } from "@/modules/fees/repo";
 import type { Payment } from "@/modules/payments/schema";
-import { guardiansOfHouseholdMembers, guardiansOfStudent } from "@/modules/students/repo";
+import { guardiansOfStudent, payerContacts } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { dedupeKeysTaken, skipAbout, skipStale } from "./repo";
 import { FEE_WINDOW, feeStage, localHour } from "./schedule";
@@ -35,7 +35,7 @@ export async function queueReminders(tx: Tx, opts: { now?: Date } = {}): Promise
     const names = new Map<string, Set<string>>();
     for (const l of await linesOf(tx, fresh.map((s) => s.inv.id))) if (l.studentName) names.set(l.invoiceId, (names.get(l.invoiceId) ?? new Set()).add(l.studentName));
     for (const { inv, key, dedupeKey } of fresh) {
-      const guardian = byPrimary(await guardiansOfHouseholdMembers(tx, inv.householdId))[0];
+      const guardian = byPrimary(await payerContacts(tx, inv))[0];
       if (!guardian) continue;
       const vars = { student_names: joinNames([...(names.get(inv.id) ?? [])]), amount: formatPaise(inv.totalPaise - inv.paidPaise), due_date: formatDate(inv.dueDate), invoice_number: inv.number ?? "" };
       if (await queueMessage(tx, tenant.id, { key, guardian, vars, link: { kind: "invoice", id: inv.id }, related: { type: "invoice", id: inv.id }, dedupeKey }, { now })) out.fees++;
@@ -56,10 +56,10 @@ export async function queueReminders(tx: Tx, opts: { now?: Date } = {}): Promise
 }
 
 // On a payment, from the desk or Razorpay: no reminder goes out for what it
-// just paid, and its receipt is queued for the family's primary guardian.
+// just paid, and its receipt is queued for the payer.
 export async function afterPayment(tx: Tx, payment: Payment, paidInvoiceIds: string[], opts: { now?: Date } = {}): Promise<void> {
   await skipAbout(tx, "invoice", paidInvoiceIds, "A payment came in first");
-  const guardian = byPrimary(await guardiansOfHouseholdMembers(tx, payment.householdId))[0];
+  const guardian = byPrimary(await payerContacts(tx, payment))[0];
   if (!guardian) return;
   const vars = { amount: formatPaise(payment.amountPaise), date: formatDate(payment.receivedOn), receipt_number: payment.receiptNumber };
   await queueMessage(tx, payment.tenantId, { key: "receipt", guardian, vars, link: { kind: "receipt", id: payment.id }, related: { type: "payment", id: payment.id }, dedupeKey: `receipt|${payment.id}` }, opts);

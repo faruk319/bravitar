@@ -17,7 +17,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { createHousehold } from "@/modules/students/repo";
+import { createGuardian, createHousehold } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
 import { removeFamilyLink, updateGuardian } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
@@ -446,8 +446,9 @@ describe("the owed summary", () => {
   const bill = (branchId: string, rupees: number, due: string, paid = 0) =>
     withTenant(T, async (tx) => {
       const household = await createHousehold(tx, { tenantId: T, name: `Dues family ${++families}` });
+      const payer = await createGuardian(tx, { tenantId: T, householdId: household.id, fullName: `Payer ${families}`, phone: `98766${String(10_000 + families)}` });
       const total = BigInt(rupees) * 100n;
-      const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId: household.id, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+      const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId: household.id, payerGuardianId: payer.id, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
       const fy = financialYear(today);
       return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", fy), fy, status: paid ? "part_paid" : "issued", paidPaise: BigInt(paid) * 100n, issuedAt: new Date() });
     });
@@ -471,6 +472,19 @@ describe("the owed summary", () => {
       overduePaise: 75_000n, // only the overdue invoice, and only what is left on it
       dueTomorrow: 1,
     });
+  });
+
+  it("counts overdue payers, not households: two payers in one household are two", async () => {
+    const branchTwo = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Payers branch" }))).id;
+    await withTenant(T, async (tx) => {
+      const household = await createHousehold(tx, { tenantId: T, name: "Split family" });
+      for (const [i, name] of ["Mother", "Father"].entries()) {
+        const payer = await createGuardian(tx, { tenantId: T, householdId: household.id, fullName: name, phone: `98767${String(10_000 + i)}` });
+        const inv = await insertInvoice(tx, { tenantId: T, branchId: branchTwo, householdId: household.id, payerGuardianId: payer.id, issueDate: addDays(today, -9), dueDate: addDays(today, -2), subtotalPaise: 10_000n, totalPaise: 10_000n });
+        await updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", financialYear(today)), fy: financialYear(today), status: "issued", issuedAt: new Date() });
+      }
+    });
+    expect(await withTenant(T, (tx) => owedSummary(tx, [branchTwo], today))).toMatchObject({ invoices: 2, overdueFamilies: 2 });
   });
 
   it("is all zeroes for a branch with nothing owed", async () => {

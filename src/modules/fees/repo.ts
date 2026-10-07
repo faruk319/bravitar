@@ -5,7 +5,7 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { type Payer, payerKey } from "@/modules/students/payer";
+import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardians, households, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
@@ -373,15 +373,18 @@ export async function duesByFamily(tx: Tx, branchIds: string[], today: string): 
   return rows.map((r) => ({ ...r, notDue: BigInt(r.notDue), days0to30: BigInt(r.days0to30), days31to60: BigInt(r.days31to60), over60: BigInt(r.over60) }));
 }
 
-// Families with at least `min` invoices past their due date and not fully paid.
-export async function familiesOverdue(tx: Tx, branchIds: string[], today: string, min: number): Promise<{ householdId: string; overdue: number; owedPaise: bigint }[]> {
+// Payers with at least `min` invoices past their due date and not fully paid.
+export async function payersOverdue(tx: Tx, branchIds: string[], today: string, min: number): Promise<{ payer: Payer; overdue: number; owedPaise: bigint }[]> {
   const rows = await tx
-    .select({ householdId: invoices.householdId, overdue: sql<number>`count(*)::int`, owed: sql<string>`sum(${invoices.totalPaise} - ${invoices.paidPaise})::text` })
+    .select({ payerGuardianId: invoices.payerGuardianId, payerMemberId: invoices.payerMemberId, overdue: sql<number>`count(*)::int`, owed: sql<string>`sum(${invoices.totalPaise} - ${invoices.paidPaise})::text` })
     .from(invoices)
     .where(and(inArray(invoices.status, [...OWED]), lt(invoices.dueDate, today), invoiceScope(branchIds)))
-    .groupBy(invoices.householdId)
+    .groupBy(invoices.payerGuardianId, invoices.payerMemberId)
     .having(sql`count(*) >= ${min}`);
-  return rows.map((r) => ({ householdId: r.householdId, overdue: r.overdue, owedPaise: BigInt(r.owed) }));
+  return rows.flatMap((r) => {
+    const payer = payerOf(r);
+    return payer ? [{ payer, overdue: r.overdue, owedPaise: BigInt(r.owed) }] : [];
+  });
 }
 
 // What is owed now, how much of it and how many families are past due, and how many invoices fall due tomorrow.
@@ -391,7 +394,7 @@ export async function owedSummary(tx: Tx, branchIds: string[], today: string): P
     .select({
       invoices: sql<number>`count(*)::int`,
       owed: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}), 0)::text`,
-      overdueFamilies: sql<number>`count(DISTINCT ${invoices.householdId}) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
+      overdueFamilies: sql<number>`count(DISTINCT coalesce(${invoices.payerGuardianId}, ${invoices.payerMemberId})) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
       overdue: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}) FILTER (WHERE ${invoices.dueDate} < ${today}), 0)::text`,
       dueTomorrow: sql<number>`count(*) FILTER (WHERE ${invoices.dueDate} = ${tomorrow})::int`,
     })

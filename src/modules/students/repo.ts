@@ -3,6 +3,7 @@ import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, 
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { enrollments } from "@/modules/enrollments/schema";
+import { type Payer, payerKey, payerOf } from "./payer";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
 
 // Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
@@ -125,7 +126,15 @@ export async function leadGuardians(tx: Tx, studentIds: string[]): Promise<Map<s
 
 export const guardiansOfStudent = (tx: Tx, studentId: string): Promise<FamilyMember[]> => guardiansOfMembers(tx, [studentId]);
 
-// The household's invoices and payments still key on it: reach their people through its members.
+// The people to message for a payer: the guardian, or a member paying for themselves through their own links.
+export async function payerContacts(tx: Tx, row: { payerGuardianId: string | null; payerMemberId: string | null }): Promise<Guardian[]> {
+  const payer = payerOf(row);
+  if (!payer) return [];
+  if (payer.kind === "member") return guardiansOfStudent(tx, payer.memberId);
+  return tx.select().from(guardians).where(and(eq(guardians.id, payer.guardianId), isNull(guardians.deletedAt)));
+}
+
+// Still used by the household lookups until the household goes (migration 0040).
 export async function guardiansOfHouseholdMembers(tx: Tx, householdId: string, opts: { includeRemoved?: boolean } = {}): Promise<FamilyMember[]> {
   return guardiansOfMembers(tx, (await studentsOfHousehold(tx, householdId)).map((s) => s.id), opts);
 }
@@ -270,12 +279,20 @@ export async function leftBetween(tx: Tx, scope: Scope, from: string, to: string
   return rows.map((r) => ({ ...r, on: r.on ?? "" }));
 }
 
-// Active students of these families, for the at-risk list.
-export async function activeStudentsOf(tx: Tx, scope: Scope, householdIds: string[]): Promise<Pick<Student, "id" | "fullName" | "code" | "householdId">[]> {
-  if (!householdIds.length) return [];
-  return tx
-    .select({ id: students.id, fullName: students.fullName, code: students.code, householdId: students.householdId })
-    .from(students)
-    .where(and(inArray(students.householdId, householdIds), eq(students.status, "active"), isNull(students.deletedAt), inScope(scope)))
-    .orderBy(asc(students.fullName));
+// Active members each payer answers for, for the at-risk list: a guardian's live links, or the member paying for themselves.
+export async function activeStudentsOf(tx: Tx, scope: Scope, payers: Payer[]): Promise<{ payerKey: string; student: Pick<Student, "id" | "fullName" | "code"> }[]> {
+  const gIds = payers.flatMap((p) => (p.kind === "guardian" ? [p.guardianId] : []));
+  const mIds = payers.flatMap((p) => (p.kind === "member" ? [p.memberId] : []));
+  const live = and(eq(students.status, "active"), isNull(students.deletedAt), inScope(scope));
+  const cols = { id: students.id, fullName: students.fullName, code: students.code };
+  const [linked, own] = await Promise.all([
+    gIds.length
+      ? tx.select({ ...cols, guardianId: studentGuardians.guardianId }).from(studentGuardians).innerJoin(students, eq(students.id, studentGuardians.studentId)).where(and(inArray(studentGuardians.guardianId, gIds), isNull(studentGuardians.removedAt), live))
+      : [],
+    mIds.length ? tx.select(cols).from(students).where(and(inArray(students.id, mIds), live)) : [],
+  ]);
+  return [
+    ...linked.map((r) => ({ payerKey: payerKey({ kind: "guardian", guardianId: r.guardianId }), student: { id: r.id, fullName: r.fullName, code: r.code } })),
+    ...own.map((r) => ({ payerKey: payerKey({ kind: "member", memberId: r.id }), student: r })),
+  ];
 }

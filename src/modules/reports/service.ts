@@ -7,9 +7,10 @@ import { type Paise, sum } from "@/lib/money/paise";
 import { type BatchMarks, type MarkCounts, marksByBatch, marksByStudent, type StudentMarks } from "@/modules/attendance/repo";
 import { attendancePercent } from "@/modules/attendance/service";
 import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
-import { duesByFamily, type FamilyDues, familiesOverdue } from "@/modules/fees/repo";
+import { duesByFamily, type FamilyDues, payersOverdue } from "@/modules/fees/repo";
 import { paymentsRecordedBetween, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
+import { payerKey } from "@/modules/students/payer";
 import { activeStudentsOf, joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
 import { tenantToday } from "@/modules/tenancy/repo";
 
@@ -133,14 +134,15 @@ export async function atRisk(tx: Tx, ctx: ScopedCtx): Promise<AtRisk> {
     : null;
   let unpaid: AtRisk["unpaid"] = null;
   if (allows(ctx, "invoices:read")) {
-    const families = new Map((await familiesOverdue(tx, ctx.branchIds, to, AT_RISK.overdue)).map((f) => [f.householdId, f]));
-    unpaid = (await activeStudentsOf(tx, { branchIds: ctx.branchIds }, [...families.keys()])).map((s) => ({
-      studentId: s.id,
-      name: s.fullName,
-      code: s.code,
-      overdue: families.get(s.householdId)?.overdue ?? 0,
-      owedPaise: families.get(s.householdId)?.owedPaise ?? 0n,
-    }));
+    const overdue = await payersOverdue(tx, ctx.branchIds, to, AT_RISK.overdue);
+    const byPayer = new Map(overdue.map((o) => [payerKey(o.payer), o]));
+    const sums = new Map<string, { studentId: string; name: string; code: string; overdue: number; owedPaise: Paise }>();
+    for (const { payerKey: k, student: s } of await activeStudentsOf(tx, { branchIds: ctx.branchIds }, overdue.map((o) => o.payer))) {
+      const o = byPayer.get(k);
+      const t = sums.get(s.id) ?? { studentId: s.id, name: s.fullName, code: s.code, overdue: 0, owedPaise: 0n };
+      sums.set(s.id, { ...t, overdue: t.overdue + (o?.overdue ?? 0), owedPaise: t.owedPaise + (o?.owedPaise ?? 0n) });
+    }
+    unpaid = [...sums.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
   return { from, to, attendance, unpaid };
 }

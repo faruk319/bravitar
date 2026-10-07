@@ -17,6 +17,7 @@ import { cancelPayment, collectionSheet, recordPayment } from "@/modules/payment
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
+import { createGuardian, upsertFamilyLink } from "@/modules/students/repo";
 import { guardians } from "@/modules/students/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
@@ -213,6 +214,26 @@ describe("attendance summary and the at-risk list", () => {
     const seen = await withTenant(T, (tx) => atRisk(tx, desk));
     expect([seen.attendance, seen.unpaid?.map((s) => s.name)]).toEqual([null, ["Bina Mane"]]);
     expect((await withTenant(T, (tx) => atRisk(tx, { ...owner, branchIds: [other] }))).unpaid).toEqual([]);
+  });
+
+  it("at risk counts overdue invoices per payer: two payers in one household with one each aren't flagged", async () => {
+    const gita = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Gita Rane", branchId: branch, joinedOn: addDays(today, -20), guardian: { fullName: "Mother Rane", phone: "98744 20001", relation: "mother" }, consents: { dataProcessing: true } }));
+    const [mother] = await withTenant(T, (tx) => familyGuardians(tx, gita.household.id));
+    const father = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, householdId: gita.household.id, fullName: "Father Rane", phone: "98744 20002" }));
+    await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: gita.student.id, guardianId: father.id, relation: "father" }));
+    const oweBy = (payerGuardianId: string | undefined, late: number) =>
+      withTenant(T, async (tx) => {
+        const due = addDays(today, -late);
+        const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId: gita.household.id, studentId: gita.student.id, payerGuardianId: payerGuardianId ?? null, billToName: "Rane", issueDate: addDays(due, -7), dueDate: due, subtotalPaise: 40_000n, totalPaise: 40_000n });
+        return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
+      });
+    await oweBy(mother, 5);
+    await oweBy(father.id, 6);
+    const names = async () => (await withTenant(T, (tx) => atRisk(tx, owner))).unpaid?.map((s) => [s.name, s.overdue]);
+    expect(await names()).not.toContainEqual(["Gita Rane", expect.anything()]);
+    expect((await names())?.length).toBeGreaterThan(0); // the list isn't empty, so the line above says something
+    await oweBy(father.id, 7);
+    expect(await names()).toContainEqual(["Gita Rane", 2]); // the father now has two
   });
 });
 
