@@ -10,7 +10,7 @@ import { getProgram, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { applyAdvance } from "@/modules/payments/service";
-import { payerOf } from "@/modules/students/payer";
+import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { getHousehold } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
@@ -37,7 +37,7 @@ import {
   linesOf,
   lockDrafts,
   lockInvoicing,
-  payerName,
+  payerNames,
   type OpenInstallment,
   openInstallments,
   type PlanRow,
@@ -271,15 +271,16 @@ export async function generateNow(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } =
 }
 
 // A row with both payer columns set is corrupt: keep the stored name instead of guessing whose it is.
-async function currentPayerName(tx: Tx, inv: Invoice): Promise<string | undefined> {
-  let payer: ReturnType<typeof payerOf>;
+function payerIfValid(inv: Invoice): Payer[] {
   try {
-    payer = payerOf(inv);
+    const p = payerOf(inv);
+    return p ? [p] : [];
   } catch {
-    return undefined;
+    return [];
   }
-  return payer ? payerName(tx, payer) : undefined;
 }
+
+const currentPayerName = (names: Map<string, string>, inv: Invoice) => payerIfValid(inv).map((p) => names.get(payerKey(p)))[0];
 
 export const issueSchema = z.union([z.literal("all"), z.array(z.uuid()).min(1).max(1000)]);
 
@@ -294,9 +295,10 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
   const drafts = await lockDrafts(tx, ctx.branchIds, ids === "all" ? await draftIds(tx, ctx.branchIds) : ids);
   if (!drafts.length) throw new ConflictError("Nothing to issue");
   const issued: Invoice[] = [];
+  const names = await payerNames(tx, drafts.flatMap((d) => payerIfValid(d)));
   for (const d of drafts) {
     // The bill-to name is frozen here (the payer's name today, else the one the draft carries); a draft with no name stays a draft.
-    const billToName = (await currentPayerName(tx, d)) ?? d.billToName ?? (await getHousehold(tx, d.householdId))?.name;
+    const billToName = currentPayerName(names, d) ?? d.billToName ?? (await getHousehold(tx, d.householdId))?.name;
     if (!billToName) continue;
     const number = await allocateNumber(tx, ctx.tenantId, "invoice", fy);
     // Nothing to pay (a full waiver) is paid on issue.

@@ -6,7 +6,7 @@ import type { Paise } from "@/lib/money/paise";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { releaseInvoice } from "@/modules/payments/service";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardiansOfStudent } from "@/modules/students/repo";
+import { leadGuardians } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { type Cycle, invoiceTotals, type LineDiscount, lineAmounts, recurringCharges } from "./billing";
 import {
@@ -24,7 +24,7 @@ import {
   type Link,
   linesOf,
   lockInvoicing,
-  payerName,
+  payerNames,
   takenKeys,
   updateInvoice,
 } from "./repo";
@@ -134,20 +134,23 @@ const admissionFor = (c: Charge): Charge => ({
 const validOn = (g: GivenDiscount, day: string) => g.validFrom <= day && (g.validTo === null || g.validTo >= day);
 
 export type GenerateOptions = { now?: Date; enrollmentIds?: string[]; onlyKeys?: Set<string> };
-export type SkippedMember = { enrollmentId: string; studentId: string; reason: "no_payer" | "corrupt_payer" };
+export type SkippedMember = { enrollmentId: string; studentId: string; reason: "corrupt_payer" | "no_payer_name" };
 export type GenerateResult = { invoices: number; lines: number; skipped: SkippedMember[] };
 
-// The enrollment's own payer; one with none falls back to the member's manager guardian (the 0039 backfill's rule).
-// No guardian at all is null, and the caller skips the member rather than issue a nameless invoice.
-async function payerFor(tx: Tx, e: Enrollment): Promise<Payer | null | "corrupt"> {
-  try {
-    const own = payerOf(e);
-    if (own) return own;
-  } catch {
-    return "corrupt";
+// The enrollment's own payer; one with none falls back to the member's lead guardian, else the member themselves.
+// Both payer columns set is corrupt: that member is skipped, never guessed at.
+export function resolvePayers(es: Enrollment[], lead: Map<string, string>): { payers: Map<string, Payer>; corrupt: Enrollment[] } {
+  const payers = new Map<string, Payer>();
+  const corrupt: Enrollment[] = [];
+  for (const e of es) {
+    try {
+      const guardianId = lead.get(e.studentId);
+      payers.set(e.id, payerOf(e) ?? (guardianId ? { kind: "guardian", guardianId } : { kind: "member", memberId: e.studentId }));
+    } catch {
+      corrupt.push(e);
+    }
   }
-  const [g] = await guardiansOfStudent(tx, e.studentId);
-  return g ? { kind: "guardian", guardianId: g.id } : null;
+  return { payers, corrupt };
 }
 
 // docs/03 §8: drafts per family, branch and billing day; installments get their own.
@@ -161,13 +164,9 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
   const from = only ? EVER : addDays(today, -LOOKBACK_DAYS);
   const everyone = await billableEnrollments(tx, { from, to: today, ...(opts.enrollmentIds ? { ids: opts.enrollmentIds } : {}) });
   // One bad row skips that member only; it is audited below and tried again next run.
-  const payers = new Map<string, Payer>();
-  const skipped: SkippedMember[] = [];
-  for (const b of everyone) {
-    const p = await payerFor(tx, b.e);
-    if (p && p !== "corrupt") payers.set(b.e.id, p);
-    else skipped.push({ enrollmentId: b.e.id, studentId: b.e.studentId, reason: p ? "corrupt_payer" : "no_payer" });
-  }
+  const { payers, corrupt } = resolvePayers(everyone.map((b) => b.e), await leadGuardians(tx, [...new Set(everyone.map((b) => b.e.studentId))]));
+  const skipped: SkippedMember[] = corrupt.map((e) => ({ enrollmentId: e.id, studentId: e.studentId, reason: "corrupt_payer" }));
+  const names = await payerNames(tx, [...payers.values()]);
   const billables = everyone.filter((b) => payers.has(b.e.id));
   const studentIds = [...new Set(billables.map((b) => b.e.studentId))];
   const [links, given] = await Promise.all([enrollmentLinks(tx, studentIds), discountsOf(tx, studentIds)]);
@@ -194,9 +193,9 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
     const due = cs.map((c) => c.dueDate).sort()[0] ?? head.dueDate;
     const payer = payers.get(head.b.e.id);
     if (!payer) continue;
-    const billTo = await payerName(tx, payer);
+    const billTo = names.get(payerKey(payer));
     if (!billTo) {
-      skipped.push(...cs.map((c) => ({ enrollmentId: c.b.e.id, studentId: c.b.e.studentId, reason: "no_payer" as const })));
+      skipped.push(...cs.map((c) => ({ enrollmentId: c.b.e.id, studentId: c.b.e.studentId, reason: "no_payer_name" as const })));
       continue;
     }
     const inv =

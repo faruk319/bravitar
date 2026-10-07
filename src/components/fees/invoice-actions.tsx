@@ -19,8 +19,12 @@ export function GenerateNow() {
         disabled={a.busy}
         onClick={() =>
           void a.run(async () => {
-            const r = await request<{ invoices: number; lines: number }>("/api/invoices", "POST", { action: "generate" });
-            if (r.data) setNote(r.data.lines ? `${r.data.lines} new ${r.data.lines === 1 ? "charge" : "charges"} on ${r.data.invoices} ${r.data.invoices === 1 ? "invoice" : "invoices"}` : "Nothing new to bill");
+            const r = await request<{ invoices: number; lines: number; skipped: unknown[] }>("/api/invoices", "POST", { action: "generate" });
+            if (r.data) {
+              const n = r.data.skipped.length;
+              const done = r.data.lines ? `${r.data.lines} new ${r.data.lines === 1 ? "charge" : "charges"} on ${r.data.invoices} ${r.data.invoices === 1 ? "invoice" : "invoices"}` : "Nothing new to bill";
+              setNote(n ? `${done}. ${n} ${n === 1 ? "member" : "members"} not billed` : done);
+            }
             return r.error;
           })
         }

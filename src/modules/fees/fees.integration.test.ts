@@ -24,7 +24,8 @@ import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { addMonths } from "./billing";
-import { generateInvoices } from "./invoicing";
+import { generateInvoices, resolvePayers } from "./invoicing";
+import type { Enrollment } from "@/modules/enrollments/schema";
 import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { type Invoice, invoices } from "./schema";
@@ -491,18 +492,24 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     expect((await invoicesOf(s.household.id))[0]).toMatchObject({ payerGuardianId: s.guardian.id, billToName: "Mother Fallback" });
   });
 
-  it("a member nobody can pay for is skipped and recorded, never billed to a blank name, and the run goes on for the others", async () => {
-    const orphan = await one("Orphan Kid", "Mother Orphan");
+  it("a member with no guardian at all (a gym) is billed with themselves as payer", async () => {
+    const adult = await one("Gym Adult", "Soon Gone");
     const fine = await one("Fine Kid", "Mother Fine");
-    const [eo, ef] = [await join(orphan.student.id, "Karate A", M0), await join(fine.student.id, "Karate A", M0)];
-    await withTenant(T, (tx) => removeFamilyLink(tx, orphan.student.id, orphan.guardian.id, new Date()));
-    const r = await gen(M1, [eo, ef]);
-    // Fails if the orphan were billed (invoices 2) or if it aborted the run (nothing for Fine Kid).
-    expect(r).toEqual({ invoices: 1, lines: 1, skipped: [{ enrollmentId: eo, studentId: orphan.student.id, reason: "no_payer" }] });
-    expect(await invoicesOf(orphan.household.id)).toEqual([]);
+    const [ea, ef] = [await join(adult.student.id, "Karate A", M0), await join(fine.student.id, "Karate A", M0)];
+    await withTenant(T, (tx) => removeFamilyLink(tx, adult.student.id, adult.guardian.id, new Date()));
+    // Fails if the member were skipped (invoices 1, skipped 1) or billed to the removed guardian.
+    expect(await gen(M1, [ea, ef])).toEqual({ invoices: 2, lines: 2, skipped: [] });
+    expect((await invoicesOf(adult.household.id))[0]).toMatchObject({ payerGuardianId: null, payerMemberId: adult.student.id, billToName: "Gym Adult" });
     expect((await invoicesOf(fine.household.id))[0]?.billToName).toBe("Mother Fine");
-    const [row] = await withTenant(T, (tx) => tx.select().from(auditLog).where(eq(auditLog.action, "invoice.generate_skipped")));
-    expect(JSON.stringify(row?.after)).toContain(eo);
+  });
+
+  it("an enrollment with both payer columns set is skipped on its own; the others still get a payer", () => {
+    const bad = { id: "e1", studentId: "s1", payerGuardianId: "g", payerMemberId: "m" } as Enrollment;
+    const ok = { id: "e2", studentId: "s2", payerGuardianId: null, payerMemberId: null } as Enrollment;
+    const r = resolvePayers([bad, ok], new Map([["s2", "g2"]]));
+    // Fails if the throw escaped (nobody resolved) or the bad row were billed to one side.
+    expect(r.corrupt).toEqual([bad]);
+    expect([...r.payers]).toEqual([["e2", { kind: "guardian", guardianId: "g2" }]]);
   });
 
   it("issuing freezes the bill-to name: a rename before issue is picked up, a rename after is not", async () => {

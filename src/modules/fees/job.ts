@@ -9,7 +9,8 @@ export function runInvoicesGenerate(opts: { now?: Date; tenantIds?: string[] } =
   return forEachTenant(
     INVOICES_GENERATE,
     async (tx, tenantId) => {
-      await generateInvoices(tx, { actorType: "system", tenantId }, opts.now ? { now: opts.now } : {});
+      const r = await generateInvoices(tx, { actorType: "system", tenantId }, opts.now ? { now: opts.now } : {});
+      if (r.skipped.length) console.warn(`[${INVOICES_GENERATE}] tenant ${tenantId}: ${r.skipped.length} member(s) not billed`);
     },
     opts.tenantIds,
   );

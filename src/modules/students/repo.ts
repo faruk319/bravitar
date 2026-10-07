@@ -109,6 +109,20 @@ export async function guardiansOfMembers(tx: Tx, studentIds: string[], opts: { i
   return rows.filter((r) => !seen.has(r.g.id) && seen.add(r.g.id)).map((r) => ({ ...r.g, relation: r.relation, isManager: r.isManager }));
 }
 
+// Each member's lead guardian (manager first, then the earliest linked), one query for all; members with no live guardian are absent.
+export async function leadGuardians(tx: Tx, studentIds: string[]): Promise<Map<string, string>> {
+  if (!studentIds.length) return new Map();
+  const rows = await tx
+    .select({ studentId: studentGuardians.studentId, guardianId: guardians.id })
+    .from(studentGuardians)
+    .innerJoin(guardians, eq(guardians.id, studentGuardians.guardianId))
+    .where(and(inArray(studentGuardians.studentId, studentIds), isNull(studentGuardians.removedAt), isNull(guardians.deletedAt)))
+    .orderBy(desc(studentGuardians.isManager), asc(guardians.createdAt), asc(guardians.id));
+  const lead = new Map<string, string>();
+  for (const r of rows) if (!lead.has(r.studentId)) lead.set(r.studentId, r.guardianId);
+  return lead;
+}
+
 export const guardiansOfStudent = (tx: Tx, studentId: string): Promise<FamilyMember[]> => guardiansOfMembers(tx, [studentId]);
 
 // The household's invoices and payments still key on it: reach their people through its members.

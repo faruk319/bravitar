@@ -5,7 +5,7 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import type { Payer } from "@/modules/students/payer";
+import { type Payer, payerKey } from "@/modules/students/payer";
 import { guardians, households, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
@@ -176,13 +176,15 @@ export async function getInvoice(tx: Tx, branchIds: string[], id: string): Promi
 const payerIs = (p: Payer): SQL =>
   p.kind === "guardian" ? sql`${invoices.payerGuardianId} = ${p.guardianId} AND ${invoices.payerMemberId} IS NULL` : sql`${invoices.payerMemberId} = ${p.memberId} AND ${invoices.payerGuardianId} IS NULL`;
 
-// The payer's name today, for stamping on an invoice (deleted guardians keep theirs); undefined if the row is gone.
-export async function payerName(tx: Tx, payer: Payer): Promise<string | undefined> {
-  const [row] =
-    payer.kind === "guardian"
-      ? await tx.select({ name: guardians.fullName }).from(guardians).where(eq(guardians.id, payer.guardianId))
-      : await tx.select({ name: students.fullName }).from(students).where(eq(students.id, payer.memberId));
-  return row?.name;
+// Payers' names today by payerKey, two queries for any number (deleted guardians keep theirs), for stamping on invoices.
+export async function payerNames(tx: Tx, payers: Payer[]): Promise<Map<string, string>> {
+  const gIds = [...new Set(payers.flatMap((p) => (p.kind === "guardian" ? [p.guardianId] : [])))];
+  const mIds = [...new Set(payers.flatMap((p) => (p.kind === "member" ? [p.memberId] : [])))];
+  const [gs, ms] = await Promise.all([
+    gIds.length ? tx.select({ id: guardians.id, name: guardians.fullName }).from(guardians).where(inArray(guardians.id, gIds)) : [],
+    mIds.length ? tx.select({ id: students.id, name: students.fullName }).from(students).where(inArray(students.id, mIds)) : [],
+  ]);
+  return new Map([...gs.map((g) => [payerKey({ kind: "guardian", guardianId: g.id }), g.name] as const), ...ms.map((m) => [payerKey({ kind: "member", memberId: m.id }), m.name] as const)]);
 }
 
 // The family's open draft for a billing day and payer, locked so issuing can't race an append.
