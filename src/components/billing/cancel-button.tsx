@@ -25,7 +25,7 @@ export function CancelButton({ path, cancelling, waiting, size }: { path: string
         {label}
       </Button>
       {a.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {a.error}
         </p>
       ) : null}

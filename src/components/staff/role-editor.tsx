@@ -61,11 +61,11 @@ export function RoleEditor({ roleId, name, keys, holders, groups }: { roleId: st
         <Button size="lg" onClick={() => save({ keys: ticked })}>
           Save permissions
         </Button>
-        {msg ? <span className={msg === "Saved ✓" ? "text-label text-success-600" : "text-label text-danger-600"}>{msg}</span> : null}
+        {msg ? <span className={msg === "Saved ✓" ? "text-label text-success-700" : "text-label text-danger-700"}>{msg}</span> : null}
         {holders === 0 ? (
           <Button
             variant="ghost"
-            className="ml-auto text-danger-600"
+            className="ml-auto text-danger-700"
             onClick={async () => {
               if (!confirmDelete) return setConfirmDelete(true);
               const err = await send(`/api/roles/${roleId}`, "DELETE");
@@ -114,7 +114,7 @@ export function NewRole({ roles }: { roles: Option[] }) {
             </select>
           </Field>
           {error ? (
-            <p role="alert" className="text-label text-danger-600">
+            <p role="alert" className="text-label text-danger-700">
               {error}
             </p>
           ) : null}

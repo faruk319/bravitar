@@ -79,7 +79,7 @@ export function ReasonAction({ trigger, title, hint, path, submitLabel }: { trig
   const id = `${path}-reason`;
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
-      <SheetTrigger render={<Button variant="ghost" size="sm" className="text-danger-600" />}>{trigger}</SheetTrigger>
+      <SheetTrigger render={<Button variant="ghost" size="sm" className="text-danger-700" />}>{trigger}</SheetTrigger>
       <SheetForm
         trigger={trigger}
         title={title}

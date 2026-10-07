@@ -74,7 +74,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
                       <span className="block truncate text-body text-neutral-900">
                         {p.householdName} <span className="text-caption tabular-nums text-muted-foreground">{p.receiptNumber}</span>
                       </span>
-                      <span className={cn("block truncate text-caption", cancelled ? "text-danger-600" : "text-muted-foreground")}>{facts.filter(Boolean).join(" · ")}</span>
+                      <span className={cn("block truncate text-caption", cancelled ? "text-danger-700" : "text-muted-foreground")}>{facts.filter(Boolean).join(" · ")}</span>
                     </span>
                     <Money paise={p.amountPaise} className={cn("shrink-0 text-body font-medium", cancelled && "text-muted-foreground line-through")} />
                   </Link>

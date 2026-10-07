@@ -25,7 +25,7 @@ export function CancelPayment({ id, receiptNumber }: { id: string; receiptNumber
   const a = useAction();
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
-      <SheetTrigger render={<Button variant="ghost" className="text-danger-600" />}>Cancel</SheetTrigger>
+      <SheetTrigger render={<Button variant="ghost" className="text-danger-700" />}>Cancel</SheetTrigger>
       <SheetForm
         trigger="Cancel"
         title={`Cancel ${receiptNumber}`}

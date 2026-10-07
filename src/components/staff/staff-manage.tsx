@@ -54,7 +54,7 @@ export function StaffManage({ staffId, name, active, roles, branches, roleId: in
         >
           Save access
         </Button>
-        {msg ? <span className={msg === "Saved ✓" ? "text-label text-success-600" : "text-label text-danger-600"}>{msg}</span> : null}
+        {msg ? <span className={msg === "Saved ✓" ? "text-label text-success-700" : "text-label text-danger-700"}>{msg}</span> : null}
       </div>
       <div className="flex flex-wrap gap-2 border-t border-neutral-100 pt-4">
         {active ? (
@@ -72,7 +72,7 @@ export function StaffManage({ staffId, name, active, roles, branches, roleId: in
         ) : null}
         <Button
           variant="ghost"
-          className={active ? "text-danger-600" : undefined}
+          className={active ? "text-danger-700" : undefined}
           disabled={busy}
           onClick={async () => {
             if (active && !confirmSuspend) return setConfirmSuspend(true);

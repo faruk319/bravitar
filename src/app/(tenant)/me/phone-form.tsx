@@ -48,7 +48,7 @@ export function PhoneForm({ phone }: { phone: string | null }) {
         <Input id="me-password" name="password" type="password" autoComplete="current-password" />
       </Field>
       {a.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {a.error}
         </p>
       ) : null}

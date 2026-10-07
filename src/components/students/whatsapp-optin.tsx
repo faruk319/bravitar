@@ -17,7 +17,7 @@ export function WhatsappOptin({ guardianId, on, canUpdate }: { guardianId: strin
         className="size-5 accent-accent-600"
       />
       WhatsApp
-      {a.error ? <span className="text-danger-600">{a.error}</span> : null}
+      {a.error ? <span className="text-danger-700">{a.error}</span> : null}
     </label>
   );
 }

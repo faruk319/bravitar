@@ -33,7 +33,7 @@ export default async function SharedInvoicePage({ params, searchParams }: PagePr
         </Button>
       ) : null}
       {failed ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           Online payment isn&apos;t available right now. Please pay at the academy.
         </p>
       ) : null}

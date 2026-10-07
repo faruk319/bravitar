@@ -51,7 +51,7 @@ export function ProgramList({ programs, modules, canManage }: { programs: P[]; m
         </form>
       ) : null}
       {error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {error}
         </p>
       ) : null}

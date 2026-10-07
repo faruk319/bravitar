@@ -24,15 +24,15 @@ import { trialsOf, type TrialRow } from "@/modules/enquiries/repo";
 import { enquiryDetail } from "@/modules/enquiries/service";
 import { trialChoices } from "@/modules/enquiries/trials";
 
-const STATUS_CLASS: Record<string, string> = { won: "bg-success-600/10 text-success-600", lost: "bg-neutral-100 text-neutral-500" };
+const STATUS_CLASS: Record<string, string> = { won: "bg-success-600/10 text-success-700", lost: "bg-neutral-100 text-neutral-500" };
 const MARK_WORDS = { present: "Came", late: "Came late", absent: "Missed", excused: "Excused" } as const;
 
 // What happened to a trial, in a word.
 function trialState(t: TrialRow, today: string): [string, string] {
   if (t.cancelledAt) return ["Cancelled", "text-muted-foreground"];
-  if (t.sessionStatus === "cancelled") return ["Class cancelled", "text-warning-600"];
-  if (t.mark) return [MARK_WORDS[t.mark], t.mark === "absent" ? "text-danger-600" : "text-success-600"];
-  return t.trialDate < today ? ["Not marked", "text-warning-600"] : ["Booked", "text-accent-600"];
+  if (t.sessionStatus === "cancelled") return ["Class cancelled", "text-warning-700"];
+  if (t.mark) return [MARK_WORDS[t.mark], t.mark === "absent" ? "text-danger-700" : "text-success-700"];
+  return t.trialDate < today ? ["Not marked", "text-warning-700"] : ["Booked", "text-accent-600"];
 }
 
 // docs/03 §4: the enquiry, how to reach them, and everything that happened.

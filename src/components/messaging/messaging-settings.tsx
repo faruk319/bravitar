@@ -73,7 +73,7 @@ export function MessagingSettings({ settings }: { settings: Settings }) {
         <Input id="msg-cap" name="dailyCap" type="number" inputMode="numeric" min={1} defaultValue={settings.dailyCap} />
       </Field>
       {a.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {a.error}
         </p>
       ) : null}
@@ -81,7 +81,7 @@ export function MessagingSettings({ settings }: { settings: Settings }) {
         <Button type="submit" disabled={a.busy}>
           {a.busy ? "Saving…" : "Save"}
         </Button>
-        {saved ? <span className="text-caption text-success-600">Saved</span> : null}
+        {saved ? <span className="text-caption text-success-700">Saved</span> : null}
       </div>
     </form>
   );

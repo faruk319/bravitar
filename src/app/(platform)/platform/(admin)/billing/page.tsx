@@ -52,7 +52,7 @@ export default async function BillingPage() {
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
                 <span className="tabular-nums">{formatPaise(b.balance)}</span>
-                <span className={cn("text-caption", b.overdue ? "text-danger-600" : "text-muted-foreground")}>{b.overdue ? `Overdue since ${formatDayMonth(b.dueOn)}` : `Due ${formatDayMonth(b.dueOn)}`}</span>
+                <span className={cn("text-caption", b.overdue ? "text-danger-700" : "text-muted-foreground")}>{b.overdue ? `Overdue since ${formatDayMonth(b.dueOn)}` : `Due ${formatDayMonth(b.dueOn)}`}</span>
               </span>
             </li>
           ))}

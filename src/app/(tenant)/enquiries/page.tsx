@@ -32,7 +32,7 @@ function Trailing({ e, today }: { e: EnquiryRow; today: string }) {
   if (e.status === "lost") return <span className="text-caption text-muted-foreground">{e.lostReason ? LOST_REASON_LABELS[e.lostReason] : ""}</span>;
   if (e.status === "won" || !e.nextFollowUp) return null;
   const late = e.nextFollowUp < today;
-  return <span className={cn("text-caption", late ? "text-danger-600" : e.nextFollowUp === today ? "text-warning-600" : "text-muted-foreground")}>{e.nextFollowUp === today ? "Today" : formatDate(e.nextFollowUp)}</span>;
+  return <span className={cn("text-caption", late ? "text-danger-700" : e.nextFollowUp === today ? "text-warning-700" : "text-muted-foreground")}>{e.nextFollowUp === today ? "Today" : formatDate(e.nextFollowUp)}</span>;
 }
 
 const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : undefined);

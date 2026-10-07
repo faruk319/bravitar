@@ -27,7 +27,7 @@ export function Connection({ provider, path, fields, connected, summary, lastErr
   const [editing, setEditing] = useState(!connected);
   const [tested, setTested] = useState<string>();
   const error = a.error ? (
-    <p role="alert" className="text-label text-danger-600">
+    <p role="alert" className="text-label text-danger-700">
       {a.error}
     </p>
   ) : null;
@@ -38,11 +38,11 @@ export function Connection({ provider, path, fields, connected, summary, lastErr
         <div className="flex flex-col gap-1">
           <p className="text-body">{summary}</p>
           {lastError ? (
-            <p role="alert" className="text-label text-danger-600">
+            <p role="alert" className="text-label text-danger-700">
               {lastError}
             </p>
           ) : tested ? (
-            <p className="text-label text-success-600">{tested}</p>
+            <p className="text-label text-success-700">{tested}</p>
           ) : null}
           <p className="text-caption text-muted-foreground">{lastSeen}</p>
         </div>

@@ -91,9 +91,9 @@ export function OfflineBanner() {
   if (!s.offline && !s.failed && !s.notices.length) return null;
   return (
     <div role="status" className="flex flex-col gap-1 border-b border-neutral-100 bg-background px-4 py-2 text-label md:px-6">
-      {s.offline ? <p className="text-warning-600">Offline — {s.pending ? `${s.pending} ${s.pending === 1 ? "mark" : "marks"} will sync` : "attendance still works"}</p> : null}
+      {s.offline ? <p className="text-warning-700">Offline — {s.pending ? `${s.pending} ${s.pending === 1 ? "mark" : "marks"} will sync` : "attendance still works"}</p> : null}
       {s.failed ? (
-        <p className="text-danger-600">
+        <p className="text-danger-700">
           {s.failed} {s.failed === 1 ? "mark" : "marks"} couldn&apos;t sync: {s.failedReason}{" "}
           <button type="button" className="underline" onClick={() => void queue.discardFailed()}>
             Discard
@@ -117,7 +117,7 @@ export function SyncBadge() {
   const s = useSyncState();
   if (!s.pending && !s.failed) return null;
   return (
-    <Link href="/today" className="rounded-full bg-warning-600/10 px-2.5 py-1 text-label text-warning-600">
+    <Link href="/today" className="rounded-full bg-warning-600/10 px-2.5 py-1 text-label text-warning-700">
       {s.failed ? `${s.failed} couldn't sync` : `${s.pending} unsynced`}
     </Link>
   );

@@ -159,7 +159,7 @@ export function MarkLost({ id }: { id: string }) {
   const a = useAction();
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
-      <SheetTrigger render={<Button variant="ghost" className="text-danger-600" />}>Mark lost</SheetTrigger>
+      <SheetTrigger render={<Button variant="ghost" className="text-danger-700" />}>Mark lost</SheetTrigger>
       <SheetForm
         trigger="Mark lost"
         title="Why was this enquiry lost?"
@@ -201,7 +201,7 @@ export function Reopen({ id }: { id: string }) {
         {a.busy ? "Reopening…" : "Reopen"}
       </Button>
       {a.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {a.error}
         </p>
       ) : null}

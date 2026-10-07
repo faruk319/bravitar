@@ -109,7 +109,7 @@ export function GiveDiscount({ studentId, discounts, today }: { studentId: strin
 export function EndDiscount({ id }: { id: string }) {
   const a = useAction();
   return (
-    <Button size="sm" variant="ghost" className="text-danger-600" disabled={a.busy} onClick={() => void a.run(() => send(`/api/student-discounts/${id}`, "DELETE"))}>
+    <Button size="sm" variant="ghost" className="text-danger-700" disabled={a.busy} onClick={() => void a.run(() => send(`/api/student-discounts/${id}`, "DELETE"))}>
       End
     </Button>
   );

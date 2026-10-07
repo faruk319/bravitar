@@ -147,7 +147,7 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
       </ul>
 
       {replaced.map((line) => (
-        <p key={line} className="mt-3 text-label text-warning-600">
+        <p key={line} className="mt-3 text-label text-warning-700">
           ⚠ {line}
         </p>
       ))}
@@ -159,13 +159,13 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
               {phase === "saving" ? (
                 "Saving…"
               ) : phase === "error" ? (
-                <span className="text-danger-600">Couldn&apos;t save · {error}</span>
+                <span className="text-danger-700">Couldn&apos;t save · {error}</span>
               ) : dirty.length ? (
                 `${dirty.length} unsaved`
               ) : waiting ? (
-                <span className="text-warning-600">{offline ? `Offline — ${waiting} ${waiting === 1 ? "mark" : "marks"} will sync` : `✓ Saved on this phone · ${waiting} to sync`}</span>
+                <span className="text-warning-700">{offline ? `Offline — ${waiting} ${waiting === 1 ? "mark" : "marks"} will sync` : `✓ Saved on this phone · ${waiting} to sync`}</span>
               ) : savedAt ? (
-                <span className="text-success-600">✓ Saved {savedAt}</span>
+                <span className="text-success-700">✓ Saved {savedAt}</span>
               ) : null}
             </span>
             <Button size="lg" onClick={save} disabled={!dirty.length || phase === "saving"}>

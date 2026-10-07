@@ -60,7 +60,7 @@ export function StatusActions({ student, canUpdate, due = [] }: { student: Stude
                 <Input id="note" name="note" placeholder="Needed for Other" />
               </div>
               <StillDue items={due} />
-              {error ? <p role="alert" className="text-label text-danger-600">{error}</p> : null}
+              {error ? <p role="alert" className="text-label text-danger-700">{error}</p> : null}
               <Button type="submit" size="lg" disabled={busy}>
                 Mark as left
               </Button>
@@ -68,7 +68,7 @@ export function StatusActions({ student, canUpdate, due = [] }: { student: Stude
           </SheetContent>
         </Sheet>
       ) : null}
-      {error && !open ? <p role="alert" className="w-full text-label text-danger-600">{error}</p> : null}
+      {error && !open ? <p role="alert" className="w-full text-label text-danger-700">{error}</p> : null}
     </div>
   );
 }
@@ -114,7 +114,7 @@ export function EditStudentSheet({ student, canUpdate }: { student: Student; can
           <F label={student.codeEditedAt ? "Code (locked)" : "Code (can be changed once)"} id="code">
             <Input id="code" name="code" defaultValue={student.code} disabled={Boolean(student.codeEditedAt)} className="uppercase tabular-nums" />
           </F>
-          {error ? <p role="alert" className="text-label text-danger-600">{error}</p> : null}
+          {error ? <p role="alert" className="text-label text-danger-700">{error}</p> : null}
           <Button type="submit" size="lg" disabled={busy}>Save</Button>
         </form>
       </SheetContent>

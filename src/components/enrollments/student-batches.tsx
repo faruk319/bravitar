@@ -72,7 +72,7 @@ export function PlanSelect({ enrollmentId, current, plans }: { enrollmentId: str
         ))}
       </select>
       {a.error ? (
-        <span role="alert" className="text-danger-600">
+        <span role="alert" className="text-danger-700">
           {a.error}
         </span>
       ) : null}
@@ -117,7 +117,7 @@ export function EnrollmentActions({ enrollment: e, choices, today, due = [] }: {
         </Sheet>
       ) : null}
       <Sheet open={leave.open} onOpenChange={leave.setOpen}>
-        <SheetTrigger render={<Button size="sm" variant="ghost" className="text-danger-600" />}>Leave</SheetTrigger>
+        <SheetTrigger render={<Button size="sm" variant="ghost" className="text-danger-700" />}>Leave</SheetTrigger>
         <SheetForm
           trigger="Leave"
           title="Leave this batch"
@@ -137,7 +137,7 @@ export function EnrollmentActions({ enrollment: e, choices, today, due = [] }: {
         </SheetForm>
       </Sheet>
       {pause.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {pause.error}
         </p>
       ) : null}

@@ -41,7 +41,7 @@ export function PaymentLink({ invoiceId }: { invoiceId: string }) {
         <div className="mt-4 flex max-w-md flex-col gap-4" aria-live="polite">
           {busy ? <p className="text-body text-muted-foreground">Asking Razorpay for the link…</p> : null}
           {!busy && error ? (
-            <p role="alert" className="text-label text-danger-600">
+            <p role="alert" className="text-label text-danger-700">
               {error}
             </p>
           ) : null}

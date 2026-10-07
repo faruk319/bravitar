@@ -3,9 +3,9 @@ import type { Mark } from "@/modules/attendance/schema";
 
 // Icon + word + tint for every mark; never colour alone (docs/07 §2).
 export const MARK_STYLE: Record<Mark, { icon: string; word: string; cls: string }> = {
-  present: { icon: "✓", word: "Present", cls: "bg-success-600/10 text-success-600" },
-  absent: { icon: "✗", word: "Absent", cls: "bg-danger-600/10 text-danger-600" },
-  late: { icon: "L", word: "Late", cls: "bg-warning-600/10 text-warning-600" },
+  present: { icon: "✓", word: "Present", cls: "bg-success-600/10 text-success-700" },
+  absent: { icon: "✗", word: "Absent", cls: "bg-danger-600/10 text-danger-700" },
+  late: { icon: "L", word: "Late", cls: "bg-warning-600/10 text-warning-700" },
   excused: { icon: "E", word: "Excused", cls: "bg-neutral-100 text-neutral-700" },
 };
 

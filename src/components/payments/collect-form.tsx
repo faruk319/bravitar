@@ -104,7 +104,7 @@ export function CollectForm({ householdId, branchId, due, advance, preselect, to
               <input type="checkbox" className="size-5 accent-accent-600" checked={ticked.has(d.id)} onChange={() => toggle(d.id)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-body tabular-nums">{d.number}</span>
-                <span className={cn("block text-caption", d.overdue ? "text-danger-600" : "text-muted-foreground")}>
+                <span className={cn("block text-caption", d.overdue ? "text-danger-700" : "text-muted-foreground")}>
                   {d.overdue ? "Overdue · " : ""}due {formatDate(d.dueDate)}
                 </span>
               </span>
@@ -180,7 +180,7 @@ export function CollectForm({ householdId, branchId, due, advance, preselect, to
       )}
 
       {error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {error}
         </p>
       ) : null}

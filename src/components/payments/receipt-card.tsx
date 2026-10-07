@@ -22,7 +22,7 @@ export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (inv
   return (
     <Card className="mx-auto max-w-xl print:max-w-none print:border-0 print:p-0 print:shadow-none">
       {p.status === "cancelled" ? (
-        <p role="status" className="mb-4 rounded-lg border border-danger-600 px-3 py-2 text-center text-label text-danger-600">
+        <p role="status" className="mb-4 rounded-lg border border-danger-600 px-3 py-2 text-center text-label text-danger-700">
           ✗ Cancelled · {p.cancelReason}
         </p>
       ) : null}

@@ -83,7 +83,7 @@ export function LoginForm({ common = false }: { common?: boolean }) {
     </button>
   );
   const alert = error ? (
-    <p role="alert" className="text-label text-danger-600">
+    <p role="alert" className="text-label text-danger-700">
       {error}
     </p>
   ) : null;

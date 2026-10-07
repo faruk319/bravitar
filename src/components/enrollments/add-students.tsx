@@ -49,7 +49,7 @@ export function AddStudents({ batchId, today, inBatch, full }: { batchId: string
       <SheetContent side="auto">
         <SheetTitle className="text-heading">Add students</SheetTitle>
         <div className="mt-4 flex max-w-md flex-col gap-4">
-          {full ? <p className="text-label text-warning-600">This batch is full.</p> : null}
+          {full ? <p className="text-label text-warning-700">This batch is full.</p> : null}
           <Field label="Joining from" id="from">
             <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </Field>
@@ -65,7 +65,7 @@ export function AddStudents({ batchId, today, inBatch, full }: { batchId: string
                     {s.name} <span className="text-caption text-muted-foreground tabular-nums">{s.code}</span>
                   </span>
                   {note ? (
-                    <span className={note === "Added" || note === "In batch" ? "text-label text-muted-foreground" : "text-label text-danger-600"}>{note}</span>
+                    <span className={note === "Added" || note === "In batch" ? "text-label text-muted-foreground" : "text-label text-danger-700"}>{note}</span>
                   ) : (
                     <Button size="sm" variant="outline" onClick={() => void add(s.id)}>
                       Add

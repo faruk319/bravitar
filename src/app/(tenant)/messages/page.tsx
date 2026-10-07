@@ -22,8 +22,8 @@ const TABS: Record<LogView | "templates", string> = { to_send: "To send", sent: 
 const EMPTY: Record<LogView, string> = { to_send: "Nothing to send", sent: "Nothing sent yet", failed: "Nothing failed" };
 const STATUS: Partial<Record<MessageStatus, [string, string]>> = {
   sent: ["Sent", "bg-accent-50 text-accent-600"],
-  delivered: ["Delivered", "bg-success-600/10 text-success-600"],
-  read: ["Read", "bg-success-600/10 text-success-600"],
+  delivered: ["Delivered", "bg-success-600/10 text-success-700"],
+  read: ["Read", "bg-success-600/10 text-success-700"],
   skipped: ["Skipped", "bg-neutral-100 text-neutral-500"],
 };
 
@@ -42,7 +42,7 @@ function Row({ m, tz, children }: { m: MessageRow; tz: string; children?: React.
         </span>
       </div>
       <p className="line-clamp-2 text-caption text-muted-foreground">{m.body}</p>
-      {m.error ? <p className="text-label text-danger-600">{m.error}</p> : null}
+      {m.error ? <p className="text-label text-danger-700">{m.error}</p> : null}
       {children}
     </li>
   );

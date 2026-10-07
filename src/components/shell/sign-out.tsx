@@ -34,7 +34,7 @@ export function SignOutButton({ variant = "outline", to = "/login" }: { variant?
         Sign out
       </Button>
       {msg ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {msg}
         </p>
       ) : null}

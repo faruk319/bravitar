@@ -90,7 +90,7 @@ export function ImportWizard() {
   }
 
   const sample = (i: number) => file?.records.slice(1, 21).map((r) => r[i]?.trim()).find(Boolean) ?? "";
-  const alert = error ? <p role="alert" className="text-label text-danger-600">{error}</p> : null;
+  const alert = error ? <p role="alert" className="text-label text-danger-700">{error}</p> : null;
 
   if (step === "file" || !file) {
     return (
@@ -124,7 +124,7 @@ export function ImportWizard() {
         <p className="text-body text-muted-foreground">
           {file.name} · <Count value={file.rowCount} /> rows
         </p>
-        {file.encoding === "windows-1252" ? <p className="text-label text-warning-600">Read as Windows text. If names look wrong, save as “CSV UTF-8”.</p> : null}
+        {file.encoding === "windows-1252" ? <p className="text-label text-warning-700">Read as Windows text. If names look wrong, save as “CSV UTF-8”.</p> : null}
         <ul className="divide-y divide-border rounded-xl border border-neutral-100">
           {file.header.map((h, i) => (
             <li key={i} className="flex flex-col gap-2 p-3 md:flex-row md:items-center md:gap-4">
@@ -169,7 +169,7 @@ export function ImportWizard() {
           ) : null}
         </div>
         {problems.map((p) => (
-          <p key={p} role="alert" className="text-label text-danger-600">
+          <p key={p} role="alert" className="text-label text-danger-700">
             {p}
           </p>
         ))}
@@ -249,7 +249,7 @@ export function ImportWizard() {
 }
 
 function Tile({ label, value, tone }: { label: string; value: number; tone?: "danger" | "warning" | undefined }) {
-  const color = tone === "danger" ? "text-danger-600" : tone === "warning" ? "text-warning-600" : "text-neutral-900";
+  const color = tone === "danger" ? "text-danger-700" : tone === "warning" ? "text-warning-700" : "text-neutral-900";
   return (
     <div className="rounded-xl border border-neutral-100 p-3">
       <div className={`text-number ${color}`}>

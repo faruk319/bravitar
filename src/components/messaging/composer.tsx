@@ -42,7 +42,7 @@ export function Composer({ request: req, label, variant = "outline", size = "def
         <div className="mt-4 flex max-w-md flex-col gap-6" aria-live="polite">
           {busy ? <p className="text-body text-muted-foreground">Writing the message…</p> : null}
           {error ? (
-            <p role="alert" className="text-label text-danger-600">
+            <p role="alert" className="text-label text-danger-700">
               {error}
             </p>
           ) : null}

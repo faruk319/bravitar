@@ -36,7 +36,7 @@ export function InvoiceLines({ d }: { d: InvoiceDetail }) {
               <Money paise={l.unitPaise * BigInt(l.quantity)} className="text-body" />
             </div>
             {l.discountPaise > 0n ? (
-              <div className="mt-1 flex items-start justify-between gap-3 text-success-600">
+              <div className="mt-1 flex items-start justify-between gap-3 text-success-700">
                 <p className="text-label">Discount · {l.discountNote}</p>
                 <Money paise={-l.discountPaise} className="text-label" />
               </div>

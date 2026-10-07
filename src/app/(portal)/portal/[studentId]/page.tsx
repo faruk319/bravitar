@@ -166,7 +166,7 @@ export default async function ChildPortalPage({ params, searchParams }: PageProp
                           {f.number ?? "Invoice"} · due {formatDate(f.dueDate)}
                         </span>
                         {f.overdue ? (
-                          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-danger-600/10 px-2 py-0.5 text-caption text-danger-600">
+                          <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-danger-600/10 px-2 py-0.5 text-caption text-danger-700">
                             <span aria-hidden>!</span> Overdue
                           </span>
                         ) : null}
@@ -180,7 +180,7 @@ export default async function ChildPortalPage({ params, searchParams }: PageProp
                   ))}
                 </ul>
               ) : (
-                <p className="flex items-center gap-2 text-body text-success-600">
+                <p className="flex items-center gap-2 text-body text-success-700">
                   <CircleCheck className="size-5" aria-hidden /> Nothing pending
                 </p>
               )}

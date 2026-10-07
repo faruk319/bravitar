@@ -25,7 +25,7 @@ export default async function QueuesPage() {
                 <span className="block text-caption text-muted-foreground">
                   {m.toPhone} · {m.attempts} {m.attempts === 1 ? "try" : "tries"} · {when(m.createdAt)}
                 </span>
-                {m.error ? <span className="block text-caption text-danger-600">{m.error}</span> : null}
+                {m.error ? <span className="block text-caption text-danger-700">{m.error}</span> : null}
               </span>
               <RetryMessage id={m.id} base="/api/platform/messages" />
             </li>
@@ -38,7 +38,7 @@ export default async function QueuesPage() {
               <span className="block text-caption text-muted-foreground">
                 {when(w.receivedAt)} · {w.processedAt ? "processed" : "not processed"}
               </span>
-              {w.error ? <span className="block text-caption text-danger-600">{w.error}</span> : null}
+              {w.error ? <span className="block text-caption text-danger-700">{w.error}</span> : null}
             </li>
           ))}
         </Section>
@@ -50,7 +50,7 @@ export default async function QueuesPage() {
                 <span className="block text-caption text-muted-foreground">Last run {j.lastRun ? when(j.lastRun) : "never"}</span>
               </span>
               <span className="shrink-0 text-right text-caption tabular-nums">
-                {j.queued} queued · {j.active} active · <span className={j.failed ? "text-danger-600" : undefined}>{j.failed} failed</span>
+                {j.queued} queued · {j.active} active · <span className={j.failed ? "text-danger-700" : undefined}>{j.failed} failed</span>
               </span>
             </li>
           ))}

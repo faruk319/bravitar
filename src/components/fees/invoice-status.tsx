@@ -4,9 +4,9 @@ import type { Invoice } from "@/modules/fees/schema";
 const STYLE: Record<Invoice["status"], [string, string, string]> = {
   draft: ["Draft", "◌", "bg-neutral-100 text-neutral-700"],
   issued: ["Unpaid", "●", "bg-accent-50 text-accent-600"],
-  part_paid: ["Part paid", "◐", "bg-warning-600/10 text-warning-600"],
-  paid: ["Paid", "✓", "bg-success-600/10 text-success-600"],
-  overdue: ["Overdue", "!", "bg-danger-600/10 text-danger-600"],
+  part_paid: ["Part paid", "◐", "bg-warning-600/10 text-warning-700"],
+  paid: ["Paid", "✓", "bg-success-600/10 text-success-700"],
+  overdue: ["Overdue", "!", "bg-danger-600/10 text-danger-700"],
   void: ["Void", "○", "bg-neutral-100 text-neutral-500 line-through"],
 };
 

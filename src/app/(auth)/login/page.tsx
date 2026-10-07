@@ -40,7 +40,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <div>
           <p className="text-caption text-muted-foreground">{tenant?.name ?? "Bravitar"}</p>
           <h1 className="text-display">Sign in</h1>
-          {expired ? <p className="mt-1 text-label text-danger-600">That sign-in link has expired. Sign in again.</p> : null}
+          {expired ? <p className="mt-1 text-label text-danger-700">That sign-in link has expired. Sign in again.</p> : null}
         </div>
         <LoginForm common={!tenant} />
       </Card>

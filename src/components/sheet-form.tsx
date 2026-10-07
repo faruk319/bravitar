@@ -14,7 +14,7 @@ export function SheetForm({ trigger, title, children, onSubmit, submitLabel, bus
       <form onSubmit={onSubmit} className="mt-4 flex max-w-md flex-col gap-4" noValidate>
         {children}
         {error ? (
-          <p role="alert" className="text-label text-danger-600">
+          <p role="alert" className="text-label text-danger-700">
             {error}
           </p>
         ) : null}

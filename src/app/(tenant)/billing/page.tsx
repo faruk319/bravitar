@@ -40,7 +40,7 @@ export default async function BillingPage() {
   return (
     <>
       <PageHeader title="Billing" actions={can.manage && !ctx.branchIds.length && startable.length ? <AddBranch modules={startable} plans={plans} /> : null}>
-        <p className={cn("text-caption", d.staffLimit !== null && d.staff > d.staffLimit ? "text-danger-600" : "text-muted-foreground")}>
+        <p className={cn("text-caption", d.staffLimit !== null && d.staff > d.staffLimit ? "text-danger-700" : "text-muted-foreground")}>
           {d.staffLimit === null ? `${d.staff} staff · no limit` : `${d.staff} of ${d.staffLimit} staff`}
         </p>
       </PageHeader>
@@ -71,7 +71,7 @@ export default async function BillingPage() {
                     <span className="text-body">
                       <ActivityIcon name={m.activityIcon} className="mr-1.5 inline size-4 align-[-2px] text-accent-600" />
                       {m.activityName} · {m.plan.name}
-                      <span className={cn("block text-caption", m.status === "paused" || m.status === "pending" ? "text-danger-600" : "text-muted-foreground")}>
+                      <span className={cn("block text-caption", m.status === "paused" || m.status === "pending" ? "text-danger-700" : "text-muted-foreground")}>
                         {subscriptionState(m)} · {students(m)}
                       </span>
                       {m.nextPlanName ? <span className="block text-caption text-muted-foreground">Moves to {m.nextPlanName} on {formatDate(m.periodEnd)}</span> : null}
@@ -79,7 +79,7 @@ export default async function BillingPage() {
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-1 whitespace-nowrap">
                       <span className="tabular-nums">{perCycle(effectivePrice(m, d.today), m.billingInterval)}</span>
-                      {m.duePaise > 0n ? <span className="text-caption text-danger-600">{formatPaise(m.duePaise)} to pay</span> : null}
+                      {m.duePaise > 0n ? <span className="text-caption text-danger-700">{formatPaise(m.duePaise)} to pay</span> : null}
                     </span>
                     {can.manage ? (
                       <span className="flex w-full flex-wrap gap-2">

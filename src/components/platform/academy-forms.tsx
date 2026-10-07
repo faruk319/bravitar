@@ -39,11 +39,11 @@ function useSave() {
 
 const Feedback = ({ error, done, saved = "Saved" }: { error: string | undefined; done: boolean; saved?: string }) =>
   error ? (
-    <p role="alert" className="text-label text-danger-600">
+    <p role="alert" className="text-label text-danger-700">
       {error}
     </p>
   ) : done ? (
-    <p className="text-label text-success-600">✓ {saved}</p>
+    <p className="text-label text-success-700">✓ {saved}</p>
   ) : null;
 
 const slugOf = (name: string) =>
@@ -84,7 +84,7 @@ export function NewAcademyForm({ types, plans, domain }: { types: Option[]; plan
   if (made) {
     return (
       <div className="flex flex-col gap-3">
-        <p className="text-body text-success-600">✓ Academy created. Send the owner this link to set a password (valid 7 days):</p>
+        <p className="text-body text-success-700">✓ Academy created. Send the owner this link to set a password (valid 7 days):</p>
         <CopyText text={made.inviteUrl} />
         <Button variant="outline" nativeButton={false} render={<Link href={`/platform/academies/${made.id}`} />} className="self-start">
           Open the academy
@@ -132,7 +132,7 @@ export function NewAcademyForm({ types, plans, domain }: { types: Option[]; plan
         <Input id="ownerPhone" name="ownerPhone" inputMode="tel" />
       </Field>
       {error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {error}
         </p>
       ) : null}

@@ -63,7 +63,7 @@ export function VoidInvoice({ id, draft, open, paid }: { id: string; draft: bool
   const a = useAction(open);
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
-      <SheetTrigger render={<Button variant="ghost" className="text-danger-600" />}>{draft ? "Discard" : "Void"}</SheetTrigger>
+      <SheetTrigger render={<Button variant="ghost" className="text-danger-700" />}>{draft ? "Discard" : "Void"}</SheetTrigger>
       <SheetForm
         trigger={draft ? "Discard" : "Void"}
         title={draft ? "Discard this draft" : "Void this invoice"}

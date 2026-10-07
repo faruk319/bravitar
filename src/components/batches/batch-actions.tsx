@@ -146,7 +146,7 @@ export function DeleteBatch({ batch }: { batch: BatchLite }) {
   const a = useAction();
   return (
     <Sheet open={a.open} onOpenChange={a.setOpen}>
-      <SheetTrigger render={<Button variant="ghost" className="text-danger-600" />}>Delete</SheetTrigger>
+      <SheetTrigger render={<Button variant="ghost" className="text-danger-700" />}>Delete</SheetTrigger>
       <SheetForm
         trigger="Delete"
         title={`Delete ${batch.name}?`}

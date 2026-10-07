@@ -36,7 +36,7 @@ export function ToSendActions({ id, phone, body }: { id: string; phone: string; 
         Skip
       </Button>
       {a.error ? (
-        <span role="alert" className="text-label text-danger-600">
+        <span role="alert" className="text-label text-danger-700">
           {a.error}
         </span>
       ) : null}

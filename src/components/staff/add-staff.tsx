@@ -85,7 +85,7 @@ export function AddStaff({ roles, branches }: { roles: Option[]; branches: Optio
             </Field>
             {branches.length > 1 ? <CheckList legend="Branches (none = all)" options={branches} value={branchIds} onChange={setBranchIds} /> : null}
             {error ? (
-              <p role="alert" className="text-label text-danger-600">
+              <p role="alert" className="text-label text-danger-700">
                 {error}
               </p>
             ) : null}

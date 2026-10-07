@@ -73,7 +73,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
         </Card>
         <Card>
           <CardHeader title={`Branches · ${totalsText(a.totals)}`} />
-          <p className={a.staffLimit !== null && a.staff > a.staffLimit ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+          <p className={a.staffLimit !== null && a.staff > a.staffLimit ? "text-caption text-danger-700" : "text-caption text-muted-foreground"}>
             {a.staffLimit === null ? `${a.staff} staff · no limit` : `${a.staff} of ${a.staffLimit} staff`}
           </p>
           <ul className="divide-y divide-neutral-100">
@@ -90,7 +90,7 @@ export default async function AcademyPage({ params }: PageProps<"/platform/acade
                         <span>
                           <ActivityIcon name={s.activityIcon} className="mr-1.5 inline size-4 align-[-2px] text-accent-600" />
                           {s.activityName} · {s.plan.name}{" "}
-                          <span className={locked(s) || over(s) ? "text-caption text-danger-600" : "text-caption text-muted-foreground"}>
+                          <span className={locked(s) || over(s) ? "text-caption text-danger-700" : "text-caption text-muted-foreground"}>
                             · {s.plan.maxStudents === null ? `${s.students} students` : `${s.students}/${s.plan.maxStudents} students`} · {subscriptionState(s)}
                           </span>
                         </span>

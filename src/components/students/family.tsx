@@ -63,7 +63,7 @@ export function FamilyMemberActions({ studentId, guardianId, removable }: { stud
         <Button
           variant="ghost"
           size="sm"
-          className="text-danger-600"
+          className="text-danger-700"
           disabled={a.busy}
           onClick={() => {
             if (!confirm) return setConfirm(true);
@@ -74,7 +74,7 @@ export function FamilyMemberActions({ studentId, guardianId, removable }: { stud
         </Button>
       ) : null}
       {a.error ? (
-        <span role="alert" className="text-caption text-danger-600">
+        <span role="alert" className="text-caption text-danger-700">
           {a.error}
         </span>
       ) : null}
@@ -109,7 +109,7 @@ export function FamilyAccessSettings({ value }: { value: FamilyAccess[] }) {
         </label>
       ))}
       {a.error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {a.error}
         </p>
       ) : null}
@@ -117,7 +117,7 @@ export function FamilyAccessSettings({ value }: { value: FamilyAccess[] }) {
         <Button type="submit" variant="outline" size="lg" disabled={a.busy}>
           Save
         </Button>
-        {saved ? <span className="text-label text-success-600">✓ Saved</span> : null}
+        {saved ? <span className="text-label text-success-700">✓ Saved</span> : null}
       </div>
     </form>
   );

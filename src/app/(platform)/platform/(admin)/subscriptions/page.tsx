@@ -73,7 +73,7 @@ export default async function SubscriptionsPage({ searchParams }: PageProps<"/pl
                 </td>
                 <td className="py-2">{s.planName}</td>
                 <td className="py-2 tabular-nums">{perCycle(effectivePrice(s, todayIn(s.timezone)), s.billingInterval)}</td>
-                <td className={cn("px-4 py-2", (s.status === "paused" || s.status === "pending") && "text-danger-600", s.status === "cancelled" && "text-muted-foreground")}>{subscriptionState(s)}</td>
+                <td className={cn("px-4 py-2", (s.status === "paused" || s.status === "pending") && "text-danger-700", s.status === "cancelled" && "text-muted-foreground")}>{subscriptionState(s)}</td>
               </tr>
             ))}
           </tbody>

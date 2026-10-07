@@ -14,7 +14,7 @@ export function SetPasswordForm({ token }: { token: string }) {
   if (done) {
     return (
       <div className="flex flex-col gap-4">
-        <p className="text-body text-success-600">✓ Password set.</p>
+        <p className="text-body text-success-700">✓ Password set.</p>
         <Button size="lg" nativeButton={false} render={<Link href="/login" />}>
           Sign in
         </Button>
@@ -42,7 +42,7 @@ export function SetPasswordForm({ token }: { token: string }) {
         <Input id="again" name="again" type="password" autoComplete="new-password" required />
       </Field>
       {error ? (
-        <p role="alert" className="text-label text-danger-600">
+        <p role="alert" className="text-label text-danger-700">
           {error}
         </p>
       ) : null}

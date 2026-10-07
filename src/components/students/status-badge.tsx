@@ -9,8 +9,8 @@ export function StatusBadge({ status }: { status: StudentStatus }) {
     <span
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-label",
-        status === "active" && "bg-success-600/10 text-success-600",
-        status === "paused" && "bg-warning-600/10 text-warning-600",
+        status === "active" && "bg-success-600/10 text-success-700",
+        status === "paused" && "bg-warning-600/10 text-warning-700",
         status === "left" && "bg-neutral-100 text-neutral-500",
         status === "prospect" && "bg-accent-50 text-accent-600",
       )}

@@ -50,7 +50,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/batches
             <header className={cn("flex items-baseline gap-2 border-b border-border px-3 py-2", d.date === cal.today && "bg-accent-50")}>
               <span className="text-label">{WEEKDAY_SHORT[d.weekday]}</span>
               <span className="text-label text-muted-foreground tabular-nums">{dayNum(d.date)}</span>
-              {d.holidays.length ? <span className="ml-auto truncate text-caption text-warning-600" title={d.holidays.join(", ")}>{d.holidays.join(", ")}</span> : null}
+              {d.holidays.length ? <span className="ml-auto truncate text-caption text-warning-700" title={d.holidays.join(", ")}>{d.holidays.join(", ")}</span> : null}
             </header>
             <ul className="flex flex-col gap-1 p-2">
               {d.blocks.length ? (
