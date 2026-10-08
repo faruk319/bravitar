@@ -145,7 +145,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
       />
       <SegmentedTabs label="Sections" items={tabs.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: TAB_LABELS[t], active: t === tab }))} />
       {tab === "overview" ? (
-        <div className={cn("grid grid-cols-1 items-start gap-5", o.calendar ? "xl:grid-cols-[18rem_minmax(0,1fr)_21rem]" : "xl:grid-cols-[18rem_minmax(0,1fr)]")}>
+        <div className={cn("grid grid-cols-1 items-start gap-5", o.calendar ? "xl:grid-cols-[17rem_20rem_minmax(0,1fr)]" : "xl:grid-cols-[17rem_minmax(0,1fr)]")}>
           {/* On a phone the wrappers dissolve and `order` sets the reading order. */}
           <div className="contents xl:flex xl:flex-col xl:gap-5">
             <div className="order-1 xl:order-none">
