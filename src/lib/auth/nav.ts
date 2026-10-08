@@ -32,7 +32,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/attendance", label: { text: "Attendance" }, icon: "ClipboardCheck", permission: "attendance:read" },
       { href: "/students", label: { labelKey: "student", form: "many" }, icon: "Users", permission: "students:read" },
       { href: "/enquiries", label: { text: "Enquiries" }, icon: "MessageSquare", permission: "enquiries:read" },
-      { href: "/batches/programs", label: { text: "Courses & Programs" }, icon: "GraduationCap", permission: "batches:read" },
+      // One entry: /batches and /batches/programs are the same surface, switched by BatchTabs.
       { href: "/batches", label: { labelKey: "batch", form: "many" }, icon: "Layers", permission: "batches:read" },
       {
         title: { text: "Finance" },
@@ -99,6 +99,7 @@ export type Crumb = { label: NavLabel; href: string | null };
 // Static subroutes that are not nav items but have a fixed name.
 const STATIC_TITLES: Record<string, NavLabel> = {
   "/batches/calendar": { text: "Calendar" },
+  "/batches/programs": { labelKey: "program", form: "many" },
   "/batches/holidays": { text: "Holidays" },
   "/batches/new": { labelKey: "batch", form: "one", prefix: "Add " },
   "/students/new": { labelKey: "student", form: "one", prefix: "Add " },

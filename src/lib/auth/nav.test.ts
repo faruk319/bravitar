@@ -15,7 +15,7 @@ describe("navFor", () => {
     expect(groups.map((g) => g.title)).toEqual(["Main", "Academy"]);
     expect(hrefs(groups)).toEqual(hrefs(NAV_GROUPS));
     expect(hrefs(groups)).toEqual([
-      "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches/programs", "/batches",
+      "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches",
       "/invoices", "/payments", "/payments/new", "/fee-plans", "/reports",
       "/staff", "/messages", "/settings", "/billing",
     ]);
@@ -143,8 +143,11 @@ describe("crumbsFor", () => {
     ]);
   });
 
-  it("/batches/programs is Courses & Programs, not Batches", () => {
-    expect(crumbsFor("/batches/programs")).toEqual([{ label: { text: "Courses & Programs" }, href: null }]);
+  it("/batches/programs is a tab under batches, in the academy's own words", () => {
+    expect(crumbsFor("/batches/programs")).toEqual([
+      { label: { labelKey: "batch", form: "many" }, href: "/batches" },
+      { label: { labelKey: "program", form: "many" }, href: null },
+    ]);
   });
 
   it("an unknown path gives no crumbs instead of throwing", () => {
