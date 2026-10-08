@@ -7,6 +7,7 @@ import { Gate } from "@/components/shell/gate";
 import { StatCard } from "@/components/stat-card";
 import { StudentSearchBar } from "@/components/students/search-bar";
 import { StudentTable } from "@/components/students/student-table";
+import { TrendCards } from "@/components/students/trend-cards";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { allows, can } from "@/lib/auth/can";
@@ -15,13 +16,14 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { listParams, parseListQuery, studentCounts, studentList } from "@/modules/students/service";
+import { studentTrends } from "@/modules/students/trends";
 
 export default async function StudentsPage({ searchParams }: PageProps<"/students">) {
   const query = parseListQuery(await searchParams);
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   const data = allows(ctx, "students:read")
-    ? await withTenant(session.tenant.id, async (tx) => ({ list: await studentList(tx, ctx, query), counts: await studentCounts(tx, ctx) }))
+    ? await withTenant(session.tenant.id, async (tx) => ({ list: await studentList(tx, ctx, query), counts: await studentCounts(tx, ctx), trends: await studentTrends(tx, ctx) }))
     : null;
   const canCreate = can(ctx, "students", "students:create");
   const canImport = canCreate && can(ctx, "students", "students:import");
@@ -62,6 +64,7 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
             <StatCard label="New this month" value={counts.joinedThisMonth} icon={UserPlus} href={`/students?joinedFrom=${monthStart}`} />
             <StatCard label="Paused" value={counts.paused} icon={PauseCircle} href="/students?status=paused" />
           </div>
+          {data?.trends ? <TrendCards trends={data.trends} /> : null}
           <Card className="overflow-hidden p-0 md:p-0">
             <div className="p-4 md:p-5">
               <Suspense>
