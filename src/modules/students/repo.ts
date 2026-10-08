@@ -4,7 +4,7 @@ import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { enrollments } from "@/modules/enrollments/schema";
 import { type Payer, payerKey, payerOf } from "./payer";
-import { type Consent, type ConsentKind, consents, type Guardian, guardians, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
+import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
 
 // Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
 export type Scope = { branchIds: string[] };
@@ -13,17 +13,8 @@ function inScope(scope: Scope): SQL | undefined {
   return scope.branchIds.length ? inArray(students.branchId, scope.branchIds) : undefined;
 }
 
-// household_id is NOT NULL until migration 0040; rows take the tenant's one placeholder and nothing reads it.
-export async function placeholderHouseholdId(tx: Tx, tenantId: string): Promise<string> {
-  const [found] = await tx.select({ id: households.id }).from(households).where(eq(households.tenantId, tenantId)).orderBy(asc(households.createdAt), asc(households.id)).limit(1);
-  if (found) return found.id;
-  const [row] = await tx.insert(households).values({ id: uuidv7(), tenantId, name: "-" }).returning({ id: households.id });
-  if (!row) throw new Error("household insert returned no row");
-  return row.id;
-}
-
 export async function createGuardian(tx: Tx, input: { tenantId: string; fullName: string; phone: string; email?: string; isPrimary?: boolean }): Promise<Guardian> {
-  const [row] = await tx.insert(guardians).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, input.tenantId), ...input }).returning();
+  const [row] = await tx.insert(guardians).values({ id: uuidv7(), ...input }).returning();
   if (!row) throw new Error("guardian insert returned no row");
   return row;
 }
@@ -63,10 +54,10 @@ export async function siblingsOf(tx: Tx, studentId: string): Promise<Student[]> 
     .orderBy(asc(students.fullName), asc(students.id));
 }
 
-export type NewStudentRow = Omit<typeof students.$inferInsert, "id" | "householdId">;
+export type NewStudentRow = Omit<typeof students.$inferInsert, "id">;
 
 export async function insertStudent(tx: Tx, row: NewStudentRow): Promise<Student> {
-  const [s] = await tx.insert(students).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
+  const [s] = await tx.insert(students).values({ id: uuidv7(), ...row }).returning();
   if (!s) throw new Error("student insert returned no row");
   return s;
 }

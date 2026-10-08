@@ -85,7 +85,7 @@ beforeAll(async () => {
   receipt.a = (await pay(aarav.student.id, 500)).id;
   receipt.b = (await pay(zoya.student.id, 300)).id;
   await withTenant(T, async (tx) => {
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: aarav.student.branchId, payerGuardianId: aarav.guardian.id, billToName: "Rekha Deshmukh", issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 80_000n, totalPaise: 80_000n });
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: aarav.student.branchId, studentId: aarav.student.id, payerGuardianId: aarav.guardian.id, billToName: "Rekha Deshmukh", issueDate: today, dueDate: addDays(today, 5), subtotalPaise: 80_000n, totalPaise: 80_000n });
     await insertLines(tx, [{ tenantId: T, invoiceId: inv.id, studentId: kid.aarav ?? "", kind: "tuition", description: "Karate, this month", unitPaise: 80_000n, amountPaise: 80_000n }]);
     await updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });

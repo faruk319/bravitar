@@ -13,8 +13,8 @@ async function family(tx: Tx, tenantId: string) {
 }
 
 async function invoice(tx: Tx, tenantId: string) {
-  const { branch } = await family(tx, tenantId);
-  return insertInvoice(tx, { tenantId, branchId: branch.id, issueDate: "2026-01-01", dueDate: "2026-01-08" });
+  const { branch, student } = await family(tx, tenantId);
+  return insertInvoice(tx, { tenantId, branchId: branch.id, studentId: student.id, issueDate: "2026-01-01", dueDate: "2026-01-08" });
 }
 
 export const feeFixtures: IsolationFixtures = {

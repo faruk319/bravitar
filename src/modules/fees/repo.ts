@@ -6,7 +6,6 @@ import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { placeholderHouseholdId } from "@/modules/students/repo";
 import { guardians, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
@@ -154,8 +153,8 @@ export async function takenKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
   return new Set(rows.map((r) => r.key ?? ""));
 }
 
-export async function insertInvoice(tx: Tx, row: Omit<typeof invoices.$inferInsert, "id" | "householdId">): Promise<Invoice> {
-  const [inv] = await tx.insert(invoices).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
+export async function insertInvoice(tx: Tx, row: Omit<typeof invoices.$inferInsert, "id">): Promise<Invoice> {
+  const [inv] = await tx.insert(invoices).values({ id: uuidv7(), ...row }).returning();
   if (!inv) throw new Error("invoice insert returned no row");
   return inv;
 }

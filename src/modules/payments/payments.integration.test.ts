@@ -16,7 +16,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { collectionRegister } from "@/modules/reports/service";
-import { createGuardian, guardiansOfMembers, removeFamilyLink, upsertFamilyLink } from "@/modules/students/repo";
+import { createGuardian, guardiansOfMembers, insertStudent, removeFamilyLink, upsertFamilyLink } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
 import { guardians } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
@@ -35,6 +35,7 @@ const stamp = Math.random().toString(36).slice(2, 8);
 const DENIED = "42501"; // insufficient_privilege
 const CHECK = "23514"; // check_violation
 const UNIQUE = "23505"; // unique_violation
+const NOT_NULL = "23502"; // not_null_violation
 
 function sqlState(err: unknown): string | undefined {
   const e = err as { code?: string; cause?: { code?: string } };
@@ -61,17 +62,17 @@ afterAll(async () => {
 // ---- the database guards, run as app_runtime straight against the tables
 
 describe("at the database", () => {
-  const G = { tenant: "", branch: "", owner: "", guardian: "" };
+  const G = { tenant: "", branch: "", owner: "", guardian: "", student: "" };
   let n = 0;
 
   const newPayment = (extra: Partial<typeof payments.$inferInsert> = {}): Promise<Payment> =>
     withTenant(G.tenant, async (tx) => {
-      return insertPayment(tx, { tenantId: G.tenant, branchId: G.branch, receiptNumber: `RCT/TEST/${++n}`, fy: "2026-27", method: "cash", amountPaise: 150_000n, receivedOn: "2026-09-24", recordedOn: "2026-09-24", receivedBy: G.owner, ...extra });
+      return insertPayment(tx, { tenantId: G.tenant, branchId: G.branch, receiptNumber: `RCT/TEST/${++n}`, fy: "2026-27", method: "cash", amountPaise: 150_000n, receivedOn: "2026-09-24", recordedOn: "2026-09-24", receivedBy: G.owner, billToName: "Payer", ...extra });
     });
 
   const issuedInvoice = (totalPaise: bigint): Promise<Invoice> =>
     withTenant(G.tenant, async (tx) => {
-      const inv = await insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: totalPaise, totalPaise });
+      const inv = await insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, studentId: G.student, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: totalPaise, totalPaise });
       return updateInvoice(tx, inv.id, { number: `INV/TEST/${++n}`, fy: "2026-27", status: "issued", issuedAt: new Date() });
     });
 
@@ -79,6 +80,7 @@ describe("at the database", () => {
     const t = await academy("g");
     Object.assign(G, { tenant: t.tenant.id, branch: t.branch.id, owner: t.owner.id });
     G.guardian = (await withTenant(G.tenant, (tx) => createGuardian(tx, { tenantId: G.tenant, fullName: "Deshmukh", phone: "+919876500777" }))).id;
+    G.student = (await withTenant(G.tenant, (tx) => insertStudent(tx, { tenantId: G.tenant, branchId: G.branch, fullName: "Kid", code: "DB/KID" }))).id;
   });
 
   describe("a payment", () => {
@@ -131,6 +133,17 @@ describe("at the database", () => {
   });
 
   describe("allocations and refunds", () => {
+    it("never cross payers, and a payment always carries its name", async () => {
+      const mine = await withTenant(G.tenant, (tx) => insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, studentId: G.student, payerGuardianId: G.guardian, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: 1_000n, totalPaise: 1_000n }));
+      const theirs = await newPayment({ payerMemberId: G.student });
+      const alloc = (paymentId: string, invoiceId: string) =>
+        withTenant(G.tenant, (tx) => tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId: G.tenant, paymentId, invoiceId, kind: "receipt", amountPaise: 100n }));
+      await expect(alloc(theirs.id, mine.id)).rejects.toSatisfy(fails(CHECK));
+      await expect(alloc((await newPayment()).id, mine.id)).rejects.toSatisfy(fails(CHECK));
+      await alloc((await newPayment({ payerGuardianId: G.guardian })).id, mine.id);
+      await expect(newPayment({ billToName: null } as unknown as Partial<typeof payments.$inferInsert>)).rejects.toSatisfy(fails(NOT_NULL));
+    });
+
     it("are append-only", async () => {
       const p = await newPayment();
       const inv = await issuedInvoice(150_000n);
@@ -191,7 +204,7 @@ describe("at the database", () => {
     });
 
     it("a draft can hold no money", async () => {
-      const draft = await withTenant(G.tenant, (tx) => insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: 1_000n, totalPaise: 1_000n }));
+      const draft = await withTenant(G.tenant, (tx) => insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, studentId: G.student, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: 1_000n, totalPaise: 1_000n }));
       await expect(withTenant(G.tenant, (tx) => updateInvoice(tx, draft.id, { paidPaise: 500n }))).rejects.toSatisfy(fails(CHECK));
     });
   });
@@ -268,6 +281,14 @@ describe("payments", () => {
           JOIN app.payments p ON p.id = a.payment_id JOIN app.invoices i ON i.id = a.invoice_id
          WHERE p.branch_id <> i.branch_id
             OR p.payer_guardian_id IS DISTINCT FROM i.payer_guardian_id OR p.payer_member_id IS DISTINCT FROM i.payer_member_id
+        UNION ALL
+        SELECT 'allocation ' || a.id || ': the invoice is for a member the payment could not have been recorded for' FROM app.payment_allocations a
+          JOIN app.payments p ON p.id = a.payment_id JOIN app.invoices i ON i.id = a.invoice_id
+         WHERE NOT EXISTS (
+           SELECT 1 FROM app.students x
+            WHERE (x.id = p.payer_member_id OR x.id IN (SELECT g.student_id FROM app.student_guardians g WHERE g.guardian_id = p.payer_guardian_id AND g.removed_at IS NULL))
+              AND (x.id = i.student_id OR EXISTS (SELECT 1 FROM app.student_guardians l JOIN app.student_guardians r ON r.guardian_id = l.guardian_id
+                                                   WHERE l.student_id = x.id AND r.student_id = i.student_id AND l.removed_at IS NULL AND r.removed_at IS NULL)))
       `),
     );
     expect(problems.map((p) => p.problem)).toEqual([]);
@@ -703,22 +724,6 @@ describe("payments", () => {
       const register = await withTenant(T, (tx) => collectionRegister(tx, owner, { from: "2026-09-01", to: "2026-09-30" }));
       expect(register.rows.find((x) => x.id === p.id)?.billToName).toBe(named);
     });
-
-    it("a receipt from before names were stored takes the name of the invoice it paid, else the payer's name today", async () => {
-      const { h, mum } = await twoPayers();
-      const inv = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: mum });
-      const legacy = (extra: Partial<typeof payments.$inferInsert> = {}) =>
-        withTenant(T, async (tx) =>
-          insertPayment(tx, { tenantId: T, branchId: main, payerGuardianId: mum, receiptNumber: await allocateNumber(tx, T, "receipt", FY), fy: FY, method: "cash", amountPaise: rupees(1000), receivedOn: "2026-09-24", recordedOn: "2026-09-24", receivedBy: owner.staffId, ...extra }),
-        );
-      const onInvoice = await legacy();
-      await withTenant(T, (tx) => tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId: T, paymentId: onInvoice.id, invoiceId: inv.id, kind: "receipt", amountPaise: rupees(1000) }));
-      await withTenant(T, (tx) => tx.update(invoices).set({ paidPaise: rupees(1000), status: "paid" }).where(eq(invoices.id, inv.id)));
-      expect((await receiptOf(onInvoice.id)).billToName).toBe("Mother");
-      const advanceOnly = await legacy();
-      await withTenant(T, (tx) => tx.update(guardians).set({ fullName: "Mother Today" }).where(eq(guardians.id, mum)));
-      expect((await receiptOf(advanceOnly.id)).billToName).toBe("Mother Today");
-    });
   });
 
   describe("cancelling on the day", () => {
@@ -964,7 +969,7 @@ describe("collection by month", () => {
   // A payment recorded on a chosen day, straight into the table.
   const pay = (branchId: string, day: string, amountPaise: bigint, extra: Partial<typeof payments.$inferInsert> = {}) =>
     withTenant(M.tenant, (tx) =>
-      insertPayment(tx, { tenantId: M.tenant, branchId, receiptNumber: `RCT/TEST/${++n}`, fy: "2026-27", method: "cash", amountPaise, receivedOn: day, recordedOn: day, receivedBy: M.owner, ...extra }),
+      insertPayment(tx, { tenantId: M.tenant, branchId, receiptNumber: `RCT/TEST/${++n}`, fy: "2026-27", method: "cash", amountPaise, receivedOn: day, recordedOn: day, receivedBy: M.owner, billToName: "Payer", ...extra }),
     );
   const byMonth = (branchIds: string[], from = "2026-06-01", to = "2026-08-31") => withTenant(M.tenant, (tx) => collectedByMonth(tx, branchIds, from, to));
 

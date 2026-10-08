@@ -1,7 +1,7 @@
 import { bigint, date, pgSchema, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
-import { guardians, households, students } from "@/modules/students/schema";
+import { guardians, students } from "@/modules/students/schema";
 import { branches, tenants } from "@/modules/tenancy/schema";
 
 // Mirrors migrations/0015_payments.sql. Money is bigint paise. Rows are only
@@ -23,7 +23,6 @@ export const payments = app.table("payments", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   branchId: uuid("branch_id").notNull().references(() => branches.id),
-  householdId: uuid("household_id").notNull().references(() => households.id),
   payerGuardianId: uuid("payer_guardian_id").references(() => guardians.id), // migration 0039
   payerMemberId: uuid("payer_member_id").references(() => students.id),
   requestId: uuid("request_id"),
@@ -33,6 +32,7 @@ export const payments = app.table("payments", {
   amountPaise: paise("amount_paise").notNull(),
   receivedOn: date("received_on").notNull(),
   recordedOn: date("recorded_on").notNull(),
+  billToName: text("bill_to_name").notNull(), // frozen when the receipt was made (migration 0040)
   receivedBy: uuid("received_by").references(() => staffUsers.id),
   reference: text("reference"),
   gatewayPaymentId: text("gateway_payment_id"),

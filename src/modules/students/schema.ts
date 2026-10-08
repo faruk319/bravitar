@@ -28,20 +28,9 @@ export type ConsentKind = (typeof CONSENT_KINDS)[number];
 
 export type StudentMetadata = { programInterest?: string } & Record<string, unknown>;
 
-export const households = app.table("households", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  name: text("name").notNull(),
-  address: text("address"),
-  notes: text("notes"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
-
 export const guardians = app.table("guardians", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  householdId: uuid("household_id").notNull().references(() => households.id),
   fullName: text("full_name").notNull(),
   phone: text("phone").notNull(),
   email: citext("email"),
@@ -59,7 +48,6 @@ export const students = app.table("students", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   branchId: uuid("branch_id").notNull().references(() => branches.id),
-  householdId: uuid("household_id").notNull().references(() => households.id),
   code: text("code").notNull(),
   codeEditedAt: timestamp("code_edited_at", { withTimezone: true }),
   fullName: text("full_name").notNull(),
@@ -116,7 +104,6 @@ export const studentCodeSeries = app.table(
   (t) => [primaryKey({ columns: [t.tenantId, t.year] })],
 );
 
-export type Household = typeof households.$inferSelect;
 export type Guardian = typeof guardians.$inferSelect;
 export type Student = typeof students.$inferSelect;
 export type Consent = typeof consents.$inferSelect;

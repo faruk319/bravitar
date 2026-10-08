@@ -17,7 +17,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { createGuardian } from "@/modules/students/repo";
+import { createGuardian, insertStudent } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
 import { removeFamilyLink, updateGuardian } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
@@ -447,7 +447,8 @@ describe("the owed summary", () => {
     withTenant(T, async (tx) => {
       const payer = await createGuardian(tx, { tenantId: T, fullName: `Payer ${++families}`, phone: `98766${String(10_000 + families)}` });
       const total = BigInt(rupees) * 100n;
-      const inv = await insertInvoice(tx, { tenantId: T, branchId, payerGuardianId: payer.id, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+      const kid = await insertStudent(tx, { tenantId: T, branchId, fullName: `Kid ${families}`, code: `BILL/${stamp}/${families}` });
+      const inv = await insertInvoice(tx, { tenantId: T, branchId, studentId: kid.id, payerGuardianId: payer.id, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
       const fy = financialYear(today);
       return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", fy), fy, status: paid ? "part_paid" : "issued", paidPaise: BigInt(paid) * 100n, issuedAt: new Date() });
     });
@@ -479,7 +480,8 @@ describe("the owed summary", () => {
       for (const [i, name] of ["Mother", "Father"].entries()) {
         const payer = await createGuardian(tx, { tenantId: T, fullName: name, phone: `98767${String(10_000 + i)}` });
         for (const late of i === 0 ? [2, 3] : [2]) {
-          const inv = await insertInvoice(tx, { tenantId: T, branchId: branchTwo, payerGuardianId: payer.id, issueDate: addDays(today, -9), dueDate: addDays(today, -late), subtotalPaise: 10_000n, totalPaise: 10_000n });
+          const kid = await insertStudent(tx, { tenantId: T, branchId: branchTwo, fullName: `Late ${i}-${late}`, code: `LATE/${stamp}/${i}-${late}` });
+          const inv = await insertInvoice(tx, { tenantId: T, branchId: branchTwo, studentId: kid.id, payerGuardianId: payer.id, issueDate: addDays(today, -9), dueDate: addDays(today, -late), subtotalPaise: 10_000n, totalPaise: 10_000n });
           await updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", financialYear(today)), fy: financialYear(today), status: "issued", issuedAt: new Date() });
         }
       }

@@ -6,7 +6,7 @@ import { payerIs } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardiansOfMembers, payerContacts, placeholderHouseholdId } from "@/modules/students/repo";
+import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
 import { guardians, studentGuardians, students } from "@/modules/students/schema";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
@@ -31,8 +31,8 @@ export const lockPayerOf = (tx: Tx, row: { payerGuardianId: string | null; payer
 const paymentPayerIs = (p: Payer): SQL =>
   p.kind === "guardian" ? sql`${payments.payerGuardianId} = ${p.guardianId} AND ${payments.payerMemberId} IS NULL` : sql`${payments.payerMemberId} = ${p.memberId} AND ${payments.payerGuardianId} IS NULL`;
 
-export async function insertPayment(tx: Tx, row: Omit<typeof payments.$inferInsert, "id" | "householdId">): Promise<Payment> {
-  const [p] = await tx.insert(payments).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
+export async function insertPayment(tx: Tx, row: Omit<typeof payments.$inferInsert, "id">): Promise<Payment> {
+  const [p] = await tx.insert(payments).values({ id: uuidv7(), ...row }).returning();
   if (!p) throw new Error("payment insert returned no row");
   return p;
 }
@@ -179,19 +179,8 @@ export async function receiptLines(tx: Tx, paymentId: string): Promise<ReceiptLi
     .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number));
 }
 
-// "Received from", frozen when the receipt was made: the name written to the
-// audit row of the payment (append-only), else the invoice it paid, else the
-// payer's name today for receipts that predate it.
-const livePayerName = sql`CASE WHEN app.payments.payer_guardian_id IS NOT NULL THEN (SELECT g.full_name FROM app.guardians g WHERE g.id = app.payments.payer_guardian_id)
-  ELSE (SELECT s.full_name FROM app.students s WHERE s.id = app.payments.payer_member_id) END`;
-const receivedFrom = sql<string>`coalesce(
-  (SELECT a.after ->> 'billToName' FROM app.audit_log a WHERE a.entity_type = 'payment' AND a.entity_id = app.payments.id AND a.action = 'payment.create' ORDER BY a.id LIMIT 1),
-  (SELECT i.bill_to_name FROM app.payment_allocations pa JOIN app.invoices i ON i.id = pa.invoice_id WHERE pa.payment_id = app.payments.id AND pa.kind = 'receipt' AND i.bill_to_name IS NOT NULL ORDER BY pa.created_at, pa.id LIMIT 1),
-  ${livePayerName},
-  '')`;
-
 export async function receiptNames(tx: Tx, p: Payment): Promise<{ billToName: string; collectorName: string | null }> {
-  const [r] = await tx.select({ name: receivedFrom }).from(payments).where(eq(payments.id, p.id));
+  const [r] = await tx.select({ name: payments.billToName }).from(payments).where(eq(payments.id, p.id));
   const [s] = p.receivedBy ? await tx.select({ name: staffUsers.fullName }).from(staffUsers).where(eq(staffUsers.id, p.receivedBy)) : [];
   return { billToName: r?.name ?? "", collectorName: s?.name ?? null };
 }
@@ -217,7 +206,7 @@ const recorded = (tx: Tx, where: SQL | undefined) =>
       cancelReason: payments.cancelReason,
       receivedBy: payments.receivedBy,
       createdAt: payments.createdAt,
-      billToName: receivedFrom,
+      billToName: payments.billToName,
       collectorName: staffUsers.fullName,
     })
     .from(payments)
@@ -248,7 +237,7 @@ export async function refundsOn(tx: Tx, branchId: string, day: string): Promise<
       reason: refunds.reason,
       refundedAt: refunds.refundedAt,
       receiptNumber: payments.receiptNumber,
-      billToName: receivedFrom,
+      billToName: payments.billToName,
     })
     .from(refunds)
     .innerJoin(payments, eq(payments.id, refunds.paymentId))

@@ -198,11 +198,14 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const split = data.allocations ? picked(data.amountPaise, open, data.allocations) : oldestFirst(data.amountPaise, open);
   const fy = financialYear(today, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);
+  const billToName = (await payerNames(tx, [payer])).get(payerKey(payer));
+  if (!billToName) throw new ConflictError("This payer has no name on record");
   const payment = await insertPayment(tx, {
     tenantId: ctx.tenantId,
     branchId: data.branchId,
     payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
     payerMemberId: payer.kind === "member" ? payer.memberId : null,
+    billToName,
     requestId: data.requestId,
     receiptNumber,
     fy,
@@ -232,7 +235,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
       branchId: payment.branchId,
       payerGuardianId: payment.payerGuardianId,
       payerMemberId: payment.payerMemberId,
-      billToName: (await payerNames(tx, [payer])).get(payerKey(payer)) ?? null,
+      billToName,
       invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })),
       advancePaise: text(split.advance),
     },
@@ -526,11 +529,13 @@ export async function recordGatewayPayment(
   const split = oldestFirst(input.amountPaise, open);
   const fy = financialYear(receivedOn, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, inv.tenantId, "receipt", fy);
+  const billToName = inv.billToName ?? (await gatewayPayerName(tx, inv)) ?? "";
   const payment = await insertPayment(tx, {
     tenantId: inv.tenantId,
     branchId: inv.branchId,
     payerGuardianId: inv.payerGuardianId,
     payerMemberId: inv.payerMemberId,
+    billToName,
     receiptNumber,
     fy,
     method: "online",
@@ -547,7 +552,7 @@ export async function recordGatewayPayment(
     action: "payment.create",
     entityType: "payment",
     entityId: payment.id,
-    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", billToName: inv.billToName ?? (await gatewayPayerName(tx, inv)), gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
+    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", billToName, gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
   });
   await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
   return { payment, created: true };
