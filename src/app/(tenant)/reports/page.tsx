@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 
 const REPORTS = [
   { href: "/reports/collection", title: "Collection register", hint: "Receipts by day, method and staff" },
-  { href: "/reports/dues", title: "Outstanding dues", hint: "What each family owes, by how late" },
+  { href: "/reports/dues", title: "Outstanding dues", hint: "What each payer owes, by how late" },
   { href: "/reports/attendance", title: "Attendance summary", hint: "By batch and by student" },
   { href: "/reports/at-risk", title: "At risk", hint: "Missing classes or behind on fees" },
   { href: "/reports/admissions", title: "Admissions and dropouts", hint: "Who joined and who left" },

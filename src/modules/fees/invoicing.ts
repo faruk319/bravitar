@@ -203,7 +203,6 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
       (await insertInvoice(tx, {
         tenantId: actor.tenantId,
         branchId: head.b.branchId,
-        householdId: head.b.householdId,
         payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
         payerMemberId: payer.kind === "member" ? payer.memberId : null,
         billToName: billTo,

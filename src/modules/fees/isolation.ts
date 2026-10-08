@@ -1,6 +1,6 @@
 import type { Tx } from "@/lib/db/client";
 import type { IsolationFixtures } from "@/lib/db/isolation/types";
-import { createHousehold, insertStudent } from "@/modules/students/repo";
+import { insertStudent } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
 import { insertDiscount, insertInvoice, insertLines, insertPlan, insertStudentDiscount } from "./repo";
 
@@ -8,14 +8,13 @@ const stamp = () => Math.random().toString(36).slice(2, 8);
 
 async function family(tx: Tx, tenantId: string) {
   const branch = await createBranch(tx, { tenantId, name: `Branch ${stamp()}` });
-  const household = await createHousehold(tx, { tenantId, name: "Iso family" });
-  const student = await insertStudent(tx, { tenantId, branchId: branch.id, householdId: household.id, fullName: "Iso Kid", code: `ISO/${stamp()}` });
-  return { branch, household, student };
+  const student = await insertStudent(tx, { tenantId, branchId: branch.id, fullName: "Iso Kid", code: `ISO/${stamp()}` });
+  return { branch, student };
 }
 
 async function invoice(tx: Tx, tenantId: string) {
-  const { branch, household } = await family(tx, tenantId);
-  return insertInvoice(tx, { tenantId, branchId: branch.id, householdId: household.id, issueDate: "2026-01-01", dueDate: "2026-01-08" });
+  const { branch } = await family(tx, tenantId);
+  return insertInvoice(tx, { tenantId, branchId: branch.id, issueDate: "2026-01-01", dueDate: "2026-01-08" });
 }
 
 export const feeFixtures: IsolationFixtures = {

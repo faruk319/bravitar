@@ -70,7 +70,7 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
             <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
               <th className="px-4 py-2 font-medium">Day</th>
               <th className="py-2 font-medium">Receipt</th>
-              <th className="py-2 font-medium">Family</th>
+              <th className="py-2 font-medium">Payer</th>
               <th className="py-2 font-medium">Method</th>
               <th className="py-2 font-medium">By</th>
               <th className="px-4 py-2 text-right font-medium">Amount</th>

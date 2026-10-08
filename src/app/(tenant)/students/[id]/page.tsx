@@ -272,7 +272,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           <Card className="lg:col-start-1">
             <CardHeader title="Family" action={allows(ctx, "messages:send") ? <Composer request={{ key: "welcome", studentId: s.id }} label="Welcome message" size="sm" /> : null} />
             <p className="-mt-2 text-caption text-muted-foreground">
-              {o.household?.name} · {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}
+              {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}
             </p>
             {o.account && (o.account.open.length || o.account.advancePaise > 0n) ? (
               <dl className="mt-2 divide-y divide-neutral-100 border-y border-neutral-100">

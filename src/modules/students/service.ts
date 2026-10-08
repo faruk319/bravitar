@@ -14,11 +14,9 @@ import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
 import {
   createGuardian,
-  createHousehold,
   currentConsents,
   findGuardianByPhone,
   getGuardian,
-  getHousehold,
   getStudent,
   type GuardianLink,
   guardiansOfStudent,
@@ -33,7 +31,7 @@ import {
   updateStudent,
 } from "./repo";
 import { FAMILY_RELATIONS } from "./relations";
-import { type ConsentKind, type Guardian, type Household, LEFT_REASONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
+import { type ConsentKind, type Guardian, LEFT_REASONS, type Student, STUDENT_STATUSES, type StudentMetadata, type StudentStatus } from "./schema";
 
 export type StudentCtx = ScopedCtx;
 
@@ -92,16 +90,11 @@ export async function lookupKnownGuardian(tx: Tx, ctx: StudentCtx, phone: string
   return g ? describeGuardian(tx, ctx, g, studentId) : undefined;
 }
 
-function householdNameFor(guardianName: string): string {
-  const last = guardianName.trim().split(/\s+/).at(-1) ?? guardianName;
-  return `${last} family`;
-}
-
 function yearIn(timezone: string): number {
   return Number(new Intl.DateTimeFormat("en-IN", { timeZone: timezone, year: "numeric" }).format(new Date()));
 }
 
-export type CreatedStudent = { student: Student; household: Household; guardian: Guardian };
+export type CreatedStudent = { student: Student; guardian: Guardian };
 
 // Import records consent as declared on paper and tags the audit row.
 export type CreateStudentOptions = { consentMethod?: "staff_recorded" | "paper"; source?: "form" | "csv_import" };
@@ -118,21 +111,15 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   const branchId = await pickBranch(tx, ctx.branchIds, data.branchId);
 
   // A known number is a question: the same person is linked on staff's say-so, never refused or linked silently.
-  let household: Household;
   let guardian: Guardian;
   const existing = await findGuardianByPhone(tx, contactPhone);
   if (existing) {
     const known = await describeGuardian(tx, ctx, existing);
     if (data.linkGuardianId !== existing.id || !known.guardianId) throw new KnownGuardianError(known);
-    const h = await getHousehold(tx, existing.householdId);
-    if (!h) throw new NotFoundError("Family");
-    household = h;
     guardian = existing;
   } else {
-    household = await createHousehold(tx, { tenantId: ctx.tenantId, name: data.guardian ? householdNameFor(data.guardian.fullName) : data.fullName });
     guardian = await createGuardian(tx, {
       tenantId: ctx.tenantId,
-      householdId: household.id,
       fullName: data.guardian?.fullName ?? data.fullName,
       phone: contactPhone,
       isPrimary: true,
@@ -147,7 +134,6 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   const student = await insertStudent(tx, {
     tenantId: ctx.tenantId,
     branchId,
-    householdId: household.id,
     code,
     fullName: data.fullName,
     dateOfBirth: data.dateOfBirth ?? null,
@@ -164,8 +150,8 @@ export async function createStudent(tx: Tx, ctx: StudentCtx, input: NewStudentIn
   // Ticking it opts the guardian in; leaving it blank never takes an opt-in away.
   if (data.consents.whatsapp && !guardian.whatsappOptin) guardian = await updateGuardian(tx, guardian.id, { whatsappOptin: true, whatsappOptinAt: new Date() });
 
-  await writeAudit(tx, { ...actor(ctx), action: "student.create", entityType: "student", entityId: student.id, after: { code, householdId: household.id, source: opts.source ?? "form" } });
-  return { student, household, guardian };
+  await writeAudit(tx, { ...actor(ctx), action: "student.create", entityType: "student", entityId: student.id, after: { code, source: opts.source ?? "form" } });
+  return { student, guardian };
 }
 
 export async function requireStudent(tx: Tx, ctx: StudentCtx, id: string): Promise<Student> {
@@ -285,11 +271,10 @@ export async function archiveStudent(tx: Tx, ctx: StudentCtx, id: string): Promi
 
 export async function studentOverview(tx: Tx, ctx: StudentCtx, id: string) {
   const student = await requireStudent(tx, ctx, id);
-  const [household, guardians, siblings, consents] = await Promise.all([
-    getHousehold(tx, student.householdId),
+  const [guardians, siblings, consents] = await Promise.all([
     guardiansOfStudent(tx, id),
     siblingsOf(tx, id),
     currentConsents(tx, id),
   ]);
-  return { student, household, guardians, siblings, consents };
+  return { student, guardians, siblings, consents };
 }

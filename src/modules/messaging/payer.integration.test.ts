@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { addDays } from "@/lib/dates";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -14,23 +14,23 @@ import { recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
-import { createGuardian, updateGuardian } from "@/modules/students/repo";
+import { createGuardian, linkGuardian, updateGuardian } from "@/modules/students/repo";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
 import { composeMessage } from "./compose";
 import { queueReminders } from "./reminders";
 import { messageLog } from "./schema";
 
-// A message about an invoice or payment goes to its payer, not to the household's primary guardian.
+// A message about an invoice or payment goes to its payer, not to the member's primary guardian.
 
 const stamp = Math.random().toString(36).slice(2, 8);
-const MOTHER = "+919500100001"; // the household's primary guardian, opted in
+const MOTHER = "+919500100001"; // the member's primary guardian, opted in
 const FATHER = "+919500100002"; // pays, opted in
 const ADULT = "+919500100003"; // an adult member who pays for themselves
+let riya = "";
 let T = "";
 let owner: ScopedCtx;
 let branchId = "";
-let household = "";
 let today = "";
 let now = new Date();
 const bill: Record<"father" | "adult", { id: string }> = { father: { id: "" }, adult: { id: "" } };
@@ -40,7 +40,7 @@ const invoiceFor = (payer: { payerGuardianId: string } | { payerMemberId: string
   withTenant(T, async (tx) => {
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, 3);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId, householdId: household, studentId, ...payer, billToName: "Payer", issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: T, branchId, studentId, ...payer, billToName: "Payer", issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 
@@ -54,9 +54,10 @@ beforeAll(async () => {
   now = localToUtc(today, "12:00", "Asia/Kolkata");
 
   const kid = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Riya", guardian: { fullName: "Sunita Sharma", phone: MOTHER, relation: "mother" }, consents: { dataProcessing: true, whatsapp: true } }));
-  household = kid.household.id;
+  riya = kid.student.id;
   const father = await withTenant(T, async (tx) => {
-    const g = await createGuardian(tx, { tenantId: T, householdId: household, fullName: "Imran Sharma", phone: FATHER });
+    const g = await createGuardian(tx, { tenantId: T, fullName: "Imran Sharma", phone: FATHER });
+    await linkGuardian(tx, T, kid.student.id, g.id, "father");
     return updateGuardian(tx, g.id, { whatsappOptin: true });
   });
   const adult = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Meher Kaur", dateOfBirth: "1998-05-05", adultPhone: ADULT, consents: { dataProcessing: true, whatsapp: true } }));
@@ -83,7 +84,7 @@ describe("messages follow the payer", () => {
   });
 
   it("a receipt is queued for the payer of what it paid", async () => {
-    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, household), branchId, amountPaise: "80000", method: "cash", allocations: [{ invoiceId: bill.father.id, amountPaise: "80000" }] }, { now }));
+    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: riya, branchId, amountPaise: "80000", method: "cash", allocations: [{ invoiceId: bill.father.id, amountPaise: "80000" }] }, { now }));
     const receipts = (await log()).filter((m) => m.templateKey === "receipt");
     expect(receipts.map((m) => m.toPhone)).toEqual([FATHER]);
   });

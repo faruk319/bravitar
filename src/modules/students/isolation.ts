@@ -1,22 +1,23 @@
 import type { IsolationFixtures } from "@/lib/db/isolation/types";
 import type { Tx } from "@/lib/db/client";
+import { uuidv7 } from "@/lib/ids";
 import { createBranch } from "@/modules/tenancy/repo";
-import { createGuardian, createHousehold, insertStudent, linkGuardian, recordConsent } from "./repo";
-import { studentCodeSeries } from "./schema";
+import { createGuardian, insertStudent, linkGuardian, recordConsent } from "./repo";
+import { households, studentCodeSeries } from "./schema";
 
 const stamp = () => Math.random().toString(36).slice(2, 8);
 const phone = () => `+91${String(6_000_000_000 + Math.floor(Math.random() * 3_999_999_999))}`;
 
 async function family(tx: Tx, tenantId: string) {
-  const h = await createHousehold(tx, { tenantId, name: `Fam ${stamp()}` });
-  const g = await createGuardian(tx, { tenantId, householdId: h.id, fullName: "Iso Guardian", phone: phone(), isPrimary: true });
+  const g = await createGuardian(tx, { tenantId, fullName: "Iso Guardian", phone: phone(), isPrimary: true });
   const b = await createBranch(tx, { tenantId, name: `Branch ${stamp()}` });
-  const s = await insertStudent(tx, { tenantId, branchId: b.id, householdId: h.id, code: `ISO/2026/${stamp().toUpperCase()}`, fullName: "Iso Student" });
-  return { h, g, s };
+  const s = await insertStudent(tx, { tenantId, branchId: b.id, code: `ISO/2026/${stamp().toUpperCase()}`, fullName: "Iso Student" });
+  return { g, s };
 }
 
 export const studentFixtures: IsolationFixtures = {
-  households: (tx, tenantId) => createHousehold(tx, { tenantId, name: `Fam ${stamp()}` }),
+  // The table lives until migration 0040, so its isolation test does too.
+  households: (tx, tenantId) => tx.insert(households).values({ id: uuidv7(), tenantId, name: `Fam ${stamp()}` }),
   guardians: async (tx, tenantId) => (await family(tx, tenantId)).g,
   students: async (tx, tenantId) => (await family(tx, tenantId)).s,
   student_guardians: async (tx, tenantId) => {

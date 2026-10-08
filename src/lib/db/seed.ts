@@ -191,7 +191,7 @@ async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZo
   const today = todayIn(timeZone);
   const thisMonth = `${today.slice(0, 7)}-01`;
   const recent = addMonths(thisMonth, -2);
-  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !behind.has(i.householdId) || i.issueDate < recent);
+  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !(i.payerGuardianId && behind.has(i.payerGuardianId)) || i.issueDate < recent);
   const pay = (inv: Invoice, on: string, method: "cash" | "upi" | "cheque", half = false) => {
     const balance = inv.totalPaise - inv.paidPaise;
     const amount = String(half ? (split(balance, 2)[0] ?? balance) : balance);
@@ -282,7 +282,7 @@ export async function seed(): Promise<SeedResult> {
       const studentIds = new Map<string, string>();
       const toPause: string[] = [];
       let siblingId = "";
-      const behind = new Set<string>(); // household ids
+      const behind = new Set<string>(); // payer guardian ids
       const oftenAbsent = new Set<string>(); // student ids
       const joinedOn = new Map<string, string>(); // student name -> join date, also their enrolment start
       const thisMonth = `${todayIn(tenant.timezone).slice(0, 7)}-01`;
@@ -298,7 +298,7 @@ export async function seed(): Promise<SeedResult> {
         studentIds.set(student.fullName, created.student.id);
         if (paused) toPause.push(created.student.id);
         if (sibling) siblingId = created.student.id;
-        if (behindOnFees) behind.add(created.household.id);
+        if (behindOnFees) behind.add(created.guardian.id);
         if (absent) oftenAbsent.add(created.student.id);
       }
 

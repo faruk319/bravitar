@@ -25,7 +25,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { billableFamily } from "@/lib/db/isolation/family";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendanceRows, collectionRows, enquiryRows } from "./csv";
 import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collectionRegister, outstandingDues } from "./service";
 
@@ -33,8 +33,8 @@ import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collecti
 // aged by days past the due date, attendance, admissions and dropouts; the
 // at-risk list (all agreed 2026-09-25).
 
-// The guardian ids of a household's members, lead first.
-const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, [await memberOfHousehold(tx, householdId)])).map((g) => g.id);
+// The guardian ids of a member, lead first.
+const guardiansOf = async (tx: Tx, studentId: string): Promise<string[]> => (await guardiansOfMembers(tx, [studentId])).map((g) => g.id);
 const stamp = Math.random().toString(36).slice(2, 8);
 let T = "";
 let owner: ScopedCtx;
@@ -48,19 +48,18 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
   return { ...base, branchIds };
 };
 // An issued invoice for a family, owing `rupees`, due `late` days ago.
-const owe = (household: string, rupees: number, late: number, at = branch) =>
+const owe = (studentId: string, rupees: number, late: number, at = branch) =>
   withTenant(T, async (tx) => {
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
-    const [payer] = await familyGuardians(tx, household);
+    const [payer] = await guardiansOf(tx, studentId);
     const [who] = payer ? await tx.select({ name: guardians.fullName }).from(guardians).where(eq(guardians.id, payer)) : [];
-    const studentId = await memberOfHousehold(tx, household);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, householdId: household, studentId, payerGuardianId: payer ?? null, billToName: who?.name ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: at, studentId, payerGuardianId: payer ?? null, billToName: who?.name ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const family = (name: string) => withTenant(T, (tx) => billableFamily(tx, owner, name));
-const pay = (householdId: string, rupees: number, method: "cash" | "upi" = "cash", at = branch) =>
-  withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: at, amountPaise: String(rupees * 100), method }));
+const pay = (memberId: string, rupees: number, method: "cash" | "upi" = "cash", at = branch) =>
+  withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId, branchId: at, amountPaise: String(rupees * 100), method }));
 
 beforeAll(async () => {
   const t = await testAcademy({ name: `Reports ${stamp}`, slug: `reports-${stamp}`, owner: { name: "Owner", email: `reports-owner-${stamp}@example.test` } });
@@ -82,11 +81,11 @@ afterAll(async () => {
 describe("collection register", () => {
   it("a day's total equals that day's collection sheet exactly; cancelled receipts are listed, not counted", async () => {
     const sharma = await family("Sharma family");
-    await pay(sharma.id, 800);
-    await pay(sharma.id, 450, "upi");
-    const wrong = await pay(sharma.id, 99);
+    await pay(sharma.studentId, 800);
+    await pay(sharma.studentId, 450, "upi");
+    const wrong = await pay(sharma.studentId, 99);
     await withTenant(T, (tx) => cancelPayment(tx, owner, wrong.id, { reason: "Typed wrong" }));
-    await pay((await family("Other branch family")).id, 300, "cash", other);
+    await pay((await family("Other branch family")).studentId, 300, "cash", other);
 
     const r = await withTenant(T, (tx) => collectionRegister(tx, owner, { from: today, to: today }));
     const sheet = await withTenant(T, (tx) => collectionSheet(tx, owner, { branchId: branch }));
@@ -117,15 +116,15 @@ describe("outstanding dues", () => {
       [500, 60],
       [600, 61],
     ] as const)
-      await owe(patil.id, rupees, late);
+      await owe(patil.studentId, rupees, late);
     const r = await withTenant(T, (tx) => outstandingDues(tx, owner));
     expect(r.payers.find((f) => f.name === "Patil family")).toMatchObject({ invoices: 6, notDue: 10_000n, days0to30: 50_000n, days31to60: 90_000n, over60: 60_000n });
   });
 
-  it("one household with two payers is two rows, each its own payer's dues", async () => {
+  it("one member with two payers is two rows, each its own payer's dues", async () => {
     const kulkarni = await family("Kulkarni mother");
     const father = await withTenant(T, async (tx) => {
-      const g = await createGuardian(tx, { tenantId: T, householdId: kulkarni.id, fullName: "Kulkarni father", phone: "98733 70001" });
+      const g = await createGuardian(tx, { tenantId: T, fullName: "Kulkarni father", phone: "98733 70001" });
       await upsertFamilyLink(tx, { tenantId: T, studentId: kulkarni.studentId, guardianId: g.id, relation: "father" });
       return g;
     });
@@ -133,7 +132,7 @@ describe("outstanding dues", () => {
       withTenant(T, async (tx) => {
         const total = BigInt(rupees) * 100n;
         const due = addDays(today, -late);
-        const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId: kulkarni.id, studentId: kulkarni.studentId, payerGuardianId, billToName: name, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+        const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, studentId: kulkarni.studentId, payerGuardianId, billToName: name, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
         return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
       });
     await billTo(kulkarni.guardianId, "Kulkarni mother", 100, 10);
@@ -186,7 +185,7 @@ describe("attendance summary and the at-risk list", () => {
     "Dev Naik": ["present", "present", "present", "absent", "absent", "excused", "excused", "excused"], // excused don't count
     "Esha Pawar": ["absent", "absent", "absent", "absent", "present"], // 20%, then paused
   };
-  const student: Record<string, { id: string; household: string }> = {};
+  const student: Record<string, { id: string }> = {};
   let n = 0;
 
   beforeAll(async () => {
@@ -198,7 +197,7 @@ describe("attendance summary and the at-risk list", () => {
     for (const name of Object.keys(MARKS)) {
       const s = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: name, branchId: branch, joinedOn: addDays(today, -20), guardian: { fullName: `Parent of ${name}`, phone: `98744${10_000 + ++n}`, relation: "mother" }, consents: { dataProcessing: true } }));
       await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: batch, startDate: start }));
-      student[name] = { id: s.student.id, household: s.household.id };
+      student[name] = { id: s.student.id };
     }
     const past = await withTenant(T, (tx) => tx.select().from(sessions).where(and(eq(sessions.batchId, batch), lt(sessions.sessionDate, today))).orderBy(asc(sessions.sessionDate)));
     for (const [i, c] of past.slice(0, 8).entries()) {
@@ -218,14 +217,14 @@ describe("attendance summary and the at-risk list", () => {
   });
 
   it("at risk: under 60% (60 isn't), or two overdue invoices (one isn't; paying clears it); active students only", async () => {
-    await owe(student["Bina Mane"]?.household ?? "", 500, 5);
-    await owe(student["Bina Mane"]?.household ?? "", 700, 40);
-    await owe(student["Asha Kulkarni"]?.household ?? "", 500, 3);
-    await owe(student["Asha Kulkarni"]?.household ?? "", 500, -5); // not due yet
-    await owe(student["Chetan More"]?.household ?? "", 300, 35);
-    await owe(student["Chetan More"]?.household ?? "", 300, 4);
-    await owe(student["Esha Pawar"]?.household ?? "", 300, 10);
-    await owe(student["Esha Pawar"]?.household ?? "", 300, 20);
+    await owe(student["Bina Mane"]?.id ?? "", 500, 5);
+    await owe(student["Bina Mane"]?.id ?? "", 700, 40);
+    await owe(student["Asha Kulkarni"]?.id ?? "", 500, 3);
+    await owe(student["Asha Kulkarni"]?.id ?? "", 500, -5); // not due yet
+    await owe(student["Chetan More"]?.id ?? "", 300, 35);
+    await owe(student["Chetan More"]?.id ?? "", 300, 4);
+    await owe(student["Esha Pawar"]?.id ?? "", 300, 10);
+    await owe(student["Esha Pawar"]?.id ?? "", 300, 20);
 
     const r = await withTenant(T, (tx) => atRisk(tx, owner));
     expect(r.attendance?.map((s) => [s.name, s.percent])).toEqual([["Bina Mane", 40]]);
@@ -234,7 +233,7 @@ describe("attendance summary and the at-risk list", () => {
       ["Chetan More", 2, 60_000n],
     ]);
 
-    await pay(student["Chetan More"]?.household ?? "", 300); // the older one, in full
+    await pay(student["Chetan More"]?.id ?? "", 300); // the older one, in full
     expect((await withTenant(T, (tx) => atRisk(tx, owner))).unpaid?.map((s) => s.name)).toEqual(["Bina Mane"]);
     // The front desk sees fees, not attendance.
     const seen = await withTenant(T, (tx) => atRisk(tx, desk));
@@ -242,15 +241,15 @@ describe("attendance summary and the at-risk list", () => {
     expect((await withTenant(T, (tx) => atRisk(tx, { ...owner, branchIds: [other] }))).unpaid).toEqual([]);
   });
 
-  it("at risk counts overdue invoices per payer: two payers in one household with one each aren't flagged", async () => {
+  it("at risk counts overdue invoices per payer: two payers of one member with one each aren't flagged", async () => {
     const gita = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Gita Rane", branchId: branch, joinedOn: addDays(today, -20), guardian: { fullName: "Mother Rane", phone: "98744 20001", relation: "mother" }, consents: { dataProcessing: true } }));
-    const [mother] = await withTenant(T, (tx) => familyGuardians(tx, gita.household.id));
-    const father = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, householdId: gita.household.id, fullName: "Father Rane", phone: "98744 20002" }));
+    const [mother] = await withTenant(T, (tx) => guardiansOf(tx, gita.student.id));
+    const father = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, fullName: "Father Rane", phone: "98744 20002" }));
     await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: gita.student.id, guardianId: father.id, relation: "father" }));
     const oweBy = (payerGuardianId: string | undefined, late: number) =>
       withTenant(T, async (tx) => {
         const due = addDays(today, -late);
-        const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId: gita.household.id, studentId: gita.student.id, payerGuardianId: payerGuardianId ?? null, billToName: "Rane", issueDate: addDays(due, -7), dueDate: due, subtotalPaise: 40_000n, totalPaise: 40_000n });
+        const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, studentId: gita.student.id, payerGuardianId: payerGuardianId ?? null, billToName: "Rane", issueDate: addDays(due, -7), dueDate: due, subtotalPaise: 40_000n, totalPaise: 40_000n });
         return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
       });
     await oweBy(mother, 5);

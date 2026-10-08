@@ -22,7 +22,7 @@ import { sessions } from "@/modules/sessions/schema";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { runMessagesRemind, runMessagesSend, sendDue } from "./job";
 import { sharedInvoice } from "./public";
 import { type MessageLog, messageLog } from "./schema";
@@ -42,7 +42,6 @@ let T = "";
 let owner: ScopedCtx;
 let branchId = "";
 let batchId = "";
-const family: Record<"sharma" | "shaikh" | "meher", string> = { sharma: "", shaikh: "", meher: "" };
 const kids: Record<"riya" | "kabir" | "zoya" | "meher", string> = { riya: "", kabir: "", zoya: "", meher: "" };
 const bill: Record<string, Invoice> = {};
 
@@ -68,20 +67,19 @@ beforeAll(async () => {
 
   const admit = (fullName: string, contact: object, whatsapp: boolean) => withTenant(T, (tx) => createStudent(tx, owner, { fullName, ...contact, consents: { dataProcessing: true, whatsapp } }));
   const riya = await admit("Riya", { guardian: { fullName: "Sunita Sharma", phone: SUNITA, relation: "mother" } }, true);
-  family.sharma = riya.household.id;
   kids.riya = riya.student.id;
   kids.kabir = (await admit("Kabir", { guardian: { fullName: "Sunita Sharma", phone: SUNITA, relation: "mother" }, linkGuardianId: riya.guardian.id }, true)).student.id;
   const zoya = await admit("Zoya", { guardian: { fullName: "Sana Shaikh", phone: SANA, relation: "mother" } }, false);
-  [family.shaikh, kids.zoya] = [zoya.household.id, zoya.student.id];
+  kids.zoya = zoya.student.id;
   const meher = await admit("Meher Kaur", { dateOfBirth: "1998-05-05", adultPhone: MEHER }, true);
-  [family.meher, kids.meher] = [meher.household.id, meher.student.id];
+  kids.meher = meher.student.id;
 
   const joined: string[] = [];
   for (const id of Object.values(kids)) joined.push((await withTenant(T, (tx) => enroll(tx, owner, { studentId: id, batchId, startDate: "2026-10-01" }))).id);
   await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: ist("2026-10-01", "09:30"), enrollmentIds: joined }));
   await withTenant(T, (tx) => issueInvoices(tx, owner, "all", { now: ist("2026-10-01", "09:30") }));
   // One invoice per child, each due 8 Oct; the Sharmas' is Riya's.
-  for (const inv of await withTenant(T, (tx) => tx.select().from(invoices))) if (inv.studentId !== kids.kabir) bill[inv.householdId] = inv;
+  for (const inv of await withTenant(T, (tx) => tx.select().from(invoices))) if (inv.studentId !== kids.kabir) bill[inv.studentId ?? ""] = inv;
 });
 
 afterAll(async () => {
@@ -99,7 +97,7 @@ describe("messages.remind: fee reminders (agreed 2026-09-25)", () => {
     const due = (await log()).filter((m) => m.templateKey === "fee_due");
     expect(due.map((m) => m.toPhone).sort()).toEqual([SUNITA, SUNITA, MEHER]); // an invoice per child; Zoya's mother never opted in
 
-    const sharma = bill[family.sharma] as Invoice;
+    const sharma = bill[kids.riya] as Invoice;
     const m = due.find((x) => x.relatedId === sharma.id);
     expect(m).toMatchObject({ channel: "manual", status: "queued", relatedType: "invoice", relatedId: sharma.id, sendAfter: ist("2026-10-05", "10:00") });
     expect(m?.body).toContain(`Riya's fee of ${formatPaise(sharma.totalPaise)}`);
@@ -120,8 +118,8 @@ describe("messages.remind: fee reminders (agreed 2026-09-25)", () => {
 
 describe("payments: receipts and the reminders they settle", () => {
   it("a desk payment skips the queued reminders it paid; its receipt waits for 07:00 when paid late at night", async () => {
-    const inv = bill[family.meher] as Invoice;
-    const pay = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, family.meher), branchId, amountPaise: String(inv.totalPaise) }, { now: ist("2026-10-22", "22:30") }));
+    const inv = bill[kids.meher] as Invoice;
+    const pay = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: kids.meher, branchId, amountPaise: String(inv.totalPaise) }, { now: ist("2026-10-22", "22:30") }));
     const mine = (await log()).filter((m) => m.toPhone === MEHER);
     expect(mine.filter((m) => m.relatedId === inv.id).map((m) => [m.status, m.error])).toEqual([
       ["skipped", "A payment came in first"],
@@ -137,7 +135,7 @@ describe("payments: receipts and the reminders they settle", () => {
   });
 
   it("a Razorpay payment queues its receipt at once during the day", async () => {
-    const inv = bill[family.sharma] as Invoice;
+    const inv = bill[kids.riya] as Invoice;
     const g = await withTenant(T, (tx) => recordGatewayPayment(tx, { invoiceId: inv.id, gatewayPaymentId: `pay_${stamp}`, amountPaise: 50000n, capturedAt: ist("2026-10-23", "12:00") }, { now: ist("2026-10-23", "12:00") }));
     expect((await log()).find((m) => m.relatedId === g.payment.id)).toMatchObject({ templateKey: "receipt", toPhone: SUNITA, status: "queued", sendAfter: ist("2026-10-23", "12:00") });
     expect((await log()).filter((m) => m.relatedId === inv.id && m.status === "queued")).toHaveLength(0);
@@ -186,12 +184,12 @@ describe("messages.send: through WhatsApp at the academy's hours", () => {
     expect(wa.sent.at(-1)).toMatchObject({ to: SUNITA, templateName: "absent_v1", parameters: ["Sunita Sharma", expect.any(String), "Evening", `Jobs ${stamp}`, "2 Nov 2026"] });
 
     // A receipt is not held back by the day's absence message.
-    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, family.sharma), branchId, amountPaise: "10000" }, { now: ist("2026-11-02", "19:05") }));
+    await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: kids.riya, branchId, amountPaise: "10000" }, { now: ist("2026-11-02", "19:05") }));
     expect(await sendDue(T, { now: ist("2026-11-02", "19:05"), api: wa.api })).toMatchObject({ sent: 1 });
 
     // With the day's cap at 2, Meher's receipt moves to tomorrow 07:00.
     await withTenant(T, (tx) => saveMessagingSettings(tx, owner, { language: "en", sendHour: 10, absenceHour: 19, dailyCap: 2 }));
-    const other = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, family.meher), branchId, amountPaise: "10000" }, { now: ist("2026-11-02", "19:10") }));
+    const other = await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: kids.meher, branchId, amountPaise: "10000" }, { now: ist("2026-11-02", "19:10") }));
     expect(await sendDue(T, { now: ist("2026-11-02", "19:10"), api: wa.api })).toMatchObject({ sent: 0, deferred: 1 });
     const waiting = (await log()).find((m) => m.relatedId === other.id) as MessageLog;
     expect(waiting).toMatchObject({ status: "queued", sendAfter: ist("2026-11-03", "07:00") });

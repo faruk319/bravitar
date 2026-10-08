@@ -81,7 +81,7 @@ export function VoidInvoice({ id, draft, open, paid }: { id: string; draft: bool
           void a.run(() => send(`/api/invoices/${id}`, "POST", { action: "void", reason: String(f.get("reason") ?? "").trim(), rebill: f.get("rebill") === "on" }));
         }}
       >
-        {paid ? <p className="text-body">{paid} paid on it goes back to the family&apos;s advance, for their next invoice or a refund.</p> : null}
+        {paid ? <p className="text-body">{paid} paid on it goes back to the payer&apos;s advance, for their next invoice or a refund.</p> : null}
         <Field label="Reason" id="void-reason">
           <Input id="void-reason" name="reason" required placeholder="e.g. Wrong fee plan" autoComplete="off" />
         </Field>

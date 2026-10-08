@@ -20,7 +20,7 @@ export const PERMISSIONS = {
 
   "students:read": { module: "students", description: "See students in assigned batches and branches" },
   "students:read_all": { module: "students", description: "See every student regardless of coach assignment" },
-  "students:create": { module: "students", description: "Add students, households and guardians" },
+  "students:create": { module: "students", description: "Add students and guardians" },
   "students:update": { module: "students", description: "Edit student details, status and consents" },
   "students:import": { module: "students", description: "Import students from CSV" },
 

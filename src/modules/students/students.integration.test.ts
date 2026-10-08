@@ -19,7 +19,6 @@ import {
   countByStatus,
   countStudents, countWithoutBatch,
   createGuardian,
-  guardiansOfHouseholdMembers,
   guardiansOfMembers,
   guardiansOfStudent,
   moveManager,
@@ -27,7 +26,6 @@ import {
   searchStudents,
   siblingsOf,
   studentsOfGuardian,
-  studentsOfHousehold,
   updateGuardian,
   updateStudent,
   upsertFamilyLink,
@@ -60,13 +58,6 @@ const P = (n: number) => `+919${String(100_000_000 + n).padStart(9, "0")}`;
 let phoneSeq = 0;
 const freshPhone = () => P(1_000_000 + ++phoneSeq);
 const consents = { dataProcessing: true };
-// createStudent no longer builds a household with two guardians; the backfill test needs that legacy shape.
-const intoHousehold = async (c: { guardian: { id: string }; student: { id: string } }, household: string) => {
-  await withTenant(T, async (tx) => {
-    await updateGuardian(tx, c.guardian.id, { householdId: household });
-    await updateStudent(tx, c.student.id, { householdId: household });
-  });
-};
 
 const ctxFor = async (staffId: string, tenantId = T): Promise<StudentCtx> => {
   const base = await withTenant(tenantId, (tx) => loadAccessContext(tx, staffId));
@@ -91,11 +82,10 @@ afterAll(async () => {
 });
 
 describe("families", () => {
-  it("creates household, guardian, student, link and consent for a minor with a new guardian", async () => {
+  it("creates guardian, student, link and consent for a minor with a new guardian", async () => {
     const r = await withTenant(T, (tx) =>
       createStudent(tx, ownerCtx, { fullName: "Aarav Deshmukh", dateOfBirth: "2015-03-12", guardian: { fullName: "Rakesh Deshmukh", phone: "98765 00001", relation: "father" }, consents: { dataProcessing: true, photo: true } }),
     );
-    expect(r.household.name).toBe("Deshmukh family");
     expect(r.guardian.phone).toBe("+919876500001");
     expect(r.student.code).toMatch(/^[A-Z]{2,5}\/\d{4}\/0001$/);
     expect(r.student.branchId).toBe(mainBranch);
@@ -119,7 +109,7 @@ describe("families", () => {
       createStudent(tx, ownerCtx, { fullName: "Anaya Deshmukh", dateOfBirth: "2018-07-01", linkGuardianId: s?.guardianId ?? "", guardian: { fullName: "Rakesh Deshmukh", phone: "9876500001", relation: "father" }, consents }),
     );
     expect(r.guardian.id).toBe(s?.guardianId);
-    const [gs, kids] = await withTenant(T, async (tx) => [await guardiansOfHouseholdMembers(tx, r.household.id), await studentsOfHousehold(tx, r.household.id)]);
+    const [gs, kids] = await withTenant(T, async (tx) => [await guardiansOfStudent(tx, r.student.id), await studentsOfGuardian(tx, r.guardian.id)]);
     expect(gs).toHaveLength(1);
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Aarav Deshmukh", "Anaya Deshmukh"]);
     const o = await withTenant(T, (tx) => studentOverview(tx, ownerCtx, r.student.id));
@@ -130,7 +120,6 @@ describe("families", () => {
 
   it("an adult can be their own guardian", async () => {
     const r = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Meher Kaur", dateOfBirth: "1998-01-01", adultPhone: "98765 00002", consents }));
-    expect(r.household.name).toBe("Meher Kaur");
     const o = await withTenant(T, (tx) => studentOverview(tx, ownerCtx, r.student.id));
     expect(o.guardians[0]).toMatchObject({ fullName: "Meher Kaur", relation: "self", phone: "+919876500002" });
   });
@@ -284,14 +273,25 @@ describe("join date", () => {
   });
 });
 
-// Reads household_id and app.households: rewrite or delete when migration 0040 drops them.
+// The legacy shape the backfill reads: rows share a placeholder household now, so each family gets its own by hand.
+const legacyHousehold = async (own: postgres.Sql, ...members: { guardian: { id: string }; student: { id: string } }[]): Promise<string> => {
+  const id = uuidv7();
+  await own`INSERT INTO app.households (id, tenant_id, name) VALUES (${id}, ${T}, 'Legacy')`;
+  for (const m of members) {
+    await own`UPDATE app.guardians SET household_id = ${id} WHERE id = ${m.guardian.id}`;
+    await own`UPDATE app.students SET household_id = ${id} WHERE id = ${m.student.id}`;
+  }
+  return id;
+};
+
+// Reads household_id and app.households, which migration 0040 drops: delete this then.
 describe("payer backfill (migration 0039)", () => {
   it("gives each invoice, payment and enrollment the right payer", async () => {
     const own = postgres(getEnv().DATABASE_URL_MIGRATOR ?? "", { max: 1, onnotice: () => {} });
     try {
       const a = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Imran Sheikh", dateOfBirth: "2014-01-01", guardian: { fullName: "Rafiq Sheikh", phone: P(901), relation: "father" }, consents }));
       const b = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Zara Sheikh", dateOfBirth: "2016-01-01", guardian: { fullName: "Sana Sheikh", phone: P(902), relation: "mother" }, consents }));
-      await intoHousehold(b, a.household.id);
+      const h1 = await legacyHousehold(own, a, b);
       const c = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Omar Pathan", dateOfBirth: "2014-01-01", guardian: { fullName: "Latif Pathan", phone: P(903), relation: "father" }, consents }));
       const program = await withTenant(T, (tx) => addProgram(tx, ownerCtx, { name: "Backfill" }));
       const batch = await withTenant(T, (tx) => createBatch(tx, ownerCtx, { name: "Backfill A", programId: program.id, slots: [{ weekday: 2, startTime: "17:00", endTime: "18:00" }] }));
@@ -300,8 +300,9 @@ describe("payer backfill (migration 0039)", () => {
       const eb = await enrollIn(b.student.id);
       const ec = await enrollIn(c.student.id);
       const today = todayIn("Asia/Kolkata");
+      const h2 = await legacyHousehold(own, c);
       // Household 1: Rafiq is primary, Sana manages Zara. Household 2: its only guardian is soft-deleted.
-      await own`UPDATE app.guardians SET is_primary = (id = ${a.guardian.id}) WHERE household_id = ${a.household.id}`;
+      await own`UPDATE app.guardians SET is_primary = (id = ${a.guardian.id}) WHERE household_id = ${h1}`;
       // Sana is the older record, so only is_primary can make Rafiq the payer.
       await own`UPDATE app.guardians SET created_at = created_at - interval '1 day' WHERE id = ${b.guardian.id}`;
       await own`UPDATE app.student_guardians SET is_manager = true WHERE student_id = ${b.student.id} AND guardian_id = ${b.guardian.id}`;
@@ -316,29 +317,33 @@ describe("payer backfill (migration 0039)", () => {
       // Household 3: a soft-deleted primary, older, beside a live guardian: the live one must win.
       const d = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Ansari", dateOfBirth: "2014-01-01", guardian: { fullName: "Live Ansari", phone: P(904), relation: "mother" }, consents }));
       const dOld = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dawood Ansari", dateOfBirth: "2015-01-01", guardian: { fullName: "Gone Ansari", phone: P(905), relation: "father" }, consents }));
-      await intoHousehold(dOld, d.household.id);
+      const h3 = await legacyHousehold(own, d, dOld);
       await own`UPDATE app.guardians SET is_primary = (id = ${dOld.guardian.id}), created_at = CASE WHEN id = ${dOld.guardian.id} THEN created_at - interval '1 day' ELSE created_at END,
-        deleted_at = CASE WHEN id = ${dOld.guardian.id} THEN now() END WHERE household_id = ${d.household.id}`;
+        deleted_at = CASE WHEN id = ${dOld.guardian.id} THEN now() END WHERE household_id = ${h3}`;
       // Households 4 and 5: two live guardians with the same flags and created_at; the lower id wins.
       // Rewrite them in opposite orders so neither storage order lets a missing id tiebreak pass.
       const tied = async (n: number, lowerLast: boolean) => {
         const x = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} One`, dateOfBirth: "2014-01-01", guardian: { fullName: `Tie${n} One`, phone: P(910 + n * 2), relation: "mother" }, consents }));
         const y = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: `Tie${n} Two`, dateOfBirth: "2015-01-01", guardian: { fullName: `Tie${n} Two`, phone: P(911 + n * 2), relation: "father" }, consents }));
-        await intoHousehold(y, x.household.id);
+        const household = await legacyHousehold(own, x, y);
         const [lower = "", higher = ""] = [x.guardian.id, y.guardian.id].sort();
         for (const id of lowerLast ? [higher, lower] : [lower, higher]) await own`UPDATE app.guardians SET is_primary = false, created_at = '2026-01-01T00:00:00Z' WHERE id = ${id}`;
-        return { household: x.household.id, lower };
+        return { household, lower };
       };
       const t4 = await tied(4, true);
       const t5 = await tied(5, false);
-      const m1 = await money(a.household.id, 1);
-      const m3 = await money(d.household.id, 3);
+      const m1 = await money(h1, 1);
+      const m3 = await money(h3, 3);
       const m4 = await money(t4.household, 4);
       const m5 = await money(t5.household, 5);
-      const m2 = await money(c.household.id, 2);
+      const m2 = await money(h2, 2);
 
       const migration = readFileSync(join(process.cwd(), "migrations/0039_member_guardian_payer.sql"), "utf8");
-      await own.unsafe(migration.slice(migration.indexOf("-- Backfill:"), migration.indexOf("-- A household with no guardian")));
+      // Only these households: the rest of the tenant shares one placeholder the backfill would re-payer.
+      const mine = [h1, h2, h3, t4.household, t5.household].map((h) => `'${h}'`).join(", ");
+      const backfill = migration.slice(migration.indexOf("-- Backfill:"), migration.indexOf("-- A household with no guardian")).replaceAll("FROM app.guardians\n  ORDER", `FROM app.guardians WHERE household_id IN (${mine})\n  ORDER`);
+      expect(backfill.split("household_id IN").length - 1).toBe(4);
+      await own.unsafe(backfill);
 
       const payerOf = async (table: "invoices" | "payments" | "enrollments", id: string) =>
         (await own.unsafe(`SELECT payer_guardian_id, payer_member_id FROM app.${table} WHERE id = $1`, [id]))[0];
@@ -366,12 +371,11 @@ describe("payer backfill (migration 0039)", () => {
 describe("student_guardians is the only family link", () => {
   const mk = (name: string, guardian: string, phone: string) =>
     withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: name, dateOfBirth: "2015-03-12", guardian: { fullName: guardian, phone, relation: "mother" }, consents }));
-  const ids = <R extends { id: string }>(rows: R[]) => rows.map((r) => r.id).sort();
 
-  it("one guardian links to two members who were in different households", async () => {
+  it("one guardian links to two members who had different guardians", async () => {
     const a = await mk("Zoya Link", "Nadia Link", P(201));
     const b = await mk("Yusuf Link", "Omar Link", P(202));
-    expect(a.household.id).not.toBe(b.household.id);
+    expect(a.guardian.id).not.toBe(b.guardian.id);
     await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "mother" }));
     const [kids, ofA, ofB] = await withTenant(T, async (tx) => [await studentsOfGuardian(tx, a.guardian.id), await guardiansOfStudent(tx, a.student.id), await guardiansOfStudent(tx, b.student.id)]);
     expect(kids.map((k) => k.fullName)).toEqual(["Yusuf Link", "Zoya Link"]);
@@ -386,7 +390,7 @@ describe("student_guardians is the only family link", () => {
   it("one member with two guardians lists the manager first, whoever was added first", async () => {
     const a = await mk("Mina Pair", "Parveen Pair", P(203));
     const second = await withTenant(T, async (tx) => {
-      const g = await createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Aamir Pair", phone: P(204) });
+      const g = await createGuardian(tx, { tenantId: T, fullName: "Aamir Pair", phone: P(204) });
       await upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g.id, relation: "father" });
       return g;
     });
@@ -410,32 +414,21 @@ describe("student_guardians is the only family link", () => {
   it("a soft-deleted guardian is not listed, and a deleted member is not theirs", async () => {
     const a = await mk("Sana Del", "Tabassum Del", P(207));
     const g2 = await withTenant(T, async (tx) => {
-      const g = await createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Umar Del", phone: P(208) });
+      const g = await createGuardian(tx, { tenantId: T, fullName: "Umar Del", phone: P(208) });
       await upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g.id, relation: "father" });
       return g;
     });
     await withTenant(T, (tx) => updateGuardian(tx, g2.id, { deletedAt: new Date() }));
     expect((await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).map((g) => g.fullName)).toEqual(["Tabassum Del"]);
-    expect((await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, a.household.id))).map((g) => g.fullName)).toEqual(["Tabassum Del"]);
     await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { deletedAt: new Date() }));
     expect(await withTenant(T, (tx) => guardiansOfStudent(tx, a.student.id))).toEqual([]);
   });
 
-  it("a guardian household_id no longer decides who is related", async () => {
-    const a = await mk("Hana Odd", "Iram Odd", P(209));
-    const b = await mk("Hamid Odd", "Jabir Odd", P(210));
-    // Jabir's row says household A, but he is linked only to Hamid.
-    await withTenant(T, (tx) => updateGuardian(tx, b.guardian.id, { householdId: a.household.id }));
-    expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, a.household.id)))).toEqual([a.guardian.id]);
-    expect(ids(await withTenant(T, (tx) => guardiansOfHouseholdMembers(tx, b.household.id)))).toEqual([b.guardian.id]);
-    expect((await withTenant(T, (tx) => studentsOfGuardian(tx, b.guardian.id))).map((k) => k.fullName)).toEqual(["Hamid Odd"]);
-  });
-
-  it("addFamilyMember asks the join table: a guardian linked to another member is asked about, whatever household_id says", async () => {
+  it("addFamilyMember asks the join table: a guardian linked to another member is asked about", async () => {
     const a = await mk("Dina Row", "Esha Row", P(211));
     const b = await mk("Dev Row", "Farid Row", P(212));
     const b2 = await withTenant(T, (tx) => createStudent(tx, ownerCtx, { fullName: "Dua Row", dateOfBirth: "2016-03-12", linkGuardianId: b.guardian.id, guardian: { fullName: "Farid Row", phone: P(212), relation: "father" }, consents }));
-    // Esha's row points at household A, but she is linked to Dev in household B.
+    // Esha is Dina's guardian, and linked to Dev too.
     await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b.student.id, guardianId: a.guardian.id, relation: "cousin" }));
     const add = (linkGuardianId?: string) => withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b2.student.id, { fullName: "Esha Row", phone: P(211), relation: "cousin", ...(linkGuardianId ? { linkGuardianId } : {}) }));
     const err = await add().catch((e: unknown) => e);
@@ -448,8 +441,6 @@ describe("student_guardians is the only family link", () => {
   it("a guardian in two families is asked about, not refused, and then sees both members", async () => {
     const a = await mk("Gita Decoy", "Hira Decoy", P(213));
     const b = await mk("Gus Decoy", "Imran Decoy", P(214));
-    // Even with household_id pointing at B, Hira is linked to no one in B.
-    await withTenant(T, (tx) => updateGuardian(tx, a.guardian.id, { householdId: b.household.id }));
     const add = (linkGuardianId?: string) => withTenant(T, (tx) => addFamilyMember(tx, ownerCtx, b.student.id, { fullName: "Hira Decoy", phone: P(213), relation: "cousin", ...(linkGuardianId ? { linkGuardianId } : {}) }));
     const err = await add().catch((e: unknown) => e);
     expect(err).toBeInstanceOf(KnownGuardianError);
@@ -508,18 +499,16 @@ describe("student_guardians is the only family link", () => {
       expect((await withTenant(T, (tx) => studentOverview(tx, ownerCtx, a.student.id))).siblings.map((k) => k.fullName)).toEqual(["Basma Sib"]);
     });
 
-    it("members whose guardians differ are not siblings, even in one household", async () => {
+    it("members whose guardians differ are not siblings", async () => {
       const a = await mk("Dawood Dec", "Eman Dec", P(9303));
       const b = await mk("Eshal Dec", "Fahad Dec", P(9304));
-      await withTenant(T, (tx) => updateStudent(tx, b.student.id, { householdId: a.household.id }));
-      expect((await withTenant(T, (tx) => studentsOfHousehold(tx, a.household.id))).map((k) => k.fullName)).toEqual(["Dawood Dec", "Eshal Dec"]);
       expect(await sibs(a.student.id)).toEqual([]);
       expect(await sibs(b.student.id)).toEqual([]);
     });
 
     it("a member with two guardians, each with another child, has all of them as siblings", async () => {
       const a = await mk("Faiz Tri", "Gul Tri", P(9305));
-      const g2 = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, householdId: a.household.id, fullName: "Hasan Tri", phone: P(9306) }));
+      const g2 = await withTenant(T, (tx) => createGuardian(tx, { tenantId: T, fullName: "Hasan Tri", phone: P(9306) }));
       await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: a.student.id, guardianId: g2.id, relation: "father" }));
       const b = await mk("Gazala Tri", "Ilyas Tri", P(9307));
       const c = await mk("Hiba Tri", "Jamal Tri", P(9308));

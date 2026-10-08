@@ -1,11 +1,8 @@
-import { asc, eq } from "drizzle-orm";
 import postgres from "postgres";
-import type { Tx } from "@/lib/db/client";
 import { platformDb } from "@/lib/db/platform";
 import { getEnv } from "@/lib/env";
 import { uuidv7 } from "@/lib/ids";
 import { activityPlans } from "@/modules/billing/schema";
-import { students } from "@/modules/students/schema";
 import { type CreatedTenant, createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy/service";
 
 // Test-only. Academies on a hidden plan with no limits, so tests that aren't
@@ -24,13 +21,6 @@ export function testAcademy(input: NewTenantInput): Promise<CreatedTenant> {
   const plan = plans.get(activityKey) ?? insertPlan(activityKey);
   plans.set(activityKey, plan);
   return plan.then((planId) => createTenantWithDefaults({ actorType: "system" }, { ...input, planId }));
-}
-
-// A household's first member, for tests whose fixtures know only the household.
-export async function memberOfHousehold(tx: Tx, householdId: string): Promise<string> {
-  const [row] = await tx.select({ id: students.id }).from(students).where(eq(students.householdId, householdId)).orderBy(asc(students.createdAt), asc(students.id)).limit(1);
-  if (!row) throw new Error(`household ${householdId} has no member`);
-  return row.id;
 }
 
 export async function takeTestPlans(): Promise<string[]> {

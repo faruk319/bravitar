@@ -26,7 +26,6 @@ let B = "";
 let ctx: ScopedCtx;
 let ctxB: ScopedCtx;
 let studentId = "";
-let householdId = "";
 
 const academy = async (key: string) => {
   const t = await testAcademy({ name: `Family ${key} ${stamp}`, slug: `family-${key}-${stamp}`, owner: { name: "Owner", email: `family-${key}-${stamp}@example.test` } });
@@ -41,7 +40,6 @@ beforeAll(async () => {
   ({ id: B, ctx: ctxB } = await academy("b"));
   const made = await admit("Ayaan", "Imran", DAD);
   studentId = made.student.id;
-  householdId = made.student.householdId;
 });
 
 afterAll(async () => {
@@ -52,8 +50,7 @@ afterAll(async () => {
 
 describe("family members", () => {
   it("a student starts with one manager; family members join the family with access, once each", async () => {
-    const mum = await withTenant(T, (tx) => addFamilyMember(tx, ctx, studentId, { fullName: "Sara", phone: MUM, relation: "mother" }));
-    expect(mum.householdId).toBe(householdId);
+    await withTenant(T, (tx) => addFamilyMember(tx, ctx, studentId, { fullName: "Sara", phone: MUM, relation: "mother" }));
     await withTenant(T, (tx) => addFamilyMember(tx, ctx, studentId, { fullName: "Sara K", phone: MUM, relation: "guardian" }));
     expect((await family()).map((g) => [g.fullName, g.relation, g.isManager])).toEqual([
       ["Imran", "father", true],

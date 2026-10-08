@@ -46,6 +46,7 @@ describe("knownLine", () => {
           2,
         ),
       ),
-    ).toBe("This number belongs to Rakesh Deshmukh (father of A and C, guardian of B, is Rakesh Deshmukh + 2 at other branches).");
+    ).toBe("This number belongs to Rakesh Deshmukh (father of A and C, guardian of B, also a member; 2 more at other branches).");
+    expect(knownLine(known([], 2))).toBe("This number belongs to Rakesh Deshmukh (2 at other branches).");
   });
 });

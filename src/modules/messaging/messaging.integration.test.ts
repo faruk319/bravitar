@@ -20,7 +20,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { getDefaultBranch } from "@/modules/tenancy/repo";
 import { tenants } from "@/modules/tenancy/schema";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { sharedInvoice, sharedReceipt } from "./public";
 import { type ComposeRequest, composeMessage } from "./compose";
 
@@ -39,7 +39,6 @@ let owner: ScopedCtx;
 let teacher: ScopedCtx;
 let desk: ScopedCtx;
 let batchId = "";
-let householdId = "";
 let riya = "";
 let kabir = "";
 let invoiceId = "";
@@ -69,17 +68,16 @@ beforeAll(async () => {
 
   const phone = `+9195${String(10_000_000 + Math.floor(Math.random() * 89_999_999))}`;
   const first = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Riya", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, consents: { dataProcessing: true } }));
-  householdId = first.household.id;
   riya = first.student.id;
   kabir = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Kabir", guardian: { fullName: "Sunita Sharma", phone, relation: "mother" }, linkGuardianId: first.guardian.id, consents: { dataProcessing: true } }))).student.id;
   const joined = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: riya, batchId, startDate: "2026-10-01" })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: kabir, batchId, startDate: "2026-10-01" }))];
   await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: at("2026-10-01T04:00:00Z"), enrollmentIds: joined.map((e) => e.id) }));
   // One invoice per child; the test follows Riya's.
-  const draft = (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.householdId, householdId)))).find((i) => i.studentId === riya);
+  const draft = (await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.studentId, riya)))).find((i) => i.studentId === riya);
   invoiceId = draft?.id ?? "";
   await withTenant(T, (tx) => issueInvoices(tx, owner, [invoiceId], { now: at("2026-10-01T04:00:00Z") }));
   const branch = await withTenant(T, getDefaultBranch);
-  paymentId = (await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: branch?.id ?? "", amountPaise: "50000" }))).id;
+  paymentId = (await withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: riya, branchId: branch?.id ?? "", amountPaise: "50000" }))).id;
 });
 
 afterAll(async () => {

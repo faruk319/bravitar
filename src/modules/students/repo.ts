@@ -4,7 +4,7 @@ import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { enrollments } from "@/modules/enrollments/schema";
 import { type Payer, payerKey, payerOf } from "./payer";
-import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Household, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
+import { type Consent, type ConsentKind, consents, type Guardian, guardians, households, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
 
 // Branch scoping is an explicit filter (docs/01): `branchIds` empty = all.
 export type Scope = { branchIds: string[] };
@@ -13,19 +13,17 @@ function inScope(scope: Scope): SQL | undefined {
   return scope.branchIds.length ? inArray(students.branchId, scope.branchIds) : undefined;
 }
 
-export async function createHousehold(tx: Tx, input: { tenantId: string; name: string; address?: string }): Promise<Household> {
-  const [row] = await tx.insert(households).values({ id: uuidv7(), ...input }).returning();
+// household_id is NOT NULL until migration 0040; rows take the tenant's one placeholder and nothing reads it.
+export async function placeholderHouseholdId(tx: Tx, tenantId: string): Promise<string> {
+  const [found] = await tx.select({ id: households.id }).from(households).where(eq(households.tenantId, tenantId)).orderBy(asc(households.createdAt), asc(households.id)).limit(1);
+  if (found) return found.id;
+  const [row] = await tx.insert(households).values({ id: uuidv7(), tenantId, name: "-" }).returning({ id: households.id });
   if (!row) throw new Error("household insert returned no row");
-  return row;
+  return row.id;
 }
 
-export async function getHousehold(tx: Tx, id: string): Promise<Household | undefined> {
-  const [row] = await tx.select().from(households).where(and(eq(households.id, id), isNull(households.deletedAt)));
-  return row;
-}
-
-export async function createGuardian(tx: Tx, input: { tenantId: string; householdId: string; fullName: string; phone: string; email?: string; isPrimary?: boolean }): Promise<Guardian> {
-  const [row] = await tx.insert(guardians).values({ id: uuidv7(), ...input }).returning();
+export async function createGuardian(tx: Tx, input: { tenantId: string; fullName: string; phone: string; email?: string; isPrimary?: boolean }): Promise<Guardian> {
+  const [row] = await tx.insert(guardians).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, input.tenantId), ...input }).returning();
   if (!row) throw new Error("guardian insert returned no row");
   return row;
 }
@@ -44,10 +42,6 @@ export async function updateGuardian(tx: Tx, id: string, patch: Partial<typeof g
   const [g] = await tx.update(guardians).set(patch).where(eq(guardians.id, id)).returning();
   if (!g) throw new Error("guardian update matched no row");
   return g;
-}
-
-export async function studentsOfHousehold(tx: Tx, householdId: string): Promise<Student[]> {
-  return tx.select().from(students).where(and(eq(students.householdId, householdId), isNull(students.deletedAt))).orderBy(asc(students.fullName));
 }
 
 // Siblings are members who share a guardian: through live links, either side, no deleted guardian or member, never the member.
@@ -69,10 +63,10 @@ export async function siblingsOf(tx: Tx, studentId: string): Promise<Student[]> 
     .orderBy(asc(students.fullName), asc(students.id));
 }
 
-export type NewStudentRow = Omit<typeof students.$inferInsert, "id">;
+export type NewStudentRow = Omit<typeof students.$inferInsert, "id" | "householdId">;
 
 export async function insertStudent(tx: Tx, row: NewStudentRow): Promise<Student> {
-  const [s] = await tx.insert(students).values({ id: uuidv7(), ...row }).returning();
+  const [s] = await tx.insert(students).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
   if (!s) throw new Error("student insert returned no row");
   return s;
 }
@@ -132,11 +126,6 @@ export async function payerContacts(tx: Tx, row: { payerGuardianId: string | nul
   if (!payer) return [];
   if (payer.kind === "member") return guardiansOfStudent(tx, payer.memberId);
   return tx.select().from(guardians).where(and(eq(guardians.id, payer.guardianId), isNull(guardians.deletedAt)));
-}
-
-// Still used by the household lookups until the household goes (migration 0040).
-export async function guardiansOfHouseholdMembers(tx: Tx, householdId: string, opts: { includeRemoved?: boolean } = {}): Promise<FamilyMember[]> {
-  return guardiansOfMembers(tx, (await studentsOfHousehold(tx, householdId)).map((s) => s.id), opts);
 }
 
 // The members this guardian is linked to, by name; removed links and deleted members aren't.

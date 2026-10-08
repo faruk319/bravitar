@@ -2,7 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { sql as runtimeSql } from "@/lib/db/client";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformRead, platformSql, withPlatformAdmin } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -41,7 +41,6 @@ let today = "";
 let danceName = "";
 let danceProgram = "";
 let danceEnrollment = "";
-let householdId = "";
 const batch = { mainKarate: "", karate: "", dance: "" };
 const student = { karate: "", dance: "" };
 const plans: string[] = [];
@@ -91,7 +90,7 @@ beforeAll(async () => {
     const add = (fullName: string, phone: string) => createStudent(tx, owner, { fullName, branchId: kothrud, guardian: { fullName: `Parent of ${fullName}`, phone, relation: "mother" }, consents: { dataProcessing: true } });
     const k = await add("Aarav", "98760 30001");
     const d = await add("Meher", "98760 30002");
-    [student.karate, student.dance, householdId] = [k.student.id, d.student.id, d.household.id];
+    [student.karate, student.dance] = [k.student.id, d.student.id];
     await enroll(tx, owner, { studentId: k.student.id, batchId: batch.karate, startDate: today });
     danceEnrollment = (await enroll(tx, owner, { studentId: d.student.id, batchId: batch.dance, startDate: today })).id;
   });
@@ -127,7 +126,7 @@ describe("an activity in a branch stands alone", () => {
     // Reading, fees and winding down still work.
     expect((await withTenant(A, (tx) => batchDetail(tx, owner, batch.dance))).name).toBe("Kothrud Dance");
     expect((await withTenant(A, (tx) => classRoster(tx, teacher, danceClass))).entries.map((x) => x.name)).toEqual(["Meher"]);
-    await withTenant(A, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: kothrud, amountPaise: "50000" }));
+    await withTenant(A, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: student.dance, branchId: kothrud, amountPaise: "50000" }));
     await withTenant(A, (tx) => leaveEnrollment(tx, owner, danceEnrollment));
 
     expect(await withTenant(A, (tx) => lockedActivities(tx, []))).toEqual([{ activity: danceName, branch: "Kothrud Centre", status: "paused" }]);

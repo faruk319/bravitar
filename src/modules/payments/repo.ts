@@ -6,7 +6,7 @@ import { payerIs } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
+import { guardiansOfMembers, payerContacts, placeholderHouseholdId } from "@/modules/students/repo";
 import { guardians, studentGuardians, students } from "@/modules/students/schema";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
@@ -31,8 +31,8 @@ export const lockPayerOf = (tx: Tx, row: { payerGuardianId: string | null; payer
 const paymentPayerIs = (p: Payer): SQL =>
   p.kind === "guardian" ? sql`${payments.payerGuardianId} = ${p.guardianId} AND ${payments.payerMemberId} IS NULL` : sql`${payments.payerMemberId} = ${p.memberId} AND ${payments.payerGuardianId} IS NULL`;
 
-export async function insertPayment(tx: Tx, row: Omit<typeof payments.$inferInsert, "id">): Promise<Payment> {
-  const [p] = await tx.insert(payments).values({ id: uuidv7(), ...row }).returning();
+export async function insertPayment(tx: Tx, row: Omit<typeof payments.$inferInsert, "id" | "householdId">): Promise<Payment> {
+  const [p] = await tx.insert(payments).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
   if (!p) throw new Error("payment insert returned no row");
   return p;
 }
@@ -375,8 +375,8 @@ export async function memberIdsWithSiblings(tx: Tx, memberId: string): Promise<s
   return rows.map((r) => r.id);
 }
 
-// A member's name and household (written on the payment until Task 9 drops the column), deleted ones too.
-export async function memberHeader(tx: Tx, id: string): Promise<{ name: string; householdId: string } | undefined> {
-  const [row] = await tx.select({ name: students.fullName, householdId: students.householdId }).from(students).where(eq(students.id, id));
+// A member's name, deleted ones too.
+export async function memberHeader(tx: Tx, id: string): Promise<{ name: string } | undefined> {
+  const [row] = await tx.select({ name: students.fullName }).from(students).where(eq(students.id, id));
   return row;
 }

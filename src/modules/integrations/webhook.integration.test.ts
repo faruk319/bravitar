@@ -16,7 +16,7 @@ import { cancelPayment, collectionSheet, familyAccount, recordPayment, refundPay
 import { staffBranchIds } from "@/modules/staff/repo";
 import { loadAccessContext } from "@/modules/staff/service";
 import { billableFamily } from "@/lib/db/isolation/family";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { fakeRazorpay } from "./fake-razorpay";
 import { razorpayWebhookRoute } from "./routes";
 import { webhookEvents } from "./schema";
@@ -49,7 +49,7 @@ const bill = (x: Academy, rupees: number): Promise<Invoice> =>
   withTenant(x.id, async (tx) => {
     const h = await billableFamily(tx, x.owner, `Family ${++evt}`);
     const total = BigInt(rupees) * 100n;
-    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, householdId: h.id, studentId: h.studentId, payerGuardianId: h.guardianId, billToName: "Family", issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: x.id, branchId: x.branch, studentId: h.studentId, payerGuardianId: h.guardianId, billToName: "Family", issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, x.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: NOW });
   });
 const linkFor = async (x: Academy, inv: Invoice) => {
@@ -184,7 +184,7 @@ describe("the Razorpay webhook", () => {
   it("paying more than the balance keeps the rest as the family's advance", async () => {
     const inv = await bill(A, 1500);
     const l = await linkFor(A, inv);
-    await withTenant(A.id, async (tx) => recordPayment(tx, A.owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, inv.householdId), branchId: A.branch, amountPaise: "50000" }));
+    await withTenant(A.id, async (tx) => recordPayment(tx, A.owner, { requestId: uuidv7(), memberId: inv.studentId ?? "", branchId: A.branch, amountPaise: "50000" }));
     const payId = `pay_${stamp}_${++pay}`;
     await deliver(A.slug, linkPaid(l, A.id, payId, 150000), A.secret); // the old link, for the full ₹1,500
     expect(await invoiceOf(A, inv.id)).toMatchObject({ status: "paid", paidPaise: 150000n });

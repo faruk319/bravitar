@@ -14,7 +14,7 @@ import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
-import { guardiansOfStudent } from "@/modules/students/repo";
+import { guardiansOfStudent, siblingsOf } from "@/modules/students/repo";
 import { students } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
 import { tenantToday } from "@/modules/tenancy/repo";
@@ -104,8 +104,8 @@ describe("converting an enquiry", () => {
     const e = await enquiry("Kabir Sharma", "98711 00002");
     await expect(convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" } })).rejects.toMatchObject({ status: 409, details: { guardianId: existing.guardian.id, fullName: "Sunita Sharma", members: [{ fullName: "Riya Sharma" }] } });
     const done = await convert(desk, e.id, { guardian: { fullName: "Sunita Sharma", relation: "mother" }, linkGuardianId: existing.guardian.id });
-    const [kabir] = await withTenant(T, (tx) => tx.select().from(students).where(eq(students.id, done.studentId)));
-    expect(kabir?.householdId).toBe(existing.household.id);
+    const siblings = await withTenant(T, (tx) => siblingsOf(tx, done.studentId));
+    expect(siblings.map((s) => s.id)).toEqual([existing.student.id]);
   });
 
   it("an adult is their own contact", async () => {

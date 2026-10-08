@@ -2,7 +2,7 @@ import type { IsolationFixtures } from "@/lib/db/isolation/types";
 import { uuidv7 } from "@/lib/ids";
 import { createProgram, insertBatch } from "@/modules/batches/repo";
 import { sessions } from "@/modules/sessions/schema";
-import { createHousehold, insertStudent } from "@/modules/students/repo";
+import { insertStudent } from "@/modules/students/repo";
 import { createBranch } from "@/modules/tenancy/repo";
 import { attendance } from "./schema";
 
@@ -17,8 +17,7 @@ export const attendanceFixtures: IsolationFixtures = {
       .insert(sessions)
       .values({ id: uuidv7(), tenantId, branchId: branch.id, batchId: batch.id, startsAt: new Date("2026-10-05T12:30:00Z"), endsAt: new Date("2026-10-05T13:30:00Z"), sessionDate: "2026-10-05" })
       .returning();
-    const household = await createHousehold(tx, { tenantId, name: "Iso family" });
-    const student = await insertStudent(tx, { tenantId, branchId: branch.id, householdId: household.id, fullName: "Iso Kid", code: `ISO/${stamp()}` });
+    const student = await insertStudent(tx, { tenantId, branchId: branch.id, fullName: "Iso Kid", code: `ISO/${stamp()}` });
     return tx.insert(attendance).values({ id: uuidv7(), tenantId, sessionId: session?.id ?? "", studentId: student.id, status: "present" });
   },
 };

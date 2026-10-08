@@ -29,7 +29,7 @@ type Method = (typeof METHODS)[number][0];
 
 const asInput = (paise: bigint) => (paise === 0n ? "" : formatPaise(paise).slice(1));
 
-// docs/07 §7.4: family, what's due (all ticked), amount already filled in, cash.
+// docs/07 §7.4: member, what's due (all ticked), amount already filled in, cash.
 // The common case is one tap on Record. The request id is made once per form,
 // so a retry after a dropped connection can never pay twice.
 export function CollectForm({ memberId, branchId, due, advance, preselect, today, earliest }: { memberId: string; branchId: string; due: DueInvoice[]; advance: string; preselect?: string[]; today: string; earliest: string }) {
@@ -80,9 +80,9 @@ export function CollectForm({ memberId, branchId, due, advance, preselect, today
   const note = !paise
     ? "Enter the amount received"
     : !open.length
-      ? "Kept as the family's advance"
+      ? "Kept as the payer's advance"
       : split && split.advance > 0n
-        ? `${formatPaise(split.advance)} more than selected: kept as the family's advance`
+        ? `${formatPaise(split.advance)} more than selected: kept as the payer's advance`
         : paise < selected
           ? `Part payment: ${formatPaise(paise)} of ${formatPaise(selected)}`
           : "Pays the selected invoices";
@@ -112,7 +112,7 @@ export function CollectForm({ memberId, branchId, due, advance, preselect, today
             </label>
           ))
         ) : (
-          <p className="text-body text-muted-foreground">Nothing due. Anything paid is kept as the family&apos;s advance.</p>
+          <p className="text-body text-muted-foreground">Nothing due. Anything paid is kept as the payer&apos;s advance.</p>
         )}
         {due.length ? (
           <div className="flex min-h-10 items-center justify-between px-1 text-body">
@@ -193,8 +193,8 @@ export function CollectForm({ memberId, branchId, due, advance, preselect, today
 
 type Row = { student: { id: string; fullName: string; code: string }; guardianName: string | null; guardianPhone: string | null };
 
-// Find the family by a child's name, the parent's name or a phone number.
-export function FamilySearch() {
+// Find the member by their name, a parent's name or a phone number.
+export function MemberSearch() {
   const [hits, setHits] = useState<Row[]>([]);
   const [searched, setSearched] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -214,8 +214,8 @@ export function FamilySearch() {
 
   return (
     <div className="flex max-w-md flex-col gap-2">
-      <Label htmlFor="family-search">Family</Label>
-      <Input id="family-search" type="search" autoFocus autoComplete="off" placeholder="Child, parent or phone" onChange={(e) => search(e.target.value)} />
+      <Label htmlFor="member-search">Member</Label>
+      <Input id="member-search" type="search" autoFocus autoComplete="off" placeholder="Child, parent or phone" onChange={(e) => search(e.target.value)} />
       {hits.length ? (
         <ul className="flex flex-col">
           {hits.map((h) => (

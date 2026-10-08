@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
-import { CollectForm, type DueInvoice, FamilySearch } from "@/components/payments/collect-form";
+import { CollectForm, type DueInvoice, MemberSearch } from "@/components/payments/collect-form";
 import { Gate } from "@/components/shell/gate";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
@@ -46,7 +46,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
       <Gate permission="fees:collect">
         <PageHeader title="Collect payment" />
         <Card>
-          <FamilySearch />
+          <MemberSearch />
         </Card>
       </Gate>
     );

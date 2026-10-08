@@ -6,7 +6,6 @@ import { addDays } from "@/lib/dates";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { guardiansOfMembers } from "@/modules/students/repo";
-import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
@@ -29,14 +28,12 @@ import { students } from "@/modules/students/schema";
 import { billableFamily } from "@/lib/db/isolation/family";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { dashboardData } from "./service";
 
 // docs/06 Prompt 19: Today, Money, At risk and Pipeline, each number from
 // known data, and only for those who may see the list behind it.
 
-// The guardian ids of a household's members, lead first.
-const familyGuardians = async (tx: Tx, householdId: string): Promise<string[]> => (await guardiansOfMembers(tx, [await memberOfHousehold(tx, householdId)])).map((g) => g.id);
 const stamp = Math.random().toString(36).slice(2, 8);
 const TZ = "Asia/Kolkata";
 let T = "";
@@ -54,17 +51,16 @@ const ctxFor = async (staffId: string): Promise<ScopedCtx> => {
 };
 const child = (fullName: string) => withTenant(T, (tx) => createStudent(tx, owner, { fullName, branchId: branch, guardian: { fullName: `Parent of ${fullName}`, phone: `98755${10_000 + ++n}`, relation: "mother" }, consents: { dataProcessing: true } }));
 // An issued invoice owing `rupees`, due `late` days ago.
-const owe = (householdId: string, rupees: number, late: number) =>
+const owe = (studentId: string, rupees: number, late: number) =>
   withTenant(T, async (tx) => {
     const total = BigInt(rupees) * 100n;
     const due = addDays(today, -late);
-    const [payer] = await familyGuardians(tx, householdId);
-    const studentId = await memberOfHousehold(tx, householdId);
-    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, householdId, studentId, payerGuardianId: payer ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+    const [payer] = await guardiansOfMembers(tx, [studentId]);
+    const inv = await insertInvoice(tx, { tenantId: T, branchId: branch, studentId, payerGuardianId: payer?.id ?? null, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
     return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
-const pay = (householdId: string, rupees: number, method: "cash" | "upi", on?: string) =>
-  withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, householdId), branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
+const pay = (memberId: string, rupees: number, method: "cash" | "upi", on?: string) =>
+  withTenant(T, async (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId, branchId: branch, amountPaise: String(rupees * 100), method }, on ? { now: localToUtc(on, "11:00", TZ) } : {}));
 
 beforeAll(async () => {
   const t = await testAcademy({ name: `Dash ${stamp}`, slug: `dash-${stamp}`, verticalPreset: "karate", owner: { name: "Owner", email: `dash-owner-${stamp}@example.test` } });
@@ -91,13 +87,13 @@ beforeAll(async () => {
 
   // Money: two receipts today, one three days ago; Kiran's family two invoices overdue, another not yet due.
   const sharma = await withTenant(T, (tx) => billableFamily(tx, owner, "Sharma"));
-  await pay(sharma.id, 200, "cash", addDays(today, -3));
-  await pay(sharma.id, 500, "cash");
-  await pay(sharma.id, 300, "upi");
+  await pay(sharma.studentId, 200, "cash", addDays(today, -3));
+  await pay(sharma.studentId, 500, "cash");
+  await pay(sharma.studentId, 300, "upi");
   const kiran = await child("Kiran");
-  await owe(kiran.household.id, 400, 10);
-  await owe(kiran.household.id, 600, 40);
-  await owe((await withTenant(T, (tx) => billableFamily(tx, owner, "Mehta"))).id, 1000, -5);
+  await owe(kiran.student.id, 400, 10);
+  await owe(kiran.student.id, 600, 40);
+  await owe((await withTenant(T, (tx) => billableFamily(tx, owner, "Mehta"))).studentId, 1000, -5);
 
   // Pipeline: one due today, one with a trial tomorrow, one lost.
   const enquiry = (ctx: ScopedCtx, name: string, extra: object = {}) => withTenant(T, (tx) => createEnquiry(tx, ctx, { name, phone: `98766${10_000 + ++n}`, programId: program, ...extra }));
@@ -209,9 +205,8 @@ describe("the dashboard", () => {
       const day = await withTenant(t.tenant.id, tenantToday);
       const start = `${day.slice(0, 7)}-01`;
       const rao = await withTenant(t.tenant.id, (tx) => billableFamily(tx, ctx, "Rao"));
-      const house = rao.id;
       const receive = (rupees: number, on: string) =>
-        withTenant(t.tenant.id, async (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, house), branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
+        withTenant(t.tenant.id, async (tx) => recordPayment(tx, ctx, { requestId: uuidv7(), memberId: rao.studentId, branchId: t.branch.id, amountPaise: String(rupees * 100), method: "cash" }, { now: localToUtc(on, "11:00", TZ) }));
       const inMonth = (back: number) => `${addMonths(start, -back).slice(0, 7)}-10`;
       await receive(900, inMonth(8)); // before the window
       await receive(100, inMonth(7)); // first month in the window
@@ -221,7 +216,7 @@ describe("the dashboard", () => {
       const bill = (rupees: number, due: string) =>
         withTenant(t.tenant.id, async (tx) => {
           const total = BigInt(rupees) * 100n;
-          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, householdId: house, studentId: rao.studentId, payerGuardianId: rao.guardianId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
+          const inv = await insertInvoice(tx, { tenantId: t.tenant.id, branchId: t.branch.id, studentId: rao.studentId, payerGuardianId: rao.guardianId, issueDate: addDays(due, -7), dueDate: due, subtotalPaise: total, totalPaise: total });
           return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, t.tenant.id, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
         });
       await bill(250, addDays(day, -2));

@@ -15,7 +15,7 @@ import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
-import { memberOfHousehold, testAcademy } from "@/lib/db/isolation/academy";
+import { testAcademy } from "@/lib/db/isolation/academy";
 import { reconcileLinks, runPaymentsReconcile } from "./job";
 import { paymentLinkFor } from "./links";
 import { paymentLinks, payments } from "./schema";
@@ -45,20 +45,18 @@ const ctxFor = async (tenant: string, staffId: string): Promise<ScopedCtx> => {
   const [base, branchIds] = await withTenant(tenant, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
   return { ...base, branchIds };
 };
-const childOfFamily = new Map<string, string>();
 const family = async (tenant = T, ctx = owner) => {
   const r = await withTenant(tenant, (tx) =>
     createStudent(tx, ctx, { fullName: `Kid ${++phone}`, guardian: { fullName: `Parent ${phone}`, phone: `+9198${String(10_000_000 + phone)}`, relation: "mother" }, consents: { dataProcessing: true } }),
   );
-  payerOfFamily.set(r.household.id, r.guardian.id);
-  childOfFamily.set(r.household.id, r.student.id);
-  return r.household.id;
+  payerOfMember.set(r.student.id, r.guardian.id);
+  return r.student.id;
 };
-const payerOfFamily = new Map<string, string>();
-const bill = (householdId: string, rupees: number, tenant = T, status: "issued" | "draft" = "issued"): Promise<Invoice> =>
+const payerOfMember = new Map<string, string>();
+const bill = (memberId: string, rupees: number, tenant = T, status: "issued" | "draft" = "issued"): Promise<Invoice> =>
   withTenant(tenant, async (tx) => {
     const total = BigInt(rupees) * 100n;
-    const inv = await insertInvoice(tx, { tenantId: tenant, branchId: tenant === T ? main : mainU, householdId, studentId: childOfFamily.get(householdId) ?? null, payerGuardianId: payerOfFamily.get(householdId) ?? null, issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
+    const inv = await insertInvoice(tx, { tenantId: tenant, branchId: tenant === T ? main : mainU, studentId: memberId, payerGuardianId: payerOfMember.get(memberId) ?? null, issueDate: "2026-09-01", dueDate: "2026-09-10", subtotalPaise: total, totalPaise: total });
     return status === "draft" ? inv : updateInvoice(tx, inv.id, { number: await allocateNumber(tx, tenant, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: new Date() });
   });
 const link = (invoiceId: string, as: ScopedCtx = desk, tenant = T) => withTenant(tenant, (tx) => paymentLinkFor(tx, as, invoiceId, { api: rzp.api }));
@@ -104,7 +102,7 @@ describe("payment links", () => {
     const inv = await bill(h, 1500);
     const first = await link(inv.id);
     expect(await link(inv.id)).toMatchObject({ url: first.url, reused: true });
-    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "50000" }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: h, branchId: main, amountPaise: "50000" }));
     const second = await link(inv.id);
     expect(second).toMatchObject({ amountPaise: 100000n, reused: false });
     expect(second.url).not.toBe(first.url);
@@ -119,7 +117,7 @@ describe("payment links", () => {
     await link(inv.id);
     const [row] = await linksOf(inv.id);
     rzp.pay(row?.gatewayLinkId ?? "", `pay_${stamp}a`);
-    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "10000" }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: h, branchId: main, amountPaise: "10000" }));
     await expect(link(inv.id)).rejects.toThrow("couldn't be cancelled");
     expect((await linksOf(inv.id)).map((r) => r.status)).toEqual(["created"]);
   });
@@ -128,7 +126,7 @@ describe("payment links", () => {
     const h = await family();
     const draft = await bill(h, 500, T, "draft");
     const paid = await bill(h, 500);
-    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: await memberOfHousehold(tx, h), branchId: main, amountPaise: "50000", allocations: [{ invoiceId: paid.id, amountPaise: "50000" }] }));
+    await withTenant(T, async (tx) => recordPayment(tx, desk, { requestId: uuidv7(), memberId: h, branchId: main, amountPaise: "50000", allocations: [{ invoiceId: paid.id, amountPaise: "50000" }] }));
     const voided = await bill(h, 500);
     await withTenant(T, (tx) => voidInvoice(tx, owner, voided.id, { reason: "Wrong plan" }));
     for (const inv of [draft, paid, voided]) await expect(link(inv.id)).rejects.toThrow("Only an unpaid invoice");

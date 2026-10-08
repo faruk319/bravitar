@@ -6,6 +6,7 @@ import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
+import { placeholderHouseholdId } from "@/modules/students/repo";
 import { guardians, students } from "@/modules/students/schema";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
@@ -105,12 +106,12 @@ export async function discountsOf(tx: Tx, studentIds: string[]): Promise<GivenDi
 
 // ---- billing inputs
 
-export type Billable = { e: Enrollment; plan: FeePlan; studentName: string; householdId: string; branchId: string; batchName: string; programId: string; programName: string };
+export type Billable = { e: Enrollment; plan: FeePlan; studentName: string; branchId: string; batchName: string; programId: string; programName: string };
 
 // Enrollments with a plan that reach [from, to].
 export async function billableEnrollments(tx: Tx, opts: { from: string; to: string; ids?: string[] }): Promise<Billable[]> {
   return tx
-    .select({ e: enrollments, plan: feePlans, studentName: students.fullName, householdId: students.householdId, branchId: students.branchId, batchName: batches.name, programId: batches.programId, programName: programs.name })
+    .select({ e: enrollments, plan: feePlans, studentName: students.fullName, branchId: students.branchId, batchName: batches.name, programId: batches.programId, programName: programs.name })
     .from(enrollments)
     .innerJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
     .innerJoin(students, eq(students.id, enrollments.studentId))
@@ -153,8 +154,8 @@ export async function takenKeys(tx: Tx, keys: string[]): Promise<Set<string>> {
   return new Set(rows.map((r) => r.key ?? ""));
 }
 
-export async function insertInvoice(tx: Tx, row: Omit<typeof invoices.$inferInsert, "id">): Promise<Invoice> {
-  const [inv] = await tx.insert(invoices).values({ id: uuidv7(), ...row }).returning();
+export async function insertInvoice(tx: Tx, row: Omit<typeof invoices.$inferInsert, "id" | "householdId">): Promise<Invoice> {
+  const [inv] = await tx.insert(invoices).values({ id: uuidv7(), householdId: await placeholderHouseholdId(tx, row.tenantId), ...row }).returning();
   if (!inv) throw new Error("invoice insert returned no row");
   return inv;
 }

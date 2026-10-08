@@ -11,8 +11,8 @@ import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext, setStaffBranches } from "@/modules/staff/service";
 import { buildErrorRows, suggestMapping } from "@/modules/students/import-fields";
 import { type ImportResult, importStudents } from "@/modules/students/import";
-import { findGuardianByPhone, guardiansOfHouseholdMembers, searchStudents, studentsOfHousehold } from "@/modules/students/repo";
-import { consents, guardians, households, studentCodeSeries, students } from "@/modules/students/schema";
+import { findGuardianByPhone, guardiansOfStudent, searchStudents, studentsOfGuardian } from "@/modules/students/repo";
+import { consents, guardians, studentCodeSeries, students } from "@/modules/students/schema";
 import { createStudent, type StudentCtx } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
@@ -30,10 +30,10 @@ const run = (ctx: StudentCtx, csv: string, mapping: Record<string, number>, dryR
   withTenant(T, (tx) => importStudents(tx, ctx, { csv, mapping, options: { consentDeclared: true, ...options } }, { dryRun }));
 const counts = () =>
   withTenant(T, async (tx) => {
-    const n = async (t: typeof students | typeof households | typeof guardians | typeof consents) => (await tx.select({ n: count() }).from(t))[0]?.n ?? 0;
+    const n = async (t: typeof students | typeof guardians | typeof consents) => (await tx.select({ n: count() }).from(t))[0]?.n ?? 0;
     const [series] = await tx.select({ next: studentCodeSeries.nextValue }).from(studentCodeSeries);
     const [audit] = await tx.select({ n: count() }).from(auditLog);
-    return { students: await n(students), households: await n(households), guardians: await n(guardians), consents: await n(consents), audit: audit?.n ?? 0, nextCode: series?.next ?? 1 };
+    return { students: await n(students), guardians: await n(guardians), consents: await n(consents), audit: audit?.n ?? 0, nextCode: series?.next ?? 1 };
   });
 const summary = (r: ImportResult) => ({ ...r, errors: r.errors.map((e) => e.row), warnings: r.warnings.map((w) => w.row) });
 
@@ -108,7 +108,7 @@ describe("student CSV import", () => {
     expect(summary(r)).toEqual({ dryRun: false, ...EXPECTED });
     const after = await counts();
     expect(after.students - before.students).toBe(10);
-    expect(after.households - before.households).toBe(6);
+    expect(after.guardians - before.guardians).toBe(6);
     expect(after.nextCode - before.nextCode).toBe(10);
     const [row] = await withTenant(T, (tx) => tx.select({ after: auditLog.after }).from(auditLog).where(eq(auditLog.action, "students.import")));
     expect(row?.after).toMatchObject({ rows: 16, studentsCreated: 10, errors: 4, warnings: 5 });
@@ -117,14 +117,15 @@ describe("student CSV import", () => {
   it("keeps a family that shares one phone together: one guardian row, three siblings", async () => {
     const { kids, parents } = await withTenant(T, async (tx) => {
       const g = await findGuardianByPhone(tx, "+919876511111");
-      return { kids: await studentsOfHousehold(tx, g?.householdId ?? ""), parents: await guardiansOfHouseholdMembers(tx, g?.householdId ?? "") };
+      const kids = await studentsOfGuardian(tx, g?.id ?? "");
+      return { kids, parents: await guardiansOfStudent(tx, kids[0]?.id ?? "") };
     });
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Anaya Deshmukh", "Kabir", "आरव देशमुख"]);
     expect(parents.map((p) => p.fullName)).toEqual(["राकेश देशमुख"]);
   });
 
   it("joins the hand-added family instead of duplicating it", async () => {
-    const kids = await withTenant(T, async (tx) => studentsOfHousehold(tx, (await findGuardianByPhone(tx, "+919876500001"))?.householdId ?? ""));
+    const kids = await withTenant(T, async (tx) => studentsOfGuardian(tx, (await findGuardianByPhone(tx, "+919876500001"))?.id ?? ""));
     expect(kids.map((k) => k.fullName).sort()).toEqual(["Aarav Deshmukh", "Sara Deshmukh"]);
   });
 

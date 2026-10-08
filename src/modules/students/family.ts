@@ -27,7 +27,7 @@ const actor = (ctx: StudentCtx) => ({ actorType: "staff" as const, actorId: ctx.
 // Linking gives them access to this member too; they stay linked to the others.
 export async function addFamilyMember(tx: Tx, ctx: StudentCtx, studentId: string, input: z.input<typeof familyMemberSchema>): Promise<Guardian> {
   assertCan(ctx, "students:update");
-  const student = await requireStudent(tx, ctx, studentId);
+  await requireStudent(tx, ctx, studentId);
   const d = familyMemberSchema.parse(input);
   const existing = await findGuardianByPhone(tx, d.phone);
   if (existing && !(await guardiansOfMembers(tx, [studentId], { includeRemoved: true })).some((m) => m.id === existing.id)) {
@@ -37,7 +37,7 @@ export async function addFamilyMember(tx: Tx, ctx: StudentCtx, studentId: string
   }
   const guardian =
     existing ??
-    (await createGuardian(tx, { tenantId: ctx.tenantId, householdId: student.householdId, fullName: d.fullName, phone: d.phone }).catch((e: unknown) => {
+    (await createGuardian(tx, { tenantId: ctx.tenantId, fullName: d.fullName, phone: d.phone }).catch((e: unknown) => {
       if (isUniqueViolation(e)) throw new ConflictError("This number is already used here");
       throw e;
     }));
