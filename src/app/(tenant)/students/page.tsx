@@ -60,7 +60,7 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
         <>
           {(() => {
             const kpis = (
-              <div className="grid grid-cols-2 gap-3 md:gap-4 xl:content-start">
+              <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-rows-2">
                 <StatCard label="Total" value={counts.total} icon={Users} href="/students" />
                 <StatCard label="Active" value={counts.active} icon={UserCheck} href="/students?status=active" />
                 <StatCard label="New this month" value={counts.joinedThisMonth} icon={UserPlus} href={`/students?joinedFrom=${monthStart}`} />

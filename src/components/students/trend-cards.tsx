@@ -9,7 +9,7 @@ const long = (month: string) => formatMonthYear(`${month}-01`);
 
 function Frame({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <Card className="gap-3">
+    <Card className="flex h-full flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-label text-neutral-700">{title}</h2>
         {aside ? <span className="text-caption text-muted-foreground">{aside}</span> : null}
