@@ -1,12 +1,18 @@
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { uuidv7 } from "@/lib/ids";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addProgram, createBatch } from "@/modules/batches/service";
+import { enrollments } from "@/modules/enrollments/schema";
 import { enroll } from "@/modules/enrollments/service";
+import { generateInvoices } from "@/modules/fees/invoicing";
 import { insertInvoice } from "@/modules/fees/repo";
-import { nextDue } from "@/modules/fees/service";
+import { invoices } from "@/modules/fees/schema";
+import { createPlan, issueInvoices, nextDue } from "@/modules/fees/service";
+import { recordPayment } from "@/modules/payments/service";
 import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { staffBranchIds } from "@/modules/staff/repo";
@@ -64,6 +70,7 @@ describe("tabs follow permissions", () => {
     expect(tabs).toEqual(["overview", "documents", "activity"]);
     const p = await profile(teacher, s.student.id);
     expect("nextDue" in p).toBe(false);
+    expect("fees" in p).toBe(false);
     expect("batches" in p).toBe(false);
     expect("attendance" in p).toBe(false);
     await expect(withTenant(T, (tx) => nextDue(tx, teacher, s.student.id))).rejects.toMatchObject({ status: 403 });
@@ -72,6 +79,7 @@ describe("tabs follow permissions", () => {
     expect(full.batches?.current).toHaveLength(1);
     expect(full.attendance?.trend).toHaveLength(6);
     expect(full).toHaveProperty("nextDue");
+    expect(full).toHaveProperty("fees");
   });
 
   it("an accountant sees fees but not batches", async () => {
@@ -127,5 +135,46 @@ describe("overview data", () => {
     expect(p.guardians.map((g) => g.id)).toEqual([a.guardian.id]);
     expect(p.batches?.current).toHaveLength(1);
     expect(p.nextDue).toBe("2026-11-01");
+  });
+});
+
+describe("the fees card is per payer", () => {
+  const month = new Date().toISOString().slice(0, 7);
+  const now = new Date(`${month}-01T04:00:00Z`); // the billing day: the invoices fall in this month
+  const plan = (name: string, amountPaise: string) => withTenant(T, (tx) => createPlan(tx, owner, { name, kind: "recurring", billingCycle: "monthly", amountPaise }));
+  const batchOn = async (name: string, planId: string) => {
+    const program = await withTenant(T, (tx) => addProgram(tx, owner, { name: `${name} program` }));
+    return (await withTenant(T, (tx) => createBatch(tx, owner, { name, programId: program.id, slots: [{ weekday: 2, startTime: "17:00", endTime: "18:00" }], startDate: `${month}-01`, defaultFeePlanId: planId }))).id;
+  };
+
+  it("two enrollments on two payers show two invoices, each under its own bill-to name, with no combined bill", async () => {
+    const s = await kid("Split Fees");
+    const aunt = await withTenant(T, (tx) => addFamilyMember(tx, owner, s.student.id, { fullName: "Aunt Fees", phone: phone(), relation: "other" }));
+    const [karate, dance] = [await batchOn("Fee Karate", (await plan("Fee Karate Plan", "80000")).id), await batchOn("Fee Dance", (await plan("Fee Dance Plan", "100000")).id)];
+    const [ek, ed] = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: karate, startDate: `${month}-01` })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: dance, startDate: `${month}-01` }))];
+    await withTenant(T, async (tx) => {
+      await tx.update(enrollments).set({ payerGuardianId: s.guardian.id, payerMemberId: null }).where(eq(enrollments.id, ek.id));
+      await tx.update(enrollments).set({ payerGuardianId: aunt.id, payerMemberId: null }).where(eq(enrollments.id, ed.id));
+    });
+    // Before generating there is nothing to show: the card is empty, not absent.
+    expect((await profile(owner, s.student.id)).fees?.invoices).toEqual([]);
+    expect(await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now, enrollmentIds: [ek.id, ed.id] }))).toMatchObject({ invoices: 2 });
+    // Drafts are not bills yet.
+    expect((await profile(owner, s.student.id)).fees?.invoices).toEqual([]);
+    const all = (await withTenant(T, (tx) => tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.studentId, s.student.id)))).map((r) => r.id);
+    await withTenant(T, (tx) => issueInvoices(tx, owner, all, { now }));
+    const p = await profile(owner, s.student.id);
+    const rows = (p.fees?.invoices ?? []).map((i) => [i.billToName, i.totalPaise]);
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(expect.arrayContaining([["Split Fees Parent", 80000n], ["Aunt Fees", 100000n]]));
+    // A merged bill would be a single 180000 row.
+    expect(p.fees?.invoices.some((i) => i.totalPaise === 180000n)).toBe(false);
+
+    // Payment history: the aunt pays her invoice only; the receipt is attributed to it.
+    const auntInvoice = p.fees?.invoices.find((i) => i.billToName === "Aunt Fees");
+    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: s.student.id, branchId: branch, amountPaise: "100000", payerGuardianId: aunt.id, allocations: [{ invoiceId: auntInvoice?.id ?? "", amountPaise: "100000" }] }, { now }));
+    const after = await profile(owner, s.student.id);
+    expect(after.fees?.receipts.map((r) => [r.invoiceId, r.net])).toEqual([[auntInvoice?.id, 100000n]]);
+    expect(after.fees?.invoices.map((i) => [i.billToName, i.status]).sort()).toEqual([["Aunt Fees", "paid"], ["Split Fees Parent", "issued"]]);
   });
 });

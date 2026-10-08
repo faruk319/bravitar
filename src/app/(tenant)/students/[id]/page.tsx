@@ -1,7 +1,6 @@
 import { FileText, History } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Avatar } from "@/components/avatar";
 import { MarkBadge } from "@/components/attendance/mark-badge";
 import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch, PlanSelect } from "@/components/enrollments/student-batches";
@@ -14,8 +13,8 @@ import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { AttendanceCalendar } from "@/components/students/attendance-calendar";
 import { AttendanceSummaryCard } from "@/components/students/attendance-summary";
+import { FeesCard } from "@/components/students/fees-card";
 import { EnrollmentCard, GuardianCard, PersonalCard } from "@/components/students/overview-cards";
-import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet } from "@/components/students/student-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -71,9 +70,9 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
       account: showFees ? await familyAccount(tx, ctx, profile.student.id, profile.student.branchId) : undefined,
       choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
       recent: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
-      calendar: tab === "attendance" ? await attendanceCalendar(tx, ctx, id, month) : undefined,
+      calendar: tab === "attendance" || tab === "overview" ? await attendanceCalendar(tx, ctx, id, month) : undefined,
       plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
-      fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
+      feesTab: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
       discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
       due: showFees ? await installmentsDue(tx, ctx, id) : [],
     };
@@ -87,7 +86,46 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const due: DueItem[] = o.due.map((i) => ({ invoiceId: i.invoiceId, enrollmentId: i.enrollmentId, description: i.description, number: i.number, dueDate: i.dueDate, amount: formatPaise(i.totalPaise - i.paidPaise), voidable: i.voidable }));
   const s = o.student;
   const batchLinks = can(ctx, "batches", "batches:read");
-  const placed = (o.batches?.current ?? []).map((e) => `${e.programName} · ${e.batchName}`).join(", ");
+
+  const batchesCard = o.batches ? (
+    <Card>
+      <CardHeader title="Batches" action={canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null} />
+      {o.batches.current.length || o.batches.past.length ? (
+        <ul className="divide-y divide-neutral-100">
+          {o.batches.current.map((e) => (
+            <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-body">
+                  {batchLinks ? (
+                    <Link href={`/batches/${e.batchId}`} className="font-medium text-accent-600 hover:underline">
+                      {e.batchName}
+                    </Link>
+                  ) : (
+                    <span className="font-medium">{e.batchName}</span>
+                  )}{" "}
+                  <span className="text-caption text-muted-foreground">{e.programName}</span>
+                </p>
+                <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
+                {o.plans.length && (e.status === "active" || e.status === "paused") ? (
+                  <PlanSelect enrollmentId={e.id} current={e.feePlanId ? { id: e.feePlanId, name: e.planName ?? "" } : null} plans={o.plans} />
+                ) : showFees && e.planName ? (
+                  <p className="text-caption text-muted-foreground">Fee plan · {e.planName}</p>
+                ) : null}
+              </div>
+              {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} due={due.filter((d) => d.enrollmentId === e.id)} /> : null}
+            </li>
+          ))}
+          {o.batches.past.map((e) => (
+            <li key={e.id} className="py-3 text-caption text-muted-foreground">
+              {e.batchName} · {pastNote(e)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-body text-muted-foreground">Not in a batch yet.</p>
+      )}
+    </Card>
+  ) : null;
 
   return (
     <Gate permission="students:read">
@@ -105,62 +143,52 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           </>
         }
       />
-      <Card className="mb-5 flex items-center gap-4">
-        <Avatar name={s.fullName} size="lg" />
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-label tabular-nums">{s.code}</span>
-            <StatusBadge status={s.status} />
-          </div>
-          {placed ? <p className="text-body">{placed}</p> : null}
-        </div>
-      </Card>
       <SegmentedTabs label="Sections" items={tabs.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: TAB_LABELS[t], active: t === tab }))} />
       {tab === "overview" ? (
-        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
-          <PersonalCard o={o} canUpdate={canUpdate} />
-          <GuardianCard o={o} {...(o.account ? { account: o.account } : {})} canUpdate={canUpdate} canMessage={allows(ctx, "messages:send")} />
-          <EnrollmentCard o={o} today={today} canUpdate={canUpdate} due={due} />
-          {o.attendance ? <AttendanceSummaryCard attendance={o.attendance} /> : null}
-        </div>
-      ) : tab === "batches" && o.batches ? (
-            <Card>
-              <CardHeader title="Batches" action={canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null} />
-              {o.batches.current.length || o.batches.past.length ? (
-                <ul className="divide-y divide-neutral-100">
-                  {o.batches.current.map((e) => (
-                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                      <div>
-                        <p className="text-body">
-                          {batchLinks ? (
-                            <Link href={`/batches/${e.batchId}`} className="font-medium text-accent-600 hover:underline">
-                              {e.batchName}
-                            </Link>
-                          ) : (
-                            <span className="font-medium">{e.batchName}</span>
-                          )}{" "}
-                          <span className="text-caption text-muted-foreground">{e.programName}</span>
-                        </p>
-                        <p className="text-caption text-muted-foreground">{currentNote(e, today)}</p>
-                        {o.plans.length && (e.status === "active" || e.status === "paused") ? (
-                          <PlanSelect enrollmentId={e.id} current={e.feePlanId ? { id: e.feePlanId, name: e.planName ?? "" } : null} plans={o.plans} />
-                        ) : showFees && e.planName ? (
-                          <p className="text-caption text-muted-foreground">Fee plan · {e.planName}</p>
-                        ) : null}
-                      </div>
-                      {canEnroll && (e.status === "active" || e.status === "paused") ? <EnrollmentActions enrollment={e} choices={o.choices} today={today} due={due.filter((d) => d.enrollmentId === e.id)} /> : null}
-                    </li>
-                  ))}
-                  {o.batches.past.map((e) => (
-                    <li key={e.id} className="py-3 text-caption text-muted-foreground">
-                      {e.batchName} · {pastNote(e)}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-body text-muted-foreground">Not in a batch yet.</p>
-              )}
+        <div className={cn("grid grid-cols-1 items-start gap-5", o.calendar ? "xl:grid-cols-[18rem_minmax(0,1fr)_21rem]" : "xl:grid-cols-[18rem_minmax(0,1fr)]")}>
+          {/* On a phone the wrappers dissolve and `order` sets the reading order. */}
+          <div className="contents xl:flex xl:flex-col xl:gap-5">
+            <div className="order-1 xl:order-none">
+              <PersonalCard o={o} canUpdate={canUpdate} />
+            </div>
+            <div className="order-5 xl:order-none">
+              <GuardianCard o={o} {...(o.account ? { account: o.account } : {})} canUpdate={canUpdate} canMessage={allows(ctx, "messages:send")} />
+            </div>
+            <Card className="order-7 xl:order-none">
+              <CardHeader title="Documents" />
+              <EmptyState icon={<FileText />} title="No documents" hint="Nothing is stored here yet." />
             </Card>
+          </div>
+          {o.calendar ? (
+            <div className="contents xl:flex xl:flex-col xl:gap-5">
+              <Card className="order-4 xl:order-none">
+                <AttendanceCalendar calendar={o.calendar} href={(m) => `/students/${s.id}?month=${m}`} />
+              </Card>
+              {o.attendance ? (
+                <div className="order-6 xl:order-none">
+                  <AttendanceSummaryCard attendance={o.attendance} />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="contents xl:flex xl:flex-col xl:gap-5">
+            {o.fees ? (
+              <div className="order-2 xl:order-none">
+                <FeesCard fees={o.fees} nextDue={o.nextDue ?? null} plans={o.batches ? o.batches.current.flatMap((e) => (e.planName ? [e.planName] : [])) : undefined} studentId={s.id} />
+              </div>
+            ) : null}
+            <div className="order-3 xl:order-none">
+              <EnrollmentCard o={o} canUpdate={canUpdate} due={due} />
+            </div>
+            {batchesCard ? <div className="order-6 xl:order-none">{batchesCard}</div> : null}
+            <Card className="order-8 xl:order-none">
+              <CardHeader title="Activity" />
+              <EmptyState icon={<History />} title="No activity" hint="Nothing is recorded here yet." />
+            </Card>
+          </div>
+        </div>
+      ) : tab === "batches" && batchesCard ? (
+        batchesCard
       ) : tab === "documents" ? (
         <Card>
           <EmptyState icon={<FileText />} title="No documents" hint="Nothing is stored here yet." />
@@ -190,15 +218,15 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                       </>
                     ) : null}
                   </>
-              ) : tab === "fees" && o.fees ? (
+              ) : tab === "fees" && o.feesTab ? (
                 <>
                   <CardHeader
                     title="Discounts"
                     action={canDiscount && o.discounts.length ? <GiveDiscount studentId={s.id} today={today} discounts={o.discounts.map((d) => ({ id: d.id, label: `${d.name} · ${d.kind === "percent" ? `${d.value}%` : formatPaise(BigInt(d.value))}` }))} /> : null}
                   />
-                  {o.fees.discounts.length ? (
+                  {o.feesTab.discounts.length ? (
                     <ul className="divide-y divide-neutral-100">
-                      {o.fees.discounts.map((g) => {
+                      {o.feesTab.discounts.map((g) => {
                         const running = !g.validTo || g.validTo >= today;
                         return (
                           <li key={g.id} className={cn("flex min-h-14 items-center justify-between gap-3 py-2", !running && "text-neutral-500")}>
@@ -220,9 +248,9 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                     <p className="text-body text-muted-foreground">No discounts.</p>
                   )}
                   <CardHeader title="Invoices" className="mt-5" />
-                  {o.fees.invoices.length ? (
+                  {o.feesTab.invoices.length ? (
                     <ul className="divide-y divide-neutral-100">
-                      {o.fees.invoices.map((i) => (
+                      {o.feesTab.invoices.map((i) => (
                         <li key={i.id}>
                           <Link href={`/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
                             <span>
@@ -233,7 +261,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                             </span>
                             <span className="flex flex-col items-end gap-1">
                               <Money paise={i.totalPaise} className="text-body font-medium" />
-                              <InvoiceStatus status={i.status} overdue={isOverdue(i, o.fees?.today ?? today)} />
+                              <InvoiceStatus status={i.status} overdue={isOverdue(i, o.feesTab?.today ?? today)} />
                             </span>
                           </Link>
                         </li>

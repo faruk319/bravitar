@@ -85,8 +85,8 @@ export function AttendanceCalendar({ calendar, href }: { calendar: Calendar; hre
           ))}
         </ul>
       ) : null}
-      <dl className="mt-4 grid grid-cols-3 gap-2">
-        {(["present", "late", "absent"] as const).map((k) => (
+      <dl className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(["present", "late", "absent", "unmarked"] as const).map((k) => (
           <div key={k} className={cn("rounded-xl px-3 py-2", DAY_STYLE[k].cls)}>
             <dt className="text-label">
               <span aria-hidden>{DAY_STYLE[k].icon}</span> {DAY_STYLE[k].word}

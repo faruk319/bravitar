@@ -1,5 +1,7 @@
+import { Cake, Mail, MapPin, Phone, User, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Avatar } from "@/components/avatar";
 import { Composer } from "@/components/messaging/composer";
 import { Money } from "@/components/money";
 import { AddFamilyMember, FamilyMemberActions } from "@/components/students/family";
@@ -31,20 +33,50 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
   );
 }
 
+// Icon, label, value; the reference's detail rows.
+function IconRows({ rows }: { rows: [LucideIcon, string, ReactNode][] }) {
+  return (
+    <dl className="divide-y divide-neutral-100">
+      {rows.map(([Icon, k, v], i) => (
+        <div key={`${k}-${i}`} className="flex min-h-12 items-center justify-between gap-3">
+          <dt className="flex shrink-0 items-center gap-2 text-label text-muted-foreground">
+            <Icon className="size-4" aria-hidden />
+            {k}
+          </dt>
+          <dd className="min-w-0 break-words text-right text-body">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+// The vertical profile card: initials, name, pills, then the detail rows.
 export function PersonalCard({ o, canUpdate }: { o: StudentProfile; canUpdate: boolean }) {
   const s = o.student;
   const emails = emailRows(o.guardians);
+  const placed = (o.batches?.current ?? []).map((e) => `${e.programName} · ${e.batchName}`);
   return (
     <Card>
-      <CardHeader title="Personal" />
-      <Rows
+      <div className="mb-4 flex flex-col items-center gap-3 text-center">
+        <Avatar name={s.fullName} size="lg" />
+        <h2 className="text-heading">{s.fullName}</h2>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-label tabular-nums">{s.code}</span>
+          {placed.map((p) => (
+            <span key={p} className="rounded-full bg-accent-50 px-2.5 py-0.5 text-label text-accent-600">
+              {p}
+            </span>
+          ))}
+          <StatusBadge status={s.status} />
+        </div>
+      </div>
+      <IconRows
         rows={[
-          ["Full name", s.fullName],
-          ["Born", s.dateOfBirth ? formatDate(s.dateOfBirth) : dash],
-          ["Gender", s.gender ? (s.gender[0]?.toUpperCase() ?? "") + s.gender.slice(1) : dash],
-          ["Phone", s.phone ? formatPhone(s.phone) : dash],
-          ...(emails.length ? emails.map((e): [string, ReactNode] => [e.label, e.value]) : [["Email", dash] as [string, ReactNode]]),
-          ["Address", s.address ?? dash],
+          [User, "Gender", s.gender ? (s.gender[0]?.toUpperCase() ?? "") + s.gender.slice(1) : dash],
+          [Cake, "Born", s.dateOfBirth ? formatDate(s.dateOfBirth) : dash],
+          [Phone, "Phone", s.phone ? formatPhone(s.phone) : dash],
+          ...(emails.length ? emails.map((e): [LucideIcon, string, ReactNode] => [Mail, e.label, e.value]) : [[Mail, "Email", dash] as [LucideIcon, string, ReactNode]]),
+          [MapPin, "Address", s.address ?? dash],
         ]}
       />
       <div className="mt-3 border-t border-neutral-100 pt-3">
@@ -120,23 +152,19 @@ export function GuardianCard({ o, account, canUpdate, canMessage }: { o: Student
   );
 }
 
-export function EnrollmentCard({ o, today, canUpdate, due }: { o: StudentProfile; today: string; canUpdate: boolean; due: DueItem[] }) {
+// Program, batch and coach per placement. No level and no progress: neither has a source yet.
+export function EnrollmentCard({ o, canUpdate, due }: { o: StudentProfile; canUpdate: boolean; due: DueItem[] }) {
   const s = o.student;
   const current = o.batches?.current ?? [];
   const rows: [string, ReactNode][] = [];
   if (o.batches) {
     if (!current.length) rows.push(["Batch", "Not in a batch yet"]);
-    for (const e of current) {
-      rows.push(["Program", e.programName], ["Batch", e.batchName], ["Coach", e.coachName ?? dash]);
-      // The fee plan is fee information: it follows the viewer's invoices:read.
-      if (o.nextDue !== undefined) rows.push(["Fee plan", e.planName ?? dash]);
-    }
+    for (const e of current) rows.push(["Program", e.programName], ["Batch", e.batchName], ["Coach", e.coachName ?? dash]);
   }
   rows.push(["Joined", formatDate(s.joinedOn)], ["Status", <StatusBadge key="st" status={s.status} />]);
-  if (o.nextDue !== undefined) rows.push(["Next due", o.nextDue ? <span key="nd">{formatDate(o.nextDue)}{o.nextDue < today ? " · overdue" : ""}</span> : dash]);
   return (
     <Card>
-      <CardHeader title="Enrollment" />
+      <CardHeader title="Current program" />
       <Rows rows={rows} />
       {s.status === "left" ? <p className="mt-2 text-caption text-muted-foreground">Left {formatDate(s.leftOn)}{s.leftReason ? ` (${s.leftReason.replace("_", " ")})` : ""}</p> : null}
       <div className="mt-3 [&>div]:justify-start">

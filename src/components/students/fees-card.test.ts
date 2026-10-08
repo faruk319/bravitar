@@ -1,0 +1,61 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import type { InvoiceRow } from "@/modules/fees/repo";
+import type { StudentProfile } from "@/modules/students/profile";
+
+vi.mock("next/link", async () => {
+  const { createElement: h } = await import("react");
+  return { default: ({ children, ...p }: { children: React.ReactNode; href: string }) => h("a", p, children) };
+});
+
+const { FeesCard } = await import("./fees-card");
+type Fees = NonNullable<StudentProfile["fees"]>;
+
+const when = new Date("2026-10-01T00:00:00Z");
+const inv = (id: string, billToName: string, totalPaise: bigint, over: Partial<InvoiceRow> = {}): InvoiceRow => ({
+  id, tenantId: "t", branchId: "b", studentId: "s", payerGuardianId: null, payerMemberId: null, billToName, number: `INV-${id}`, fy: "2026-27",
+  periodStart: "2026-10-01", periodEnd: "2026-10-31", issueDate: "2026-10-01", dueDate: "2026-10-08", subtotalPaise: totalPaise, discountPaise: 0n, taxPaise: 0n,
+  totalPaise, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, students: [], ...over,
+});
+const render = (fees: Fees, nextDue: string | null = null) => renderToStaticMarkup(createElement(FeesCard, { fees, nextDue, plans: ["Karate Monthly"], studentId: "s" }));
+const text = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+
+describe("fees card", () => {
+  it("two payers: two invoices, each under its own name and amount, and no combined total", () => {
+    const out = text(render({ today: "2026-10-10", invoices: [inv("1", "Mother Mehta", 80000n), inv("2", "Aunt Mehta", 100000n, { paidPaise: 100000n, status: "paid" })], receipts: [] }));
+    expect(out).toContain("Mother Mehta");
+    expect(out).toContain("Aunt Mehta");
+    expect(out).toContain("₹800");
+    expect(out).toContain("₹1,000");
+    expect(out).not.toContain("₹1,800");
+    expect(out).toContain("Owes ₹800"); // the unpaid one owes, the paid one does not
+    expect(out.match(/Owes/g)).toHaveLength(1);
+  });
+
+  it("an unpaid invoice past its due date reads Overdue, in words", () => {
+    expect(text(render({ today: "2026-10-10", invoices: [inv("1", "Mother Mehta", 80000n)], receipts: [] }))).toContain("Overdue");
+    // Positive control: before the due date it is just unpaid.
+    expect(text(render({ today: "2026-10-05", invoices: [inv("1", "Mother Mehta", 80000n)], receipts: [] }))).not.toContain("Overdue");
+  });
+
+  it("nothing billed and no payments read as empty, with dashes for the facts", () => {
+    const out = text(render({ today: "2026-10-10", invoices: [], receipts: [] }));
+    expect(out).toContain("Nothing billed.");
+    expect(out).toContain("No payments yet.");
+    expect(out).toContain("Last payment —");
+  });
+
+  it("a payment shows date, amount, method and who it paid for", () => {
+    const out = text(render({ today: "2026-10-10", invoices: [inv("2", "Aunt Mehta", 100000n, { paidPaise: 100000n, status: "paid" })], receipts: [{ paymentId: "p", invoiceId: "2", receiptNumber: "R-1", receivedOn: "2026-10-03", method: "upi", net: 100000n }] }));
+    expect(out).toContain("UPI · Aunt Mehta");
+    expect(out).toContain("3 Oct 2026");
+    expect(out).toContain("Last payment ₹1,000");
+  });
+
+  it("an earlier unpaid invoice is listed apart from this month's", () => {
+    const out = text(render({ today: "2026-10-10", invoices: [inv("3", "Mother Mehta", 80000n, { issueDate: "2026-09-01", dueDate: "2026-09-08" })], receipts: [] }));
+    expect(out).toContain("Nothing billed.");
+    expect(out).toContain("Earlier, unpaid");
+  });
+});

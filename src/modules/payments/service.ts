@@ -497,6 +497,19 @@ export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string)
   return receiptsOnInvoice(tx, invoiceId);
 }
 
+export type InvoiceReceiptRow = InvoiceReceipt & { invoiceId: string };
+
+// Receipts on several invoices of one student, newest first; an invoice outside the viewer's branches adds none.
+export async function receiptsOfInvoices(tx: Tx, ctx: ScopedCtx, invoiceIds: string[]): Promise<InvoiceReceiptRow[]> {
+  assertCan(ctx, "invoices:read");
+  const out: InvoiceReceiptRow[] = [];
+  for (const invoiceId of invoiceIds) {
+    if (!(await getInvoice(tx, ctx.branchIds, invoiceId))) continue;
+    for (const r of await receiptsOnInvoice(tx, invoiceId)) out.push({ ...r, invoiceId });
+  }
+  return out.sort((a, b) => (a.receivedOn < b.receivedOn ? 1 : a.receivedOn > b.receivedOn ? -1 : 0));
+}
+
 // ---- payments and refunds through Razorpay (docs/04 "Razorpay payment link flow")
 
 const system = (tenantId: string) => ({ actorType: "system" as const, tenantId });

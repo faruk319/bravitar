@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { StudentProfile } from "@/modules/students/profile";
+import type { StudentEnrollment } from "@/modules/enrollments/repo";
 import type { FamilyMember } from "@/modules/students/repo";
 import type { Student } from "@/modules/students/schema";
 
@@ -24,7 +25,7 @@ describe("overview cards", () => {
   it("render for a student with no guardian", () => {
     expect(html(createElement(PersonalCard, { o: alone, canUpdate: true }))).toContain("Email");
     expect(html(createElement(GuardianCard, { o: alone, canUpdate: true, canMessage: true }))).toContain("No guardian");
-    const e = html(createElement(EnrollmentCard, { o: alone, today: "2026-10-08", canUpdate: true, due: [] }));
+    const e = html(createElement(EnrollmentCard, { o: alone, canUpdate: true, due: [] }));
     expect(e).toContain("Not in a batch yet");
     expect(e).toContain("Active");
   });
@@ -32,7 +33,27 @@ describe("overview cards", () => {
   it("show each guardian's email, labelled, and Paused for a paused student", () => {
     const o: StudentProfile = { ...alone, student: { ...student, status: "paused" }, guardians: [father] };
     expect(html(createElement(PersonalCard, { o, canUpdate: false }))).toContain("Email (father)");
-    expect(html(createElement(EnrollmentCard, { o, today: "2026-10-08", canUpdate: false, due: [] }))).toContain("Paused");
+    expect(html(createElement(EnrollmentCard, { o, canUpdate: false, due: [] }))).toContain("Paused");
     expect(html(createElement(GuardianCard, { o, canUpdate: false, canMessage: false }))).toContain("Manager");
+  });
+});
+
+describe("current program card", () => {
+  const enrollment: StudentEnrollment = {
+    id: "e1", tenantId: "t1", studentId: "s1", batchId: "b1", status: "active", startDate: "2026-09-01", endDate: null, pausedOn: null, transferredToEnrollmentId: null, feePlanId: null,
+    payerGuardianId: null, payerMemberId: null, createdAt: when, batchName: "Karate A", programName: "Karate", nextBatchName: null, planName: null, coachName: "Coach Rao",
+  };
+  const placed: StudentProfile = { ...alone, batches: { current: [enrollment], past: [] } };
+
+  it("shows program, batch and coach, and no progress or level", () => {
+    const out = html(createElement(EnrollmentCard, { o: placed, canUpdate: false, due: [] })).replace(/<[^>]*>/g, " ");
+    for (const w of ["Karate", "Karate A", "Coach Rao"]) expect(out).toContain(w);
+    expect(out).not.toMatch(/progress|level|%/i);
+  });
+
+  it("an unplaced student has no program rows, only a note", () => {
+    const out = html(createElement(EnrollmentCard, { o: alone, canUpdate: false, due: [] }));
+    expect(out).toContain("Not in a batch yet");
+    expect(out).not.toContain("Coach");
   });
 });
