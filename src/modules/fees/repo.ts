@@ -268,6 +268,15 @@ export async function openInstallments(tx: Tx, branchIds: string[], studentId: s
     .orderBy(asc(invoices.dueDate), asc(invoices.id));
 }
 
+// The earliest due date among what the student still owes (issued or part paid); null when nothing is owed.
+export async function nextDueDate(tx: Tx, branchIds: string[], studentId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ due: sql<string | null>`min(${invoices.dueDate})` })
+    .from(invoices)
+    .where(and(eq(invoices.studentId, studentId), inArray(invoices.status, ["issued", "part_paid", "overdue"]), invoiceScope(branchIds)));
+  return row?.due ?? null;
+}
+
 export const INVOICE_VIEWS = ["draft", "unpaid", "overdue", "month", "void"] as const;
 export type InvoiceView = (typeof INVOICE_VIEWS)[number];
 // A draft that never got a name cannot be issued; it lists blank.

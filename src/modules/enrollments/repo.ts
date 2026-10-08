@@ -112,22 +112,23 @@ export async function rosterCounts(tx: Tx, batchIds: string[], day: string): Pro
   return new Map(rows.map((r) => [r.batchId, r.n]));
 }
 
-export type StudentEnrollment = Enrollment & { batchName: string; programName: string; nextBatchName: string | null; planName: string | null };
+export type StudentEnrollment = Enrollment & { batchName: string; programName: string; nextBatchName: string | null; planName: string | null; coachName: string | null };
 
 export async function enrollmentsOfStudent(tx: Tx, studentId: string): Promise<StudentEnrollment[]> {
   const next = alias(enrollments, "next");
   const nextBatch = alias(batches, "next_batch");
   const rows = await tx
-    .select({ e: enrollments, batchName: batches.name, programName: programs.name, nextBatchName: nextBatch.name, planName: feePlans.name })
+    .select({ e: enrollments, batchName: batches.name, programName: programs.name, nextBatchName: nextBatch.name, planName: feePlans.name, coachName: staffUsers.fullName })
     .from(enrollments)
     .innerJoin(batches, eq(batches.id, enrollments.batchId))
     .innerJoin(programs, eq(programs.id, batches.programId))
     .leftJoin(next, eq(next.id, enrollments.transferredToEnrollmentId))
     .leftJoin(nextBatch, eq(nextBatch.id, next.batchId))
     .leftJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
+    .leftJoin(staffUsers, eq(staffUsers.id, batches.coachId))
     .where(eq(enrollments.studentId, studentId))
     .orderBy(asc(enrollments.startDate), asc(enrollments.createdAt));
-  return rows.map((r) => ({ ...r.e, batchName: r.batchName, programName: r.programName, nextBatchName: r.nextBatchName, planName: r.planName }));
+  return rows.map((r) => ({ ...r.e, batchName: r.batchName, programName: r.programName, nextBatchName: r.nextBatchName, planName: r.planName, coachName: r.coachName }));
 }
 
 // Current students of a batch who have no fee plan get this one.

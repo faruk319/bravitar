@@ -1,4 +1,4 @@
-import { CalendarDays, type LucideIcon, Phone, Target, UserRound } from "lucide-react";
+import { FileText, History } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Avatar } from "@/components/avatar";
@@ -6,17 +6,15 @@ import { MARK_STYLE, MarkBadge } from "@/components/attendance/mark-badge";
 import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch, PlanSelect } from "@/components/enrollments/student-batches";
 import { EndDiscount, GiveDiscount } from "@/components/fees/discounts";
-import { Composer } from "@/components/messaging/composer";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import type { DueItem } from "@/components/fees/still-due";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
-import { AddFamilyMember, FamilyMemberActions } from "@/components/students/family";
+import { EnrollmentCard, GuardianCard, PersonalCard } from "@/components/students/overview-cards";
 import { StatusBadge } from "@/components/students/status-badge";
-import { EditStudentSheet, PhotoConsentToggle, StatusActions } from "@/components/students/student-actions";
-import { WhatsappOptin } from "@/components/students/whatsapp-optin";
+import { EditStudentSheet } from "@/components/students/student-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows, can } from "@/lib/auth/can";
@@ -29,17 +27,12 @@ import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
-import { sum } from "@/lib/money/paise";
-import { formatPhone } from "@/lib/phone";
 import type { StudentEnrollment } from "@/modules/enrollments/repo";
-import { batchChoices, studentBatches } from "@/modules/enrollments/service";
+import { batchChoices } from "@/modules/enrollments/service";
 import { isOverdue } from "@/modules/fees/billing";
 import { discountChoices, installmentsDue, planChoices, studentFees } from "@/modules/fees/service";
 import { familyAccount } from "@/modules/payments/service";
-import { RELATION_LABELS } from "@/modules/students/relations";
-import { studentOverview } from "@/modules/students/service";
-
-const TABS = ["overview", "attendance", "fees", "notes"] as const;
+import { profileTabs, studentProfile, TAB_LABELS } from "@/modules/students/profile";
 
 function currentNote(e: StudentEnrollment, today: string): string {
   if (e.status === "paused") return `Paused since ${formatDate(e.pausedOn)}`;
@@ -61,17 +54,16 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const ctx = scopedCtx(session);
   // docs/07 §7.3: no fee information without a fees permission.
   const showFees = can(ctx, "fees", "invoices:read");
-  const tabs = TABS.filter((t) => t !== "fees" || showFees);
+  const tabs = profileTabs(ctx);
   const tab = tabs.find((t) => t === sp.tab) ?? "overview";
   const canEnroll = can(ctx, "batches", "enrollments:manage");
   const canDiscount = allows(ctx, "invoices:manage");
   const o = await withTenant(session.tenant.id, async (tx) => {
-    const overview = await studentOverview(tx, ctx, id);
+    const profile = await studentProfile(tx, ctx, id);
     return {
-      ...overview,
+      ...profile,
       // docs/03 §9: the family's advance is visible on the family.
-      account: showFees ? await familyAccount(tx, ctx, overview.student.id, overview.student.branchId) : undefined,
-      batches: await studentBatches(tx, ctx, id),
+      account: showFees ? await familyAccount(tx, ctx, profile.student.id, profile.student.branchId) : undefined,
       choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
       attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
       plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
@@ -90,13 +82,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   const s = o.student;
   const today = todayIn(session.tenant.timezone);
   const batchLinks = can(ctx, "batches", "batches:read");
-
-  const details: [LucideIcon, string, string][] = [
-    [CalendarDays, "Born", formatDate(s.dateOfBirth)],
-    [UserRound, "Gender", s.gender ? s.gender[0]?.toUpperCase() + s.gender.slice(1) : "—"],
-    [Phone, "Phone", s.phone ? formatPhone(s.phone) : "—"],
-    [Target, "Interested in", s.metadata.programInterest ?? "—"],
-  ];
+  const placed = (o.batches?.current ?? []).map((e) => `${e.programName} · ${e.batchName}`).join(", ");
 
   return (
     <Gate permission="students:read">
@@ -114,37 +100,24 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           </>
         }
       />
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[340px_1fr]">
-          <Card className="flex flex-col items-center text-center">
-            <Avatar name={s.fullName} size="lg" />
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-label tabular-nums">{s.code}</span>
-              <StatusBadge status={s.status} />
-            </div>
-            <p className="mt-2 text-caption text-muted-foreground">
-              Joined {formatDate(s.joinedOn)}
-              {s.status === "left" ? ` · Left ${formatDate(s.leftOn)} (${s.leftReason?.replace("_", " ")})` : ""}
-            </p>
-            <dl className="mt-4 w-full divide-y divide-neutral-100 text-left">
-              {details.map(([Icon, k, v]) => (
-                <div key={k} className="flex min-h-12 items-center gap-3">
-                  <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                  <dt className="text-label text-muted-foreground">{k}</dt>
-                  <dd className="ml-auto text-right text-body tabular-nums">{v}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="mt-3 w-full border-t border-neutral-100 pt-3 text-left">
-              <p className="text-caption text-muted-foreground">Consent · data processing {o.consents.data_processing ? "given" : "missing"}</p>
-              <PhotoConsentToggle studentId={s.id} granted={Boolean(o.consents.photo)} canUpdate={canUpdate} />
-            </div>
-            <div className="mt-3 w-full [&>div]:justify-center">
-              <StatusActions student={s} canUpdate={canUpdate} due={due} />
-            </div>
-          </Card>
-        <div className="min-w-0 lg:row-span-2">
-          <SegmentedTabs label="Sections" items={tabs.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: t[0]?.toUpperCase() + t.slice(1), active: t === tab }))} />
-          {tab === "overview" ? (
+      <Card className="mb-5 flex items-center gap-4">
+        <Avatar name={s.fullName} size="lg" />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-label tabular-nums">{s.code}</span>
+            <StatusBadge status={s.status} />
+          </div>
+          {placed ? <p className="text-body">{placed}</p> : null}
+        </div>
+      </Card>
+      <SegmentedTabs label="Sections" items={tabs.map((t) => ({ href: `/students/${s.id}?tab=${t}`, label: TAB_LABELS[t], active: t === tab }))} />
+      {tab === "overview" ? (
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+          <PersonalCard o={o} canUpdate={canUpdate} />
+          <GuardianCard o={o} {...(o.account ? { account: o.account } : {})} canUpdate={canUpdate} canMessage={allows(ctx, "messages:send")} />
+          <EnrollmentCard o={o} today={today} canUpdate={canUpdate} due={due} />
+        </div>
+      ) : tab === "batches" && o.batches ? (
             <Card>
               <CardHeader title="Batches" action={canEnroll && s.status === "active" && o.choices.length ? <JoinBatch studentId={s.id} choices={o.choices} today={today} /> : null} />
               {o.batches.current.length || o.batches.past.length ? (
@@ -182,8 +155,16 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 <p className="text-body text-muted-foreground">Not in a batch yet.</p>
               )}
             </Card>
-          ) : (
-            <Card>
+      ) : tab === "documents" ? (
+        <Card>
+          <EmptyState icon={<FileText />} title="No documents" hint="Nothing is stored here yet." />
+        </Card>
+      ) : tab === "activity" ? (
+        <Card>
+          <EmptyState icon={<History />} title="No activity" hint="Nothing is recorded here yet." />
+        </Card>
+      ) : (
+        <Card>
               {tab === "attendance" ? (
                 o.attendance?.recent.length ? (
                   <>
@@ -263,70 +244,9 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                     <p className="text-body text-muted-foreground">No invoices yet.</p>
                   )}
                 </>
-              ) : (
-                <EmptyState title="No notes yet" hint="Anything the family should be remembered for." action="Add note" soon />
-              )}
-            </Card>
-          )}
-        </div>
-          <Card className="lg:col-start-1">
-            <CardHeader title="Family" action={allows(ctx, "messages:send") ? <Composer request={{ key: "welcome", studentId: s.id }} label="Welcome message" size="sm" /> : null} />
-            <p className="-mt-2 text-caption text-muted-foreground">
-              {o.siblings.length + 1} {o.siblings.length ? "students" : "student"}
-            </p>
-            {o.account && (o.account.open.length || o.account.advancePaise > 0n) ? (
-              <dl className="mt-2 divide-y divide-neutral-100 border-y border-neutral-100">
-                {o.account.open.length ? (
-                  <div className="flex min-h-12 items-center justify-between gap-3">
-                    <dt className="text-label text-muted-foreground">Due</dt>
-                    <dd>
-                      <Money paise={sum(o.account.open.map((i) => i.balancePaise))} className="text-body font-medium" />
-                    </dd>
-                  </div>
-                ) : null}
-                {o.account.advancePaise > 0n ? (
-                  <div className="flex min-h-12 items-center justify-between gap-3">
-                    <dt className="text-label text-muted-foreground">Advance</dt>
-                    <dd>
-                      <Money paise={o.account.advancePaise} className="text-body font-medium" />
-                    </dd>
-                  </div>
-                ) : null}
-              </dl>
-            ) : null}
-            <ul className="mt-2 divide-y divide-neutral-100">
-              {o.guardians.map((g) => (
-                <li key={g.id} className="flex min-h-14 items-center justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block text-body">
-                      {g.fullName} <span className="text-caption text-muted-foreground">· {RELATION_LABELS[g.relation]}</span>
-                      {g.isManager ? <span className="ml-1.5 rounded-full bg-accent-50 px-2 py-0.5 text-caption text-accent-600">Manager</span> : null}
-                    </span>
-                    <WhatsappOptin guardianId={g.id} on={g.whatsappOptin} canUpdate={canUpdate} />
-                    {canUpdate && !g.isManager ? <FamilyMemberActions studentId={s.id} guardianId={g.id} removable={!g.isPrimary} /> : null}
-                  </span>
-                  <a href={`tel:${g.phone}`} className="text-body text-accent-600 tabular-nums">
-                    {formatPhone(g.phone)}
-                  </a>
-                </li>
-              ))}
-            </ul>
-            {canUpdate ? <AddFamilyMember studentId={s.id} /> : null}
-            {o.siblings.length ? (
-              <p className="mt-2 text-body">
-                Siblings:{" "}
-                {o.siblings.map((sib, i) => (
-                  <span key={sib.id}>
-                    {i ? ", " : ""}
-                    <Link href={`/students/${sib.id}`} className="text-accent-600 hover:underline">
-                      {sib.fullName}
-                    </Link>
-                  </span>
-                ))}
-              </p>
-            ) : null}
-          </Card>
-      </div>
+          ) : null}
+        </Card>
+      )}
     </Gate>
   );
 }

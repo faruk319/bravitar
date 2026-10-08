@@ -38,6 +38,7 @@ import {
   lockInvoicing,
   payerNames,
   type OpenInstallment,
+  nextDueDate,
   openInstallments,
   type PlanRow,
   studentsOnPlan,
@@ -329,6 +330,12 @@ export async function installmentsDue(tx: Tx, ctx: ScopedCtx, studentId: string)
   await requireStudent(tx, ctx, studentId);
   const canVoid = allows(ctx, "invoices:manage");
   return (await openInstallments(tx, ctx.branchIds, studentId)).map((i) => ({ ...i, voidable: canVoid }));
+}
+
+export async function nextDue(tx: Tx, ctx: ScopedCtx, studentId: string): Promise<string | null> {
+  assertCan(ctx, "invoices:read");
+  await requireStudent(tx, ctx, studentId);
+  return nextDueDate(tx, ctx.branchIds, studentId);
 }
 
 export async function studentFees(tx: Tx, ctx: ScopedCtx, studentId: string, opts: { now?: Date } = {}): Promise<{ today: string; discounts: GivenDiscount[]; invoices: InvoiceRow[] }> {
