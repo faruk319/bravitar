@@ -36,7 +36,7 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {settings && ctx.modules.fees ? (
           <Card>
             <CardHeader title="Fees" />
