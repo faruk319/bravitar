@@ -501,9 +501,12 @@ export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string)
 
 const system = (tenantId: string) => ({ actorType: "system" as const, tenantId });
 
-async function gatewayPayerName(tx: Tx, inv: Invoice): Promise<string | null> {
+// A webhook must never fail on a name: the payer's, else the member's (invoices.student_id is NOT NULL).
+async function gatewayPayerName(tx: Tx, inv: Invoice): Promise<string> {
   const payer = payerOf(inv);
-  return payer ? ((await payerNames(tx, [payer])).get(payerKey(payer)) ?? null) : null;
+  const member: Payer = { kind: "member", memberId: inv.studentId };
+  const names = await payerNames(tx, payer ? [payer, member] : [member]);
+  return (payer && names.get(payerKey(payer))) || names.get(payerKey(member)) || "";
 }
 
 // A paid link, recorded once per Razorpay payment id whichever event brings it:
@@ -529,7 +532,7 @@ export async function recordGatewayPayment(
   const split = oldestFirst(input.amountPaise, open);
   const fy = financialYear(receivedOn, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, inv.tenantId, "receipt", fy);
-  const billToName = inv.billToName ?? (await gatewayPayerName(tx, inv)) ?? "";
+  const billToName = inv.billToName?.trim() || (await gatewayPayerName(tx, inv));
   const payment = await insertPayment(tx, {
     tenantId: inv.tenantId,
     branchId: inv.branchId,

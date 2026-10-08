@@ -160,10 +160,22 @@ describe("the hourly check for lost webhooks", () => {
     expect(first.recorded).toBeGreaterThanOrEqual(1);
     const [p] = await withTenant(T, (tx) => tx.select().from(payments).where(eq(payments.gatewayPaymentId, `pay_lost_${stamp}`)));
     expect(p).toMatchObject({ method: "online", amountPaise: 110000n });
+    expect(p?.billToName).toMatch(/^Parent \d+$/); // the invoice had no name; the payer's is used
     const [inv2] = await withTenant(T, (tx) => tx.select().from(invoices).where(eq(invoices.id, inv.id)));
     expect(inv2?.status).toBe("paid");
     expect((await linksOf(inv.id)).map((l) => l.status)).toEqual(["paid"]);
     expect((await reconcile(90)).recorded).toBe(0);
+  });
+
+  it("a blank name on the invoice never reaches the receipt", async () => {
+    const inv = await bill(await family(), 700);
+    await withTenant(T, (tx) => updateInvoice(tx, inv.id, { billToName: "  " }));
+    await link(inv.id);
+    const [row] = await linksOf(inv.id);
+    rzp.pay(row?.gatewayLinkId ?? "", `pay_blank_${stamp}`);
+    await withTenant(T, (tx) => reconcileLinks(tx, { api: rzp.api, now: new Date(Date.now() + 31 * 60_000) }));
+    const [p] = await withTenant(T, (tx) => tx.select().from(payments).where(eq(payments.gatewayPaymentId, `pay_blank_${stamp}`)));
+    expect(p?.billToName).toMatch(/^Parent \d+$/);
   });
 
   it("leaves links younger than 30 minutes alone, and closes ones Razorpay cancelled", async () => {

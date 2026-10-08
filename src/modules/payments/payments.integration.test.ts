@@ -144,6 +144,28 @@ describe("at the database", () => {
       await expect(newPayment({ billToName: null } as unknown as Partial<typeof payments.$inferInsert>)).rejects.toSatisfy(fails(NOT_NULL));
     });
 
+    it("a name is more than whitespace", async () => {
+      await expect(newPayment({ billToName: "  " })).rejects.toSatisfy(fails(CHECK));
+    });
+
+    it("an invoice's payer is fixed once money is allocated, and free before", async () => {
+      const inv = await withTenant(G.tenant, (tx) => insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, studentId: G.student, payerGuardianId: G.guardian, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: 1_000n, totalPaise: 1_000n }));
+      const repayer = (patch: Partial<typeof invoices.$inferInsert>) => withTenant(G.tenant, (tx) => updateInvoice(tx, inv.id, patch));
+      await repayer({ payerGuardianId: null, payerMemberId: G.student });
+      await repayer({ payerMemberId: null, payerGuardianId: G.guardian });
+      const p = await newPayment({ payerGuardianId: G.guardian });
+      await withTenant(G.tenant, (tx) => tx.insert(paymentAllocations).values({ id: uuidv7(), tenantId: G.tenant, paymentId: p.id, invoiceId: inv.id, kind: "receipt", amountPaise: 100n }));
+      await expect(repayer({ payerGuardianId: null, payerMemberId: G.student })).rejects.toSatisfy(fails(CHECK));
+      await repayer({ billToName: "Renamed" }); // only the payer is frozen
+    });
+
+    it("a member pays only for themselves; another's invoice needs them as a guardian", async () => {
+      const other = await withTenant(G.tenant, (tx) => insertStudent(tx, { tenantId: G.tenant, branchId: G.branch, fullName: "Sibling", code: `DB/SIB${++n}` }));
+      const raise = (payerMemberId: string) => withTenant(G.tenant, (tx) => insertInvoice(tx, { tenantId: G.tenant, branchId: G.branch, studentId: G.student, payerMemberId, issueDate: "2026-09-01", dueDate: "2026-09-08", subtotalPaise: 1_000n, totalPaise: 1_000n }));
+      await expect(raise(other.id)).rejects.toSatisfy(fails(CHECK));
+      await raise(G.student);
+    });
+
     it("are append-only", async () => {
       const p = await newPayment();
       const inv = await issuedInvoice(150_000n);
@@ -261,6 +283,9 @@ describe("payments", () => {
   const actions = async (entityId: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, entityId)))).map((r) => r.a).sort();
 
   // docs/02 §9 invariants 1 and 2, and the ledger's own rules, over the whole academy.
+  // The last query is deliberate: a member paying a sibling's invoice IS a violation (decided 2026-10-08;
+  // staff add the payer as a guardian instead). Do not relax it. It reads live links (removed_at IS NULL),
+  // so removing a guardian later would flag an old allocation: fine in a test, unsafe as a runtime guard.
   async function ledgerHolds(): Promise<void> {
     const problems = await withTenant(T, (tx) =>
       tx.execute<{ problem: string }>(sql`

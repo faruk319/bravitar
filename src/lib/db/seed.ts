@@ -18,6 +18,7 @@ import { setPassword } from "@/modules/auth/service";
 import { listRoles } from "@/modules/staff/repo";
 import { addStaff, createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { addHoliday, addProgram, createBatch } from "@/modules/batches/service";
+import { updateEnrollment } from "@/modules/enrollments/repo";
 import { enroll } from "@/modules/enrollments/service";
 import { generateInvoices } from "@/modules/fees/invoicing";
 import { type Invoice, invoices } from "@/modules/fees/schema";
@@ -29,6 +30,7 @@ import { bookTrial, trialChoices } from "@/modules/enquiries/trials";
 import { queueReminders } from "@/modules/messaging/reminders";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
+import { createGuardian, linkGuardian } from "@/modules/students/repo";
 import { createStudent, type NewStudentInput, setStudentStatus, type StudentCtx } from "@/modules/students/service";
 import { createTenantWithDefaults, type NewTenantInput } from "@/modules/tenancy/service";
 
@@ -61,6 +63,8 @@ const KARATE_ROLL: [string, number, number][] = [
 const karateRoll = (consents: NewStudentInput["consents"]): DemoStudent[] => [
   ...KARATE_ROLL.map(([fullName, year, joinedMonthsAgo], i): DemoStudent => ({ fullName, dateOfBirth: `${year}-0${1 + (i % 9)}-15`, gender: i % 2 ? "female" : "male", guardian: { fullName: `Parent of ${fullName.split(" ")[0]}`, phone: `98765002${String(i).padStart(2, "0")}`, relation: "father" }, programInterest: "Beginners", consents, joinedMonthsAgo })),
   { fullName: "Neel Phadke", dateOfBirth: "2015-12-02", gender: "male", guardian: { fullName: "Sunil Phadke", phone: "9876500299", relation: "father" }, programInterest: "Beginners", consents, joinedMonthsAgo: 0 },
+  // The split family: her mother (the default payer) pays Teens Morning, her father pays Advanced A.
+  { fullName: "Riya Mehta", dateOfBirth: "2012-04-18", gender: "female", guardian: { fullName: "Anjali Mehta", phone: "9876500298", relation: "mother" }, programInterest: "Beginners", consents, joinedMonthsAgo: 5 },
 ];
 function demoStudents(vertical: string): DemoStudent[] {
   const interest = vertical === "karate" ? "Beginners" : "Class 9 Maths";
@@ -87,7 +91,8 @@ function demoStudents(vertical: string): DemoStudent[] {
   ];
 }
 
-type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number | null; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[] };
+type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number | null; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[]; payer?: { student: string; guardian: { fullName: string; phone: string; relation: "father" } } };
+const MEHTA_FATHER = { fullName: "Rohit Mehta", phone: "9876500297", relation: "father" as const };
 const days = (weekdays: number[], startTime: string, endTime: string) => weekdays.map((weekday) => ({ weekday, startTime, endTime }));
 
 // Early Morning (5:30 AM) is there for Prompt 9's timezone test.
@@ -112,15 +117,18 @@ function demoBatches(vertical: string, today: string): { programs: string[]; pla
     const base = { program: "Karate", plan: "Karate Monthly", startDate };
     return {
       programs: ["Karate"],
-      plans: [{ name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000", graceDays }],
+      plans: [
+        { name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000", graceDays },
+        { name: "Karate Advanced", kind: "recurring", billingCycle: "monthly", amountPaise: "100000", graceDays },
+      ],
       batches: [
         // 14 of 15 seats: the near-capacity case.
         { ...base, name: "Beginners B", coach: "coach", withRoom: true, capacity: 15, slots: days([1, 3, 5], "18:00", "19:00"), students: ["Aarav Deshmukh", "Anaya Deshmukh", "Ishaan Patil", "Rohan Joshi", ...roll.slice(0, 11)] },
-        { ...base, name: "Advanced A", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh"] },
+        { ...base, plan: "Karate Advanced", name: "Advanced A", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 3, 5], "19:15", "20:15"), students: ["Zoya Shaikh", "Riya Mehta"], payer: { student: "Riya Mehta", guardian: MEHTA_FATHER } },
         { ...base, name: "Early Morning", coach: "owner", capacity: 15, slots: days([2, 4], "05:30", "06:30"), students: ["Meher Kaur"] },
         // No capacity set: the bare-count case. Two mornings, so a day has classes already started.
         { ...base, name: "Junior Morning", coach: "owner", capacity: null, slots: days([1, 2, 3, 4, 5, 6], "06:30", "07:30"), students: roll.slice(11, 14) },
-        { ...base, name: "Teens Morning", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 2, 3, 4, 5, 6], "08:00", "09:00"), students: roll.slice(14) },
+        { ...base, name: "Teens Morning", coach: "coach", withRoom: true, capacity: 20, slots: days([1, 2, 3, 4, 5, 6], "08:00", "09:00"), students: [...roll.slice(14), "Riya Mehta"] },
       ],
     };
   }
@@ -319,7 +327,14 @@ export async function seed(): Promise<SeedResult> {
           startDate: b.startDate,
           slots: b.slots,
         });
-        for (const name of b.students) await enroll(tx, sctx, { studentId: studentIds.get(name) ?? "", batchId: batch.id, startDate: joinedOn.get(name) ?? b.startDate });
+        for (const name of b.students) {
+          const e = await enroll(tx, sctx, { studentId: studentIds.get(name) ?? "", batchId: batch.id, startDate: joinedOn.get(name) ?? b.startDate });
+          if (b.payer?.student !== name) continue;
+          // An override: this enrollment is paid by a second guardian, who also gets access to the member.
+          const other = await createGuardian(tx, { tenantId: tenant.id, fullName: b.payer.guardian.fullName, phone: b.payer.guardian.phone });
+          await linkGuardian(tx, tenant.id, e.studentId, other.id, b.payer.guardian.relation);
+          await updateEnrollment(tx, e.id, { payerGuardianId: other.id });
+        }
       }
       // Paused after joining, so their batches show as paused too.
       for (const id of toPause) await setStudentStatus(tx, sctx, id, { status: "paused" });
