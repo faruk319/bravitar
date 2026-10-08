@@ -2,7 +2,9 @@ import { alias } from "drizzle-orm/pg-core";
 import { and, asc, count, countDistinct, desc, eq, gte, ilike, inArray, isNull, like, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
+import { placedWhere } from "@/modules/enrollments/repo";
 import { enrollments } from "@/modules/enrollments/schema";
+import { invoices } from "@/modules/fees/schema";
 import { type Payer, payerKey, payerOf } from "./payer";
 import { type Consent, type ConsentKind, consents, type Guardian, guardians, type Relation, type Student, type StudentStatus, studentGuardians, students } from "./schema";
 
@@ -164,14 +166,51 @@ export async function removeFamilyLink(tx: Tx, studentId: string, guardianId: st
 }
 
 export type StudentListRow = { student: Student; guardianName: string | null; guardianPhone: string | null };
-type ListFilter = { q?: string; status?: StudentStatus };
+export type FeeState = "paid" | "due" | "overdue";
+export const FEE_STATES: readonly FeeState[] = ["paid", "due", "overdue"];
+export type ListFilter = {
+  q?: string;
+  status?: StudentStatus;
+  programId?: string;
+  batchId?: string;
+  coachId?: string;
+  fee?: FeeState;
+  joinedFrom?: string;
+  joinedTo?: string;
+  today?: string; // the tenant's day: what "placed now" and "overdue" are measured against
+};
 
-// Partial name (trigram-indexed) or phone digits, within scope, optional status.
-function listWhere(scope: Scope, opts: ListFilter): SQL | undefined {
+const OWING = ["issued", "part_paid", "overdue"] as const;
+
+// Owing and past due, owing, or settled; null when nothing has been billed. Void and draft invoices don't count.
+function feeStateSql(today: string): SQL<FeeState | null> {
+  const mine = (...more: SQL[]) => and(eq(invoices.studentId, students.id), ...more);
+  const owing = (...more: SQL[]) => sql`EXISTS (SELECT 1 FROM ${invoices} WHERE ${mine(inArray(invoices.status, [...OWING]), ...more)})`;
+  return sql<FeeState | null>`CASE
+    WHEN ${owing(sql`${invoices.dueDate} < ${today}::date`)} THEN 'overdue'
+    WHEN ${owing()} THEN 'due'
+    WHEN EXISTS (SELECT 1 FROM ${invoices} WHERE ${mine(eq(invoices.status, "paid"))}) THEN 'paid'
+    ELSE NULL END`;
+}
+
+export async function feeStates(tx: Tx, studentIds: string[], today: string): Promise<Map<string, FeeState>> {
+  const out = new Map<string, FeeState>();
+  if (!studentIds.length) return out;
+  const rows = await tx.select({ id: students.id, state: feeStateSql(today) }).from(students).where(inArray(students.id, studentIds));
+  for (const r of rows) if (r.state) out.set(r.id, r.state);
+  return out;
+}
+
+// Partial name (trigram-indexed) or phone digits, within scope, plus the optional filters.
+function listWhere(tx: Tx, scope: Scope, opts: ListFilter): SQL | undefined {
   const q = opts.q?.trim();
   const digits = q?.replace(/\D/g, "") ?? "";
   const where = [isNull(students.deletedAt), inScope(scope)];
   if (opts.status) where.push(eq(students.status, opts.status));
+  if (opts.joinedFrom) where.push(gte(students.joinedOn, opts.joinedFrom));
+  if (opts.joinedTo) where.push(lte(students.joinedOn, opts.joinedTo));
+  if (opts.today && (opts.programId || opts.batchId || opts.coachId)) where.push(placedWhere(tx, opts.today, { ...(opts.programId ? { programId: opts.programId } : {}), ...(opts.batchId ? { batchId: opts.batchId } : {}), ...(opts.coachId ? { coachId: opts.coachId } : {}) }));
+  if (opts.today && opts.fee) where.push(sql`${feeStateSql(opts.today)} = ${opts.fee}`);
   if (q) {
     const byName = ilike(students.fullName, `%${q}%`);
     where.push(digits.length >= 4 ? or(byName, like(students.phone, `%${digits}%`), like(guardians.phone, `%${digits}%`)) : byName);
@@ -185,7 +224,7 @@ export async function searchStudents(tx: Tx, scope: Scope, opts: ListFilter & { 
     .from(students)
     .leftJoin(studentGuardians, and(eq(studentGuardians.studentId, students.id), isNull(studentGuardians.removedAt)))
     .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
-    .where(listWhere(scope, opts))
+    .where(listWhere(tx, scope, opts))
     .orderBy(asc(students.fullName), asc(students.id), desc(guardians.isPrimary))
     .limit(opts.limit ?? 50)
     .offset(opts.offset ?? 0);
@@ -197,7 +236,7 @@ export async function countStudents(tx: Tx, scope: Scope, opts: ListFilter = {})
     .from(students)
     .leftJoin(studentGuardians, and(eq(studentGuardians.studentId, students.id), isNull(studentGuardians.removedAt)))
     .leftJoin(guardians, and(eq(guardians.id, studentGuardians.guardianId), isNull(guardians.deletedAt)))
-    .where(listWhere(scope, opts));
+    .where(listWhere(tx, scope, opts));
   return row?.n ?? 0;
 }
 
@@ -206,6 +245,22 @@ export async function countByStatus(tx: Tx, scope: Scope): Promise<Record<Studen
   const out: Record<StudentStatus, number> = { active: 0, paused: 0, left: 0, prospect: 0 };
   for (const r of rows) out[r.status] = r.n;
   return out;
+}
+
+export type StudentCounts = { total: number; active: number; joinedThisMonth: number; paused: number };
+
+// One grouped pass over live students; `monthStart` is the tenant's, never UTC's.
+export async function countsFor(tx: Tx, scope: Scope, monthStart: string): Promise<StudentCounts> {
+  const [r] = await tx
+    .select({
+      total: count(),
+      active: sql<number>`count(*) FILTER (WHERE ${students.status} = 'active')::int`,
+      paused: sql<number>`count(*) FILTER (WHERE ${students.status} = 'paused')::int`,
+      joined: sql<number>`count(*) FILTER (WHERE ${students.joinedOn} >= ${monthStart}::date)::int`,
+    })
+    .from(students)
+    .where(and(isNull(students.deletedAt), inScope(scope)));
+  return { total: r?.total ?? 0, active: r?.active ?? 0, joinedThisMonth: r?.joined ?? 0, paused: r?.paused ?? 0 };
 }
 
 export async function listConsents(tx: Tx, studentId: string): Promise<Consent[]> {

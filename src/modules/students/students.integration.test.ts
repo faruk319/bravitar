@@ -7,6 +7,9 @@ import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformDb, platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { addProgram, createBatch } from "@/modules/batches/service";
+import { insertInvoice } from "@/modules/fees/repo";
+import { attendance } from "@/modules/attendance/schema";
+import { sessions } from "@/modules/sessions/schema";
 import { enroll, leaveEnrollment } from "@/modules/enrollments/service";
 import { listRoles } from "@/modules/staff/repo";
 import type { StaffUser } from "@/modules/staff/schema";
@@ -38,6 +41,8 @@ import {
   setStudentCode,
   setStudentStatus,
   type StudentCtx,
+  studentCounts,
+  studentList,
   studentOverview,
 } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
@@ -452,5 +457,163 @@ describe("student_guardians is the only family link", () => {
       const b = await mk("Fresh Two", "Parent Two", y);
       expect(a.guardian.id).not.toBe(b.guardian.id);
     });
+  });
+});
+
+describe("listing counts", () => {
+  const tag = Math.random().toString(36).slice(2, 8);
+  let CT = "";
+  let cctx: StudentCtx;
+  let phones = 0;
+  const kid = (name: string, joinedOn: string) =>
+    withTenant(CT, (tx) => createStudent(tx, cctx, { fullName: name, dateOfBirth: "2014-01-01", joinedOn, guardian: { fullName: `${name} Parent`, phone: P(2_000_000 + ++phones), relation: "father" }, consents }));
+
+  beforeAll(async () => {
+    const a = await testAcademy({ name: `Counts ${tag}`, slug: `cnt-${tag}`, verticalPreset: "karate", owner: { name: "Owner", email: `cnt-${tag}@example.test` } });
+    CT = a.tenant.id;
+    cctx = await ctxFor(a.owner.id, CT);
+    const [a1, a2, p1, l1, gone] = [await kid("Active Early", "2026-10-01"), await kid("Active Old", "2026-08-10"), await kid("Paused One", "2026-10-02"), await kid("Left One", "2026-07-01"), await kid("Deleted One", "2026-10-03")];
+    await withTenant(CT, async (tx) => {
+      await updateStudent(tx, p1.student.id, { status: "paused" });
+      await updateStudent(tx, l1.student.id, { status: "left", leftOn: "2026-09-01", leftReason: "other" });
+      await updateStudent(tx, gone.student.id, { deletedAt: new Date() });
+    });
+    expect([a1, a2].length).toBe(2);
+  });
+
+  afterAll(async () => {
+    await deleteTenantsCompletely([CT]);
+  });
+
+  // 2026-10-15 in IST: Paused One (10-02) and Active Early (10-01) joined this month.
+  const mid = new Date("2026-10-15T06:00:00Z");
+
+  it("counts students by status, and joins within the tenant's month", async () => {
+    const c = await withTenant(CT, (tx) => studentCounts(tx, cctx, { now: mid }));
+    expect(c).toEqual({ total: 4, active: 2, joinedThisMonth: 2, paused: 1 });
+  });
+
+  it("files a student by the tenant's clock, not UTC's, at the month boundary", async () => {
+    // 20:00Z on 30 Sep is 01:30 IST on 1 Oct: October has begun for this academy.
+    const c = await withTenant(CT, (tx) => studentCounts(tx, cctx, { now: new Date("2026-09-30T20:00:00Z") }));
+    expect(c.joinedThisMonth).toBe(2);
+    // 19:00Z on 31 Oct is 00:30 IST on 1 Nov: October is over here, though still October in UTC.
+    const early = await withTenant(CT, (tx) => studentCounts(tx, cctx, { now: new Date("2026-10-31T19:00:00Z") }));
+    expect(early.joinedThisMonth).toBe(0); // 00:30 IST on 1 Nov: October is over
+  });
+
+  it("is a measurement, not a permission: a viewer without students:read is refused, not shown zeros", async () => {
+    const desk = { ...cctx, isOwner: false, permissions: [] };
+    await expect(withTenant(CT, (tx) => studentCounts(tx, desk, { now: mid }))).rejects.toMatchObject({ status: 403 });
+    expect((await withTenant(CT, (tx) => studentCounts(tx, cctx, { now: mid }))).total).toBeGreaterThan(0);
+  });
+});
+
+describe("the listing", () => {
+  const tag = Math.random().toString(36).slice(2, 8);
+  const now = new Date("2026-10-15T06:00:00Z");
+  let LT = "";
+  let lctx: StudentCtx;
+  let branch = "";
+  const id: Record<string, string> = {};
+  let karate = "";
+  let karateBatch = "";
+  let danceBatch = "";
+  let phones = 0;
+  const kid = (name: string, joinedOn: string) =>
+    withTenant(LT, async (tx) => (await createStudent(tx, lctx, { fullName: name, dateOfBirth: "2014-01-01", joinedOn, guardian: { fullName: `${name} Parent`, phone: P(3_000_000 + ++phones), relation: "father" }, consents })).student.id);
+  const mark = (studentId: string, sessionId: string, status: "present" | "absent" | "late") =>
+    withTenant(LT, (tx) => tx.insert(attendance).values({ id: uuidv7(), tenantId: LT, sessionId, studentId, status }));
+  const invoice = (studentId: string, dueDate: string, status: "issued" | "paid") =>
+    withTenant(LT, (tx) => insertInvoice(tx, { tenantId: LT, branchId: branch, studentId, number: `T-${++phones}`, fy: "2026-27", issuedAt: new Date("2026-10-01T05:00:00Z"), issueDate: "2026-10-01", dueDate, subtotalPaise: 50_000n, totalPaise: 50_000n, paidPaise: status === "paid" ? 50_000n : 0n, status }));
+  const list = (q: Parameters<typeof studentList>[2], ctx = lctx) => withTenant(LT, (tx) => studentList(tx, ctx, q, { now }));
+  const names = (l: Awaited<ReturnType<typeof list>>) => l.rows.map((r) => r.student.fullName).sort();
+
+  beforeAll(async () => {
+    const a = await testAcademy({ name: `List ${tag}`, slug: `lst-${tag}`, verticalPreset: "karate", owner: { name: "Coach Owner", email: `lst-${tag}@example.test` } });
+    LT = a.tenant.id;
+    branch = a.branch.id;
+    lctx = await ctxFor(a.owner.id, LT);
+    const [kp, dp] = [await withTenant(LT, (tx) => addProgram(tx, lctx, { name: "Karate" })), await withTenant(LT, (tx) => addProgram(tx, lctx, { name: "Dance" }))];
+    karate = kp.id;
+    const slot = [{ weekday: 1, startTime: "17:00", endTime: "18:00" }];
+    karateBatch = (await withTenant(LT, (tx) => createBatch(tx, lctx, { name: "Karate A", programId: kp.id, coachId: a.owner.id, slots: slot }))).id;
+    danceBatch = (await withTenant(LT, (tx) => createBatch(tx, lctx, { name: "Dance B", programId: dp.id, slots: slot }))).id;
+    for (const [n, joined] of [["Asha", "2026-10-02"], ["Bala", "2026-09-10"], ["Chitra", "2026-08-01"], ["Dev", "2026-10-05"]] as const) id[n] = await kid(n, joined);
+    for (const [n, b] of [["Asha", karateBatch], ["Bala", karateBatch], ["Chitra", danceBatch]] as const) await withTenant(LT, (tx) => enroll(tx, lctx, { studentId: id[n] ?? "", batchId: b }));
+    // Four classes on the karate batch: Asha attends 3 of 4; Bala was never marked. One class is cancelled and must not count.
+    const sess = await withTenant(LT, (tx) =>
+      tx.insert(sessions).values(["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"].map((d, i) => ({ id: uuidv7(), tenantId: LT, branchId: branch, batchId: karateBatch, startsAt: new Date(`${d}T11:30:00Z`), endsAt: new Date(`${d}T12:30:00Z`), sessionDate: d, status: i === 4 ? ("cancelled" as const) : ("held" as const), cancelReason: i === 4 ? "holiday" : null }))).returning({ id: sessions.id }),
+    );
+    const [s0, s1, s2, s3, cancelled] = sess.map((r) => r.id);
+    await mark(id.Asha ?? "", s0 ?? "", "present");
+    await mark(id.Asha ?? "", s1 ?? "", "late");
+    await mark(id.Asha ?? "", s2 ?? "", "present");
+    await mark(id.Asha ?? "", s3 ?? "", "absent");
+    await mark(id.Asha ?? "", cancelled ?? "", "absent");
+    await invoice(id.Asha ?? "", "2026-10-05", "issued"); // past due on the 15th
+    await invoice(id.Bala ?? "", "2026-10-05", "paid");
+    await invoice(id.Chitra ?? "", "2026-10-25", "issued"); // due, not late
+  });
+
+  afterAll(async () => {
+    await deleteTenantsCompletely([LT]);
+  });
+
+  it("each filter returns the right students and the count matches", async () => {
+    const all = await list({ page: 1 });
+    expect(names(all)).toEqual(["Asha", "Bala", "Chitra", "Dev"]);
+    const cases: [Parameters<typeof list>[0], string[]][] = [
+      [{ page: 1, programId: karate }, ["Asha", "Bala"]],
+      [{ page: 1, batchId: danceBatch }, ["Chitra"]],
+      [{ page: 1, coachId: lctx.staffId }, ["Asha", "Bala"]],
+      [{ page: 1, fee: "overdue" }, ["Asha"]],
+      [{ page: 1, fee: "due" }, ["Chitra"]],
+      [{ page: 1, fee: "paid" }, ["Bala"]],
+      [{ page: 1, joinedFrom: "2026-10-01" }, ["Asha", "Dev"]],
+      [{ page: 1, joinedFrom: "2026-09-01", joinedTo: "2026-09-30" }, ["Bala"]],
+      [{ page: 1, programId: karate, fee: "overdue" }, ["Asha"]],
+      [{ page: 1, programId: karate, fee: "due" }, []],
+    ];
+    for (const [q, want] of cases) {
+      const l = await list(q);
+      expect(names(l), JSON.stringify(q)).toEqual(want);
+      expect(l.matched).toBe(want.length);
+    }
+  });
+
+  it("a filter that matches no one is a measurement: the same viewer sees four without it", async () => {
+    expect((await list({ page: 1 })).matched).toBe(4);
+    expect((await list({ page: 1, coachId: uuidv7() })).matched).toBe(0);
+  });
+
+  it("reads attendance without dividing by zero: no marks is null, a real 0 stays 0, cancelled classes are ignored", async () => {
+    const by = Object.fromEntries((await list({ page: 1 })).rows.map((r) => [r.student.fullName, r.attendance?.pct]));
+    expect(by).toEqual({ Asha: 75, Bala: null, Chitra: null, Dev: null });
+  });
+
+  it("shows batch, program and coach per student, and nothing for one with no batch", async () => {
+    const by = Object.fromEntries((await list({ page: 1 })).rows.map((r) => [r.student.fullName, r.placements?.map((p) => [p.batchName, p.programName, p.coachName])]));
+    expect(by).toEqual({ Asha: [["Karate A", "Karate", "Coach Owner"]], Bala: [["Karate A", "Karate", "Coach Owner"]], Chitra: [["Dance B", "Dance", null]], Dev: [] });
+  });
+
+  it("derives the fee status from invoices: none billed is null, not paid", async () => {
+    const by = Object.fromEntries((await list({ page: 1 })).rows.map((r) => [r.student.fullName, r.fee]));
+    expect(by).toEqual({ Asha: "overdue", Bala: "paid", Chitra: "due", Dev: null });
+  });
+
+  it("leaves a block out of the payload, and ignores its filter, when the viewer may not see it", async () => {
+    const reader = { ...lctx, isOwner: false, permissions: ["students:read"] };
+    const l = await list({ page: 1, fee: "overdue", programId: karate }, reader);
+    expect(l.matched).toBe(4);
+    expect(l.applied).toEqual({});
+    expect(l.options).toEqual({});
+    expect(l.shows).toEqual({ placements: false, attendance: false, fee: false });
+    for (const r of l.rows) {
+      expect(r).not.toHaveProperty("fee");
+      expect(r).not.toHaveProperty("attendance");
+      expect(r).not.toHaveProperty("placements");
+    }
+    await expect(list({ page: 1 }, { ...reader, permissions: [] })).rejects.toMatchObject({ status: 403 });
   });
 });

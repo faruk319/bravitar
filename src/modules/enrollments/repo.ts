@@ -1,9 +1,10 @@
-import { and, asc, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { feePlans } from "@/modules/fees/schema";
+import { staffUsers } from "@/modules/staff/schema";
 import { students } from "@/modules/students/schema";
 import { type Enrollment, enrollments } from "./schema";
 
@@ -54,18 +55,31 @@ export async function rosterOf(tx: Tx, batchId: string, from: string): Promise<R
   return rows.map((r) => ({ ...r.e, studentName: r.studentName, studentCode: r.studentCode }));
 }
 
-// Student id -> batches they're in or joining on `day` (list views).
-export async function currentBatchNames(tx: Tx, studentIds: string[], day: string): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
+export type Placement = { batchId: string; batchName: string; programName: string; coachName: string | null };
+
+// Where each student is placed on `day`: batch, program and the batch's coach, one query for all.
+export async function currentPlacements(tx: Tx, studentIds: string[], day: string): Promise<Map<string, Placement[]>> {
+  const out = new Map<string, Placement[]>();
   if (!studentIds.length) return out;
   const rows = await tx
-    .select({ studentId: enrollments.studentId, name: batches.name })
+    .select({ studentId: enrollments.studentId, batchId: batches.id, batchName: batches.name, programName: programs.name, coachName: staffUsers.fullName })
     .from(enrollments)
     .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .innerJoin(programs, eq(programs.id, batches.programId))
+    .leftJoin(staffUsers, eq(staffUsers.id, batches.coachId))
     .where(and(inArray(enrollments.studentId, studentIds), reaches(day)))
     .orderBy(asc(batches.name));
-  for (const r of rows) out.set(r.studentId, [...(out.get(r.studentId) ?? []), r.name]);
+  for (const r of rows) out.set(r.studentId, [...(out.get(r.studentId) ?? []), { batchId: r.batchId, batchName: r.batchName, programName: r.programName, coachName: r.coachName }]);
   return out;
+}
+
+// For a students query: placed on `day` in this program, batch or with this coach (all given must hold of one placement).
+export function placedWhere(tx: Tx, day: string, f: { programId?: string; batchId?: string; coachId?: string }): SQL {
+  const on = [eq(enrollments.studentId, students.id), reaches(day)];
+  if (f.programId) on.push(eq(batches.programId, f.programId));
+  if (f.batchId) on.push(eq(batches.id, f.batchId));
+  if (f.coachId) on.push(eq(batches.coachId, f.coachId));
+  return exists(tx.select({ one: sql`1` }).from(enrollments).innerJoin(batches, eq(batches.id, enrollments.batchId)).where(and(...on)));
 }
 
 export type OnRoster = { batchId: string; studentId: string; name: string; code: string; paused: boolean };

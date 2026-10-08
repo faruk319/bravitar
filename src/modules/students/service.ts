@@ -1,19 +1,28 @@
 import { z } from "zod";
-import { type AccessContext, assertCan } from "@/lib/auth/can";
+import { type AccessContext, allows, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
-import { todayIn } from "@/lib/dates";
+import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
-import { endForStudent, hasEnrollments, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
+import { attendancePct } from "@/lib/students/attendance";
+import { attendanceTallies } from "@/modules/attendance/repo";
+import { coachOptions, listBatchRows, listPrograms } from "@/modules/batches/repo";
+import { currentPlacements, endForStudent, hasEnrollments, type Placement, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
 import { endCharges } from "@/modules/fees/invoicing";
 import { pickBranch } from "@/modules/tenancy/branch-access";
 import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 import { nextStudentCode, STUDENT_CODE_RE } from "./codes";
 import {
+  countsFor,
+  countStudents,
   createGuardian,
+  FEE_STATES,
+  type FeeState,
+  feeStates,
+  type ListFilter,
   currentConsents,
   findGuardianByPhone,
   getGuardian,
@@ -25,7 +34,9 @@ import {
   linksOfGuardian,
   recordConsent,
   type Scope,
+  searchStudents,
   siblingsOf,
+  type StudentCounts,
   studentsOfGuardian,
   updateGuardian,
   updateStudent,
@@ -269,6 +280,13 @@ export async function archiveStudent(tx: Tx, ctx: StudentCtx, id: string): Promi
   await writeAudit(tx, { ...actor(ctx), action: "student.archive", entityType: "student", entityId: id });
 }
 
+// The listing's KPI row; "this month" is the tenant's calendar month.
+export async function studentCounts(tx: Tx, ctx: StudentCtx, opts: { now?: Date } = {}): Promise<StudentCounts> {
+  assertCan(ctx, "students:read");
+  const today = todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata", opts.now);
+  return countsFor(tx, scopeOf(ctx), `${today.slice(0, 7)}-01`);
+}
+
 export async function studentOverview(tx: Tx, ctx: StudentCtx, id: string) {
   const student = await requireStudent(tx, ctx, id);
   const [guardians, siblings, consents] = await Promise.all([
@@ -277,4 +295,100 @@ export async function studentOverview(tx: Tx, ctx: StudentCtx, id: string) {
     currentConsents(tx, id),
   ]);
   return { student, guardians, siblings, consents };
+}
+
+const PAGE_SIZE = 50;
+const ATTENDANCE_DAYS = 30;
+
+export type ListQuery = { q?: string; status?: StudentStatus; programId?: string; batchId?: string; coachId?: string; fee?: FeeState; joinedFrom?: string; joinedTo?: string; page: number };
+
+// URL params to a query; a value that is not valid is dropped, so a stale link still loads.
+export function parseListQuery(sp: Record<string, string | string[] | undefined>): ListQuery {
+  const one = (k: string): string | undefined => {
+    const v = sp[k];
+    return typeof v === "string" && v ? v : undefined;
+  };
+  const id = (k: string) => {
+    const v = one(k);
+    return v && z.uuid().safeParse(v).success ? v : undefined;
+  };
+  const day = (k: string) => {
+    const v = one(k);
+    return v && isIsoDate(v) ? v : undefined;
+  };
+  const status = one("status");
+  const fee = one("fee");
+  const out: ListQuery = { page: Math.max(1, Math.floor(Number(one("page"))) || 1) };
+  const q = one("q");
+  if (q) out.q = q;
+  if (status && (STUDENT_STATUSES as readonly string[]).includes(status)) out.status = status as StudentStatus;
+  if (fee && (FEE_STATES as readonly string[]).includes(fee)) out.fee = fee as FeeState;
+  for (const [k, v] of [["programId", id("program")], ["batchId", id("batch")], ["coachId", id("coach")], ["joinedFrom", day("joinedFrom")], ["joinedTo", day("joinedTo")]] as const) if (v) out[k] = v;
+  return out;
+}
+
+// The inverse of parseListQuery, for links that keep the filters.
+export function listParams(q: Omit<ListQuery, "page">, page?: number): URLSearchParams {
+  const keys = { q: "q", status: "status", fee: "fee", programId: "program", batchId: "batch", coachId: "coach", joinedFrom: "joinedFrom", joinedTo: "joinedTo" } as const;
+  const out = new URLSearchParams();
+  for (const [k, name] of Object.entries(keys) as [keyof typeof keys, string][]) if (q[k]) out.set(name, q[k]);
+  if (page && page > 1) out.set("page", String(page));
+  return out;
+}
+
+export type ListedStudent = {
+  student: Student;
+  guardianName: string | null;
+  guardianPhone: string | null;
+  placements?: Placement[]; // batches:read
+  attendance?: { pct: number | null }; // attendance:read; null = no classes
+  fee?: FeeState | null; // invoices:read; null = nothing billed
+};
+
+export type StudentList = {
+  rows: ListedStudent[];
+  matched: number;
+  page: number;
+  pageSize: number;
+  applied: Omit<ListQuery, "page">; // the filters that took effect for this viewer
+  shows: { placements: boolean; attendance: boolean; fee: boolean }; // which blocks this viewer may see
+  options: { programs?: { id: string; name: string }[]; batches?: { id: string; name: string }[]; coaches?: { id: string; name: string }[] };
+};
+
+// Each block is read only when the viewer holds its permission, and is absent from the result otherwise; so is its filter.
+export async function studentList(tx: Tx, ctx: StudentCtx, query: ListQuery, opts: { now?: Date } = {}): Promise<StudentList> {
+  assertCan(ctx, "students:read");
+  const today = todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata", opts.now);
+  const [seeBatches, seeAttendance, seeFees] = [allows(ctx, "batches:read"), allows(ctx, "attendance:read"), allows(ctx, "invoices:read")];
+  const { page, ...asked } = query;
+  const applied: Omit<ListQuery, "page"> = { ...asked };
+  if (!seeBatches) {
+    delete applied.programId;
+    delete applied.batchId;
+    delete applied.coachId;
+  }
+  if (!seeFees) delete applied.fee;
+  const filter: ListFilter = { ...applied, today };
+  const scope = scopeOf(ctx);
+  const [found, matched] = [await searchStudents(tx, scope, { ...filter, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }), await countStudents(tx, scope, filter)];
+  const ids = found.map((r) => r.student.id);
+  const [placements, tallies, fees] = [
+    seeBatches ? await currentPlacements(tx, ids, today) : undefined,
+    seeAttendance ? await attendanceTallies(tx, ids, addDays(today, 1 - ATTENDANCE_DAYS), today) : undefined,
+    seeFees ? await feeStates(tx, ids, today) : undefined,
+  ];
+  const rows = found.map((r): ListedStudent => ({
+    ...r,
+    ...(placements ? { placements: placements.get(r.student.id) ?? [] } : {}),
+    ...(tallies ? { attendance: { pct: attendancePct(tallies.get(r.student.id)) } } : {}),
+    ...(fees ? { fee: fees.get(r.student.id) ?? null } : {}),
+  }));
+  const options: StudentList["options"] = {};
+  if (seeBatches) {
+    const [programs, batches, coaches] = [await listPrograms(tx, { activeOnly: true }), await listBatchRows(tx, ctx.branchIds), await coachOptions(tx)];
+    options.programs = programs.map((p) => ({ id: p.id, name: p.name }));
+    options.batches = batches.map((b) => ({ id: b.id, name: b.name }));
+    options.coaches = coaches.map((c) => ({ id: c.id, name: c.fullName }));
+  }
+  return { rows, matched, page, pageSize: PAGE_SIZE, applied, shows: { placements: seeBatches, attendance: seeAttendance, fee: seeFees }, options };
 }
