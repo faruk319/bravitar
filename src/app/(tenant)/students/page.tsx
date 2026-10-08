@@ -58,13 +58,17 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
         </Card>
       ) : (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-            <StatCard label="Total" value={counts.total} icon={Users} href="/students" />
-            <StatCard label="Active" value={counts.active} icon={UserCheck} href="/students?status=active" />
-            <StatCard label="New this month" value={counts.joinedThisMonth} icon={UserPlus} href={`/students?joinedFrom=${monthStart}`} />
-            <StatCard label="Paused" value={counts.paused} icon={PauseCircle} href="/students?status=paused" />
-          </div>
-          {data?.trends ? <TrendCards trends={data.trends} /> : null}
+          {(() => {
+            const kpis = (
+              <div className="grid grid-cols-2 gap-3 md:gap-4 xl:content-start">
+                <StatCard label="Total" value={counts.total} icon={Users} href="/students" />
+                <StatCard label="Active" value={counts.active} icon={UserCheck} href="/students?status=active" />
+                <StatCard label="New this month" value={counts.joinedThisMonth} icon={UserPlus} href={`/students?joinedFrom=${monthStart}`} />
+                <StatCard label="Paused" value={counts.paused} icon={PauseCircle} href="/students?status=paused" />
+              </div>
+            );
+            return data?.trends ? <TrendCards trends={data.trends} lead={kpis} /> : <div className="mb-5">{kpis}</div>;
+          })()}
           <Card className="overflow-hidden p-0 md:p-0">
             <div className="p-4 md:p-5">
               <Suspense>

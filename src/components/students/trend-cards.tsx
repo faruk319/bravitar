@@ -105,9 +105,11 @@ function Attendance({ data }: { data: NonNullable<StudentTrends["attendance"]> }
   );
 }
 
-export function TrendCards({ trends }: { trends: StudentTrends }) {
+// The KPI block sits in the left corner with the two charts beside it, one row.
+export function TrendCards({ trends, lead }: { trends: StudentTrends; lead?: ReactNode }) {
   return (
-    <div className="mb-5 grid gap-3 md:grid-cols-2 md:gap-4">
+    <div className="mb-5 grid gap-3 md:gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.05fr)]">
+      {lead}
       <Enrolment data={trends.enrolment} />
       {trends.attendance ? <Attendance data={trends.attendance} /> : null}
     </div>
