@@ -95,6 +95,7 @@ function Attendance({ data }: { data: NonNullable<StudentTrends["attendance"]> }
               tick: tick(m.month),
               tip: m.percent === null ? `${long(m.month)}: No classes` : `${long(m.month)}: ${m.percent}%`,
               value: m.percent ?? 0,
+              ...(m.percent === null ? { empty: true } : {}),
               valueText: `${m.percent ?? 0}%`,
             }))}
           />

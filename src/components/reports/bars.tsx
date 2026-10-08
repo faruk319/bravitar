@@ -42,7 +42,7 @@ export function BarList({ items }: { items: BarItem[] }) {
   );
 }
 
-export type Column = { key: string; tick: string; tip: string; value: number; valueText: string; href?: string };
+export type Column = { key: string; tick: string; tip: string; value: number; valueText: string; href?: string; empty?: boolean };
 
 // A column per day (or month) from one baseline. The tallest carries its value;
 // the rest show theirs on hover or focus, and open the list behind them.
@@ -59,7 +59,7 @@ export function Columns({ columns, label }: { columns: Column[]; label: string }
       <div className="flex h-44 items-end gap-0.5 border-b border-neutral-100 pt-7">
         {columns.map((c, i) => {
           const bar = (
-            <span className="relative mx-auto block w-full max-w-6 rounded-t-[4px] bg-accent-600 group-hover:opacity-75 group-focus-visible:opacity-75" style={{ height: `${(c.value / (max || 1)) * 100}%` }}>
+            <span className="relative mx-auto block w-full max-w-6 rounded-t-[4px] bg-accent-600 group-hover:opacity-75 group-focus-visible:opacity-75" style={{ height: c.value ? `${(c.value / (max || 1)) * 100}%` : "2px" }}>
               {i === peak ? <span className={cn("absolute bottom-full mb-1 whitespace-nowrap text-caption font-medium text-neutral-900 group-hover:invisible", edge(i))}>{c.valueText}</span> : null}
               <span role="tooltip" className={cn("pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded-md bg-neutral-900 px-2 py-1 text-caption text-white group-hover:block group-focus-visible:block", edge(i))}>
                 {c.tip}
