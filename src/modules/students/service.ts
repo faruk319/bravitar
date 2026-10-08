@@ -297,7 +297,7 @@ export async function studentOverview(tx: Tx, ctx: StudentCtx, id: string) {
   return { student, guardians, siblings, consents };
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 const ATTENDANCE_DAYS = 30;
 
 export type ListQuery = { q?: string; status?: StudentStatus; programId?: string; batchId?: string; coachId?: string; fee?: FeeState; joinedFrom?: string; joinedTo?: string; page: number };
