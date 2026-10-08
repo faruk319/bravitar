@@ -106,7 +106,7 @@
   --color-chart-3: var(--color-neutral-500);
   --color-chart-4: var(--color-neutral-300);
   --color-chart-5: var(--color-neutral-100);
-  --color-sidebar: var(--color-neutral-0);
+  --color-sidebar: var(--color-neutral-50);
   --color-sidebar-foreground: var(--color-neutral-700);
   --color-sidebar-primary: var(--color-accent-600);
   --color-sidebar-primary-foreground: var(--color-neutral-0);
