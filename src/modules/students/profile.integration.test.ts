@@ -65,10 +65,12 @@ describe("tabs follow permissions", () => {
     const p = await profile(teacher, s.student.id);
     expect("nextDue" in p).toBe(false);
     expect("batches" in p).toBe(false);
+    expect("attendance" in p).toBe(false);
     await expect(withTenant(T, (tx) => nextDue(tx, teacher, s.student.id))).rejects.toMatchObject({ status: 403 });
     // Positive control: the same student, seen by the owner, has both.
     const full = await profile(owner, s.student.id);
     expect(full.batches?.current).toHaveLength(1);
+    expect(full.attendance?.trend).toHaveLength(6);
     expect(full).toHaveProperty("nextDue");
   });
 

@@ -5,7 +5,8 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, monthEnd, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
-import { getBatch } from "@/modules/batches/repo";
+import { type DayCell, type MonthTally, type MonthTrend, monthBefore, monthCells, monthTrend, tallyOf } from "@/lib/students/attendance";
+import { getBatch, listHolidays } from "@/modules/batches/repo";
 import { assertBatchOpen } from "@/modules/billing/access";
 import { onRoster } from "@/modules/enrollments/repo";
 import { trialsForSession } from "@/modules/enquiries/repo";
@@ -13,7 +14,10 @@ import { markTrials } from "@/modules/enquiries/trials";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, staffNames, studentClasses, studentNames, upsertMarks } from "./repo";
+import { attendancePercent } from "./percent";
 import { MARKS, type Mark } from "./schema";
+
+export { attendancePercent };
 
 // docs/03 §7 (agreed 2026-09-23): corrections lock 48 hours after the class starts.
 export const EDIT_WINDOW_MS = 48 * 3600_000;
@@ -175,6 +179,7 @@ export type StudentAttendance = { from: string; to: string; counts: Record<Mark 
 
 // Last 30 days. % = (present + late) / (present + late + absent); unmarked and excused don't count.
 export async function studentAttendance(tx: Tx, ctx: ScopedCtx, studentId: string, opts: { now?: Date } = {}): Promise<StudentAttendance> {
+  assertCan(ctx, "attendance:read");
   await requireStudent(tx, ctx, studentId);
   const now = opts.now ?? new Date();
   const to = todayIn(await timeZone(tx), now);
@@ -185,9 +190,28 @@ export async function studentAttendance(tx: Tx, ctx: ScopedCtx, studentId: strin
   return { from, to, counts, percent: attendancePercent(counts), recent: classes.slice(-10).reverse() };
 }
 
-// docs/03 §7: (present + late) / (present + late + absent); unmarked and excused
-// don't count. Null when nothing counted.
-export function attendancePercent(c: { present: number; late: number; absent: number }): number | null {
-  const counted = c.present + c.late + c.absent;
-  return counted ? Math.round(((c.present + c.late) / counted) * 100) : null;
+const TREND_MONTHS = 6;
+
+// The last six months, this one included, month by month in tenant time.
+export async function attendanceTrend(tx: Tx, ctx: ScopedCtx, studentId: string, opts: { now?: Date } = {}): Promise<MonthTrend[]> {
+  assertCan(ctx, "attendance:read");
+  await requireStudent(tx, ctx, studentId);
+  const now = opts.now ?? new Date();
+  const month = todayIn(await timeZone(tx), now).slice(0, 7);
+  const first = monthBefore(month, TREND_MONTHS - 1);
+  const classes = await studentClasses(tx, studentId, `${first}-01`, monthEnd(month), now);
+  return monthTrend(classes, month, TREND_MONTHS);
+}
+
+export type AttendanceCalendar = { month: string; today: string; cells: DayCell[]; tally: MonthTally };
+
+// One month's days: marks from the student's classes, holidays from the branch calendar.
+export async function attendanceCalendar(tx: Tx, ctx: ScopedCtx, studentId: string, month: string, opts: { now?: Date } = {}): Promise<AttendanceCalendar> {
+  assertCan(ctx, "attendance:read");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BadRequestError("Pick a month");
+  const student = await requireStudent(tx, ctx, studentId);
+  const now = opts.now ?? new Date();
+  const lastDay = monthEnd(month);
+  const [classes, hols] = [await studentClasses(tx, studentId, `${month}-01`, lastDay, now), await listHolidays(tx, [student.branchId], { from: `${month}-01`, to: lastDay })];
+  return { month, today: todayIn(await timeZone(tx), now), cells: monthCells(month, lastDay, classes, hols), tally: tallyOf(classes) };
 }

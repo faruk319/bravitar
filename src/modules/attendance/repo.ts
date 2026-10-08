@@ -180,7 +180,7 @@ export async function marksByStudent(tx: Tx, branchIds: string[], from: string, 
     .orderBy(asc(students.fullName));
 }
 
-export type AttendanceTally = { attended: number; marked: number };
+export type AttendanceTally = { present: number; late: number; absent: number };
 
 // Present/late over present/late/absent in held-or-scheduled sessions between two dates.
 // Not-marked and excused are in neither count; a student with no marks is absent from the map.
@@ -190,13 +190,14 @@ export async function attendanceTallies(tx: Tx, studentIds: string[], from: stri
   const rows = await tx
     .select({
       studentId: attendance.studentId,
-      attended: sql<number>`count(*) FILTER (WHERE ${attendance.status} IN ('present', 'late'))::int`,
-      marked: sql<number>`count(*) FILTER (WHERE ${attendance.status} IN ('present', 'late', 'absent'))::int`,
+      present: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'present')::int`,
+      late: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'late')::int`,
+      absent: sql<number>`count(*) FILTER (WHERE ${attendance.status} = 'absent')::int`,
     })
     .from(attendance)
     .innerJoin(sessions, eq(sessions.id, attendance.sessionId))
     .where(and(inArray(attendance.studentId, studentIds), ne(sessions.status, "cancelled"), gte(sessions.sessionDate, from), lte(sessions.sessionDate, to)))
     .groupBy(attendance.studentId);
-  for (const r of rows) out.set(r.studentId, { attended: r.attended, marked: r.marked });
+  for (const r of rows) out.set(r.studentId, { present: r.present, late: r.late, absent: r.absent });
   return out;
 }

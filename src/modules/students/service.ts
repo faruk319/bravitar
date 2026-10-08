@@ -7,8 +7,8 @@ import type { Tx } from "@/lib/db/client";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
-import { attendancePct } from "@/lib/students/attendance";
 import { attendanceTallies } from "@/modules/attendance/repo";
+import { attendancePercent } from "@/modules/attendance/percent";
 import { coachOptions, listBatchRows, listPrograms } from "@/modules/batches/repo";
 import { currentPlacements, endForStudent, hasEnrollments, type Placement, pauseForStudent, resumeForStudent } from "@/modules/enrollments/repo";
 import { endCharges } from "@/modules/fees/invoicing";
@@ -380,7 +380,7 @@ export async function studentList(tx: Tx, ctx: StudentCtx, query: ListQuery, opt
   const rows = found.map((r): ListedStudent => ({
     ...r,
     ...(placements ? { placements: placements.get(r.student.id) ?? [] } : {}),
-    ...(tallies ? { attendance: { pct: attendancePct(tallies.get(r.student.id)) } } : {}),
+    ...(tallies ? { attendance: { pct: attendancePercent(tallies.get(r.student.id) ?? { present: 0, late: 0, absent: 0 }) } } : {}),
     ...(fees ? { fee: fees.get(r.student.id) ?? null } : {}),
   }));
   const options: StudentList["options"] = {};

@@ -6,6 +6,7 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
+import { addHoliday } from "@/modules/batches/service";
 import { closeRulesFrom, createProgram, insertBatch, insertRules } from "@/modules/batches/repo";
 import { enrollments } from "@/modules/enrollments/schema";
 import { enroll, pauseEnrollment } from "@/modules/enrollments/service";
@@ -17,7 +18,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendance, type Mark } from "./schema";
-import { classRoster, monthGrid, saveAttendance, studentAttendance, todaysClasses } from "./service";
+import { attendanceCalendar, attendanceTrend, classRoster, monthGrid, saveAttendance, studentAttendance, todaysClasses } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const MWF = [1, 3, 5].map((weekday) => ({ weekday, startTime: "18:00", endTime: "19:00" }));
@@ -257,5 +258,60 @@ describe("today's class card", () => {
     expect(before).toBeTypeOf("string");
     expect(after).toBeTypeOf("string");
     expect(after).not.toBe(before);
+  });
+});
+
+describe("a student's month and trend", () => {
+  const now = at("2026-10-20T12:00:00Z");
+  let s = "";
+  const cal = (ctx: ScopedCtx, month: string) => withTenant(T, (tx) => attendanceCalendar(tx, ctx, s, month, { now }));
+  const state = (c: Awaited<ReturnType<typeof cal>>, date: string) => c.cells.find((x) => x.date === date)?.state;
+
+  beforeAll(async () => {
+    const D = await batch(null);
+    s = await student(`Month ${stamp}`);
+    await join(s, D);
+    await save(owner, await classOn(D, "2026-10-05"), [{ studentId: s, status: "absent" }], "2026-10-05T13:00:00Z");
+    await save(owner, await classOn(D, "2026-10-07"), [{ studentId: s, status: "late" }], "2026-10-07T13:00:00Z");
+  });
+
+  it("marks land on their days; a class nobody marked is Not marked, never Absent", async () => {
+    const c = await cal(owner, "2026-10");
+    expect(state(c, "2026-10-05")).toBe("absent");
+    expect(state(c, "2026-10-07")).toBe("late");
+    expect(state(c, "2026-10-09")).toBe("unmarked");
+    expect(c.tally).toMatchObject({ absent: 1, late: 1, present: 0 });
+  });
+
+  it("a holiday on a class day reads as a holiday, not an absence", async () => {
+    expect(state(await cal(owner, "2026-10"), "2026-10-12")).toBe("unmarked"); // a Monday class, before the holiday
+    await withTenant(T, (tx) => addHoliday(tx, owner, { date: "2026-10-12", name: "Test Holiday" }, { now: at("2026-10-01T00:00:00Z") }));
+    const c = await cal(owner, "2026-10");
+    expect(state(c, "2026-10-12")).toBe("holiday");
+    expect(c.cells.find((x) => x.date === "2026-10-12")?.holiday).toBe("Test Holiday");
+    expect(c.tally.absent).toBe(1); // still only the 5 Oct absence
+  });
+
+  it("a month with no classes is all No class and its trend row has no classes and no percentage", async () => {
+    const aug = await cal(owner, "2026-08");
+    expect(aug.cells.every((x) => x.state === "none")).toBe(true);
+    expect(aug.tally).toEqual({ present: 0, late: 0, absent: 0, excused: 0, unmarked: 0 });
+    const trend = await withTenant(T, (tx) => attendanceTrend(tx, owner, s, { now }));
+    expect(trend.map((m) => m.month)).toEqual(["2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(trend.find((m) => m.month === "2026-08")).toMatchObject({ classes: 0, pct: null });
+    // Positive control: October has classes and a real rate (1 late of 2 marked).
+    expect(trend.find((m) => m.month === "2026-10")).toMatchObject({ pct: 50 });
+    expect(trend.find((m) => m.month === "2026-10")?.classes).toBeGreaterThan(2);
+  });
+
+  it("needs attendance:read; a teacher without it gets nothing, the owner gets the data", async () => {
+    await expect(cal(teacherA, "2026-10")).rejects.toMatchObject({ status: 403 });
+    await expect(withTenant(T, (tx) => attendanceTrend(tx, teacherA, s, { now }))).rejects.toMatchObject({ status: 403 });
+    await expect(withTenant(T, (tx) => studentAttendance(tx, teacherA, s, { now }))).rejects.toMatchObject({ status: 403 });
+    expect((await cal(owner, "2026-10")).cells.length).toBe(31);
+  });
+
+  it("rejects a malformed month", async () => {
+    await expect(cal(owner, "2026-13")).rejects.toMatchObject({ status: 400 });
   });
 });

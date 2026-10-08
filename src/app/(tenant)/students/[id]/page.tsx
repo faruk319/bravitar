@@ -2,7 +2,7 @@ import { FileText, History } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import { MARK_STYLE, MarkBadge } from "@/components/attendance/mark-badge";
+import { MarkBadge } from "@/components/attendance/mark-badge";
 import { EmptyState } from "@/components/empty-state";
 import { EnrollmentActions, JoinBatch, PlanSelect } from "@/components/enrollments/student-batches";
 import { EndDiscount, GiveDiscount } from "@/components/fees/discounts";
@@ -12,6 +12,8 @@ import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
+import { AttendanceCalendar } from "@/components/students/attendance-calendar";
+import { AttendanceSummaryCard } from "@/components/students/attendance-summary";
 import { EnrollmentCard, GuardianCard, PersonalCard } from "@/components/students/overview-cards";
 import { StatusBadge } from "@/components/students/status-badge";
 import { EditStudentSheet } from "@/components/students/student-actions";
@@ -22,7 +24,7 @@ import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { addDays, formatDate, todayIn, weekdayOf } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { studentAttendance } from "@/modules/attendance/service";
+import { attendanceCalendar, studentAttendance } from "@/modules/attendance/service";
 import { WEEKDAY_SHORT } from "@/modules/batches/schedule";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
@@ -55,6 +57,9 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   // docs/07 §7.3: no fee information without a fees permission.
   const showFees = can(ctx, "fees", "invoices:read");
   const tabs = profileTabs(ctx);
+  const today = todayIn(session.tenant.timezone);
+  const picked = typeof sp.month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month) ? sp.month : today.slice(0, 7);
+  const month = picked > today.slice(0, 7) ? today.slice(0, 7) : picked;
   const tab = tabs.find((t) => t === sp.tab) ?? "overview";
   const canEnroll = can(ctx, "batches", "enrollments:manage");
   const canDiscount = allows(ctx, "invoices:manage");
@@ -65,7 +70,8 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
       // docs/03 §9: the family's advance is visible on the family.
       account: showFees ? await familyAccount(tx, ctx, profile.student.id, profile.student.branchId) : undefined,
       choices: canEnroll ? (await batchChoices(tx, ctx)).map((b) => ({ id: b.id, label: `${b.name} · ${b.schedule}` })) : [],
-      attendance: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
+      recent: tab === "attendance" ? await studentAttendance(tx, ctx, id) : undefined,
+      calendar: tab === "attendance" ? await attendanceCalendar(tx, ctx, id, month) : undefined,
       plans: canEnroll && showFees ? await planChoices(tx, ctx) : [],
       fees: tab === "fees" ? await studentFees(tx, ctx, id) : undefined,
       discounts: tab === "fees" && canDiscount ? await discountChoices(tx, ctx) : [],
@@ -80,7 +86,6 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
   // Installments that stay due when the student leaves (docs/03 §6), shown on the leave sheets.
   const due: DueItem[] = o.due.map((i) => ({ invoiceId: i.invoiceId, enrollmentId: i.enrollmentId, description: i.description, number: i.number, dueDate: i.dueDate, amount: formatPaise(i.totalPaise - i.paidPaise), voidable: i.voidable }));
   const s = o.student;
-  const today = todayIn(session.tenant.timezone);
   const batchLinks = can(ctx, "batches", "batches:read");
   const placed = (o.batches?.current ?? []).map((e) => `${e.programName} · ${e.batchName}`).join(", ");
 
@@ -116,6 +121,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
           <PersonalCard o={o} canUpdate={canUpdate} />
           <GuardianCard o={o} {...(o.account ? { account: o.account } : {})} canUpdate={canUpdate} canMessage={allows(ctx, "messages:send")} />
           <EnrollmentCard o={o} today={today} canUpdate={canUpdate} due={due} />
+          {o.attendance ? <AttendanceSummaryCard attendance={o.attendance} /> : null}
         </div>
       ) : tab === "batches" && o.batches ? (
             <Card>
@@ -165,32 +171,25 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
         </Card>
       ) : (
         <Card>
-              {tab === "attendance" ? (
-                o.attendance?.recent.length ? (
+              {tab === "attendance" && o.calendar && o.recent ? (
                   <>
-                    <CardHeader title="Last 30 days" action={<span className="text-display">{o.attendance.percent === null ? "—" : `${o.attendance.percent}%`}</span>} />
-                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                      {(["present", "late", "absent", "unmarked"] as const).map((k) => (
-                        <div key={k} className={cn("rounded-xl px-4 py-3", k === "unmarked" ? "bg-neutral-100 text-neutral-700" : MARK_STYLE[k].cls)}>
-                          <p className="text-label">{k === "unmarked" ? "Not marked" : MARK_STYLE[k].word}</p>
-                          <p className="text-display tabular-nums">{o.attendance?.counts[k]}</p>
-                        </div>
-                      ))}
-                    </div>
-                    <ul className="mt-4 divide-y divide-neutral-100">
-                      {o.attendance.recent.map((c) => (
-                        <li key={c.sessionId} className="flex min-h-12 items-center justify-between gap-3">
-                          <span className="text-body">
-                            {WEEKDAY_SHORT[weekdayOf(c.date)]}, {formatDate(c.date)} <span className="text-caption text-muted-foreground">· {c.batchName}</span>
-                          </span>
-                          <MarkBadge mark={c.mark} />
-                        </li>
-                      ))}
-                    </ul>
+                    <AttendanceCalendar calendar={o.calendar} href={(m) => `/students/${s.id}?tab=attendance&month=${m}`} />
+                    {o.recent.recent.length ? (
+                      <>
+                        <CardHeader title="Recent classes" className="mt-5" />
+                        <ul className="divide-y divide-neutral-100">
+                          {o.recent.recent.map((c) => (
+                            <li key={c.sessionId} className="flex min-h-12 items-center justify-between gap-3">
+                              <span className="text-body">
+                                {WEEKDAY_SHORT[weekdayOf(c.date)]}, {formatDate(c.date)} <span className="text-caption text-muted-foreground">· {c.batchName}</span>
+                              </span>
+                              <MarkBadge mark={c.mark} />
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : null}
                   </>
-                ) : (
-                  <EmptyState title="No classes yet" hint="Marks appear here once this student's classes are taken." />
-                )
               ) : tab === "fees" && o.fees ? (
                 <>
                   <CardHeader
