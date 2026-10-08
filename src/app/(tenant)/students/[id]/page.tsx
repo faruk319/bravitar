@@ -12,7 +12,6 @@ import { PageHeader } from "@/components/page-header";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { AttendanceCalendar } from "@/components/students/attendance-calendar";
-import { AttendanceSummaryCard } from "@/components/students/attendance-summary";
 import { FeesCard } from "@/components/students/fees-card";
 import { EnrollmentCard, GuardianCard, PersonalCard } from "@/components/students/overview-cards";
 import { EditStudentSheet } from "@/components/students/student-actions";
@@ -132,6 +131,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
       <PageHeader
         title={s.fullName}
         entity
+        quiet
         actions={
           <>
             {allows(ctx, "fees:collect") ? (
@@ -164,11 +164,10 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
               <Card className="order-4 xl:order-none">
                 <AttendanceCalendar calendar={o.calendar} href={(m) => `/students/${s.id}?month=${m}`} />
               </Card>
-              {o.attendance ? (
-                <div className="order-6 xl:order-none">
-                  <AttendanceSummaryCard attendance={o.attendance} />
-                </div>
-              ) : null}
+              <div className="order-3 xl:order-none">
+                <EnrollmentCard o={o} canUpdate={canUpdate} due={due} />
+              </div>
+              {batchesCard ? <div className="order-6 xl:order-none">{batchesCard}</div> : null}
             </div>
           ) : null}
           <div className="contents xl:flex xl:flex-col xl:gap-5">
@@ -177,10 +176,6 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 <FeesCard fees={o.fees} nextDue={o.nextDue ?? null} plans={o.batches ? o.batches.current.flatMap((e) => (e.planName ? [e.planName] : [])) : undefined} studentId={s.id} />
               </div>
             ) : null}
-            <div className="order-3 xl:order-none">
-              <EnrollmentCard o={o} canUpdate={canUpdate} due={due} />
-            </div>
-            {batchesCard ? <div className="order-6 xl:order-none">{batchesCard}</div> : null}
             <Card className="order-8 xl:order-none">
               <CardHeader title="Activity" />
               <EmptyState icon={<History />} title="No activity" hint="Nothing is recorded here yet." />
