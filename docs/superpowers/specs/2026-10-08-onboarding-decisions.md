@@ -62,6 +62,80 @@ query, RLS policy and isolation test assumes the tenant is the top of the tree;
 changing that would reopen the isolation work this project has just spent
 thirteen tasks protecting.
 
+## Self sign-up — the design, decided 2026-10-08
+
+### The shape
+
+```
+phone  ->  WhatsApp code  ->  verified  ->  academy details  ->  provision  ->  owner login
+  ^                              ^                                  ^
+nothing stored,            signups row,                   withPlatformAdmin():
+but rate-limited           slug reserved                  tenant + branch + owner
+                           with an expiry                 + trial per the plan
+```
+
+**Verify the human before the academy exists.** No tenant row until the code is
+confirmed. This prevents slug-squatting by bots, leaves no half-built tenants,
+and reuses the OTP rate limits already in migration 0020 (3 codes per 15 minutes,
+with lockout). `CodePurpose` gains a `signup` value beside `password_reset` and
+`portal_login`.
+
+**A `signups` table, not a tenant.** Phone, name, academy name, desired slug,
+academy type, `verified_at`. It sits **outside** the tenant model, so it needs no
+RLS gymnastics. The slug is **reserved with an expiry**, not allocated, so an
+abandoned sign-up releases it.
+
+**The public route never holds platform credentials.** `createTenant` runs on
+`PlatformTx` today. The public endpoint writes a signup row and enqueues
+provisioning; a pg-boss job calls `provisionTenant()` inside
+`withPlatformAdmin()`. This is the same principle as "the `service_role` key must
+never reach application code".
+
+**A reserved-slug list is required and does not exist.** `tenancy/service.ts:24`
+validates the shape (`^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$`) but nothing stops
+someone taking `www`, `api`, `app`, `admin`, `portal` or `platform`.
+
+### Decisions
+
+**1. Owner logs in with email + password; the phone verifies and recovers.**
+Matches how all other staff sign in, and an owner needs a password for a shared
+desktop at the academy. The verified phone stays on file as the WhatsApp reset
+channel, which already exists.
+
+**2. A new academy gets a tenant, one branch and the owner. Nothing else.**
+No seeded belt levels, fee plans or batch times. The setup checklist then
+reflects genuinely empty state rather than pre-ticked boxes the owner never chose.
+
+**3. TRIAL MUST NOT BE HARDCODED — it moves onto the plan.**
+Today `startActivity` reads `activities.trial_days`, falling back to
+`billing_settings.trial_days` (default 30). `activity_plans` carries
+`maxStudents` and `maxStaff` but **no trial**, so "Starter has a trial, Business
+does not" is currently impossible.
+
+Add `trial_days` to `app.activity_plans`, nullable, resolved as:
+
+    plan.trial_days  ->  activity.trial_days  ->  billing_settings.trial_days
+
+`0` means no trial. The platform admin edits it **beside the student and staff
+limits**, in the same screen, because it is the same kind of per-plan setting.
+The existing comment in `billing/service.ts:80` ("an academy's first activity in
+its first branch gets the trial") stays true; only where the number comes from
+changes.
+
+**4. Free status requires approval.** A deeniyat academy signs up on the normal
+trial like everyone else, then requests free status; a platform admin approves
+it. Nothing is free until a human says so, and no genuine madrasa is blocked from
+starting. This supersedes "free immediately on verification" in
+[[academy-types-and-signup]], which self sign-up would otherwise make claimable
+by anyone.
+
+### Still open for the sign-up sub-spec
+
+- What a tenant looks like between provisioning and the first module being chosen.
+- Whether an abandoned, verified signup is retried, expired or purged, and when.
+- Whether one phone may own several academies.
+- Whether the owner's email needs verifying too, given the phone already is.
+
 ## What the brief gets right about this codebase
 
 **Completion detection from real state** (§13) fits exactly. Each task maps to a
