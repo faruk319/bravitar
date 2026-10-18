@@ -33,7 +33,7 @@ export function StudentTable({ rows, shows }: { rows: ListedStudent[]; shows: St
     <>
       <table className="hidden w-full md:table">
         <thead>
-          <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
+          <tr className="bg-neutral-50 text-left text-caption text-muted-foreground">
             <th className="px-5 py-2.5 font-medium">Student</th>
             {shows.placements ? (
               <>

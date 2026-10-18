@@ -18,7 +18,7 @@ const inv = (id: string, billToName: string, totalPaise: bigint, over: Partial<I
   periodStart: "2026-10-01", periodEnd: "2026-10-31", issueDate: "2026-10-01", dueDate: "2026-10-08", subtotalPaise: totalPaise, discountPaise: 0n, taxPaise: 0n,
   totalPaise, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, students: [], ...over,
 });
-const render = (fees: Fees, nextDue: string | null = null) => renderToStaticMarkup(createElement(FeesCard, { fees, nextDue, plans: ["Karate Monthly"], studentId: "s" }));
+const render = (fees: Omit<Fees, "discounts">, nextDue: string | null = null) => renderToStaticMarkup(createElement(FeesCard, { fees: { ...fees, discounts: [] }, nextDue, plans: ["Karate Monthly"] }));
 const text = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 describe("fees card", () => {
@@ -57,5 +57,15 @@ describe("fees card", () => {
     const out = text(render({ today: "2026-10-10", invoices: [inv("3", "Mother Mehta", 80000n, { issueDate: "2026-09-01", dueDate: "2026-09-08" })], receipts: [] }));
     expect(out).toContain("Nothing billed.");
     expect(out).toContain("Earlier, unpaid");
+  });
+
+  it("paid invoices from earlier months sit under one disclosure, not in the open", () => {
+    const paid = inv("4", "Aunt Mehta", 100000n, { issueDate: "2026-08-01", dueDate: "2026-08-08", paidPaise: 100000n, status: "paid" });
+    const out = text(render({ today: "2026-10-10", invoices: [paid], receipts: [] }));
+    expect(out).toContain("Earlier invoices · 1");
+    expect(out).toContain("INV-4");
+    expect(out).not.toContain("View all");
+    // Positive control: with only this month's invoice there is no disclosure.
+    expect(text(render({ today: "2026-10-10", invoices: [inv("1", "Mother Mehta", 80000n)], receipts: [] }))).not.toContain("Earlier invoices");
   });
 });

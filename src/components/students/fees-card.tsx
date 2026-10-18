@@ -34,23 +34,17 @@ function InvoiceItem({ i, today }: { i: InvoiceRow; today: string }) {
 
 const dash = "—";
 
-export function FeesCard({ fees, nextDue, plans, studentId }: { fees: Fees; nextDue: string | null; plans: string[] | undefined; studentId: string }) {
+export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string | null; plans: string[] | undefined }) {
   const { today, invoices, receipts } = fees;
   const month = today.slice(0, 7);
   const thisMonth = invoices.filter((i) => i.issueDate.startsWith(month));
   const earlier = invoices.filter((i) => !i.issueDate.startsWith(month) && (i.status === "issued" || i.status === "part_paid"));
+  const history = invoices.filter((i) => !thisMonth.includes(i) && !earlier.includes(i));
   const last = receipts[0];
   const payer = (invoiceId: string) => invoices.find((i) => i.id === invoiceId)?.billToName ?? "";
   return (
     <Card>
-      <CardHeader
-        title="Fees & Payments"
-        action={
-          <Link href={`/students/${studentId}?tab=fees`} className="inline-flex min-h-11 items-center text-label text-accent-600">
-            View all
-          </Link>
-        }
-      />
+      <CardHeader title="Fees & Payments" />
       <dl className="divide-y divide-neutral-100">
         {plans ? (
           <div className="flex min-h-12 items-center justify-between gap-3">
@@ -94,6 +88,16 @@ export function FeesCard({ fees, nextDue, plans, studentId }: { fees: Fees; next
             ))}
           </ul>
         </>
+      ) : null}
+      {history.length ? (
+        <details className="mt-4">
+          <summary className="flex min-h-11 cursor-pointer items-center text-label text-accent-600">Earlier invoices · {history.length}</summary>
+          <ul className="divide-y divide-neutral-100">
+            {history.map((i) => (
+              <InvoiceItem key={i.id} i={i} today={today} />
+            ))}
+          </ul>
+        </details>
       ) : null}
       <p className="mb-1 mt-4 text-label text-muted-foreground">Payments</p>
       {receipts.length ? (

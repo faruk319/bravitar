@@ -10,6 +10,7 @@ import { enrollments } from "@/modules/enrollments/schema";
 import { enroll } from "@/modules/enrollments/service";
 import { generateInvoices } from "@/modules/fees/invoicing";
 import { insertInvoice } from "@/modules/fees/repo";
+import { createDiscount, giveDiscount } from "@/modules/fees/service";
 import { invoices } from "@/modules/fees/schema";
 import { createPlan, issueInvoices, nextDue } from "@/modules/fees/service";
 import { recordPayment } from "@/modules/payments/service";
@@ -17,7 +18,7 @@ import { listRoles } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { staffBranchIds } from "@/modules/staff/repo";
 import { addFamilyMember } from "./family";
-import { profileTabs, studentProfile } from "./profile";
+import { studentProfile } from "./profile";
 import { removeFamilyLink, updateGuardian, updateStudent } from "./repo";
 import { createStudent, type StudentCtx } from "./service";
 
@@ -58,16 +59,10 @@ afterAll(async () => {
   await runtimeSql.end();
 });
 
-describe("tabs follow permissions", () => {
-  it("the owner is offered every tab, in order", () => {
-    expect(profileTabs(owner)).toEqual(["overview", "attendance", "fees", "batches", "documents", "activity"]);
-  });
-
-  it("a viewer without invoices:read gets no fees tab, and no fee data in the payload", async () => {
+describe("blocks follow permissions", () => {
+  it("a viewer without invoices:read gets no fee data in the payload", async () => {
     const s = await kid("Tab Kid");
     await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId }));
-    const tabs = profileTabs(teacher);
-    expect(tabs).toEqual(["overview", "documents", "activity"]);
     const p = await profile(teacher, s.student.id);
     expect("nextDue" in p).toBe(false);
     expect("fees" in p).toBe(false);
@@ -80,15 +75,21 @@ describe("tabs follow permissions", () => {
     expect(full.attendance?.trend).toHaveLength(6);
     expect(full).toHaveProperty("nextDue");
     expect(full).toHaveProperty("fees");
+    expect(full.fees?.discounts).toEqual([]);
   });
 
   it("an accountant sees fees but not batches", async () => {
-    const tabs = profileTabs(accountant);
-    expect(tabs).toContain("fees");
-    expect(tabs).not.toContain("batches");
     const p = await profile(accountant, (await kid("Acct Kid")).student.id);
     expect(p).toHaveProperty("nextDue");
     expect("batches" in p).toBe(false);
+  });
+
+  it("the fees block carries the student's discounts, and only for a viewer with invoices:read", async () => {
+    const s = await kid("Disc Kid");
+    const d = await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Sibling 10%", kind: "percent", value: 10 }));
+    await withTenant(T, (tx) => giveDiscount(tx, owner, s.student.id, { discountId: d.id, reason: "Second child" }));
+    expect((await profile(owner, s.student.id)).fees?.discounts.map((g) => [g.name, g.reason])).toEqual([["Sibling 10%", "Second child"]]);
+    expect("fees" in (await profile(teacher, s.student.id))).toBe(false);
   });
 });
 

@@ -16,7 +16,7 @@ export const DAY_STYLE: Record<DayState, { icon: string; word: string; cls: stri
   holiday: { icon: "H", word: "Holiday", cls: "border border-dashed border-neutral-300 text-neutral-700" },
   none: { icon: "", word: "No class", cls: "text-neutral-500" },
 };
-const LEGEND: DayState[] = ["present", "late", "absent", "holiday", "none"];
+const LEGEND: DayState[] = ["holiday", "none"]; // the tiles below name the rest
 const WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const step = "flex size-11 items-center justify-center rounded-lg";
 
