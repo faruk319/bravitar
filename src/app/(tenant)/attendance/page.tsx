@@ -56,7 +56,7 @@ export default async function AttendancePage({ searchParams }: PageProps<"/atten
               <div className="mt-3 hidden overflow-x-auto md:block">
                 <table className="w-full text-body">
                   <thead>
-                    <tr className="bg-neutral-50 text-caption uppercase tracking-wide text-muted-foreground">
+                    <tr className="bg-neutral-50 text-caption text-muted-foreground">
                       <th className="sticky left-0 bg-neutral-50 px-5 py-2.5 text-left font-medium">Student</th>
                       {g.classes.map((c) => (
                         <th key={c.id} className={cn("px-1 py-2.5 text-center font-medium", c.status === "cancelled" && "line-through")} title={c.cancelReason ?? undefined}>

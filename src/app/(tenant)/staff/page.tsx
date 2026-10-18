@@ -62,7 +62,7 @@ export default async function StaffPage({ searchParams }: PageProps<"/staff">) {
         {staff.length ? null : <p className="px-4 py-4 text-body text-muted-foreground md:px-5">None.</p>}
         <table className={staff.length ? "hidden w-full md:table" : "hidden"}>
           <thead>
-            <tr className="bg-neutral-50 text-left text-caption uppercase tracking-wide text-muted-foreground">
+            <tr className="bg-neutral-50 text-left text-caption text-muted-foreground">
               <th className="px-5 py-2.5 font-medium">Staff</th>
               <th className="py-2.5 font-medium">Role</th>
               <th className="py-2.5 font-medium">Batches</th>

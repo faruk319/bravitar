@@ -33,7 +33,7 @@ export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (inv
           {r.academy.gstin ? <p className="text-caption tabular-nums">GSTIN {r.academy.gstin}</p> : null}
         </div>
         <div className="text-right">
-          <p className="text-caption uppercase tracking-wide text-muted-foreground">Receipt</p>
+          <p className="text-caption text-muted-foreground">Receipt</p>
           <p className="text-body font-medium tabular-nums">{p.receiptNumber}</p>
           <p className="text-caption text-muted-foreground">{formatDate(p.receivedOn)}</p>
         </div>

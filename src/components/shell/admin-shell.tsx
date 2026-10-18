@@ -103,7 +103,7 @@ function NavGroups({ groups, compact, onNavigate }: { groups: NavGroup[]; compac
     <nav aria-label="Main" className="flex flex-col gap-4">
       {groups.map((g) => (
         <div key={g.title}>
-          {!compact ? <div className="px-3 pb-1 text-caption font-medium uppercase tracking-wide text-muted-foreground">{g.title}</div> : null}
+          {!compact ? <div className="px-3 pb-1 text-caption font-medium text-muted-foreground">{g.title}</div> : null}
           <div className="flex flex-col gap-0.5">
             {g.items.map((item) =>
               isParent(item) ? (
