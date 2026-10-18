@@ -121,7 +121,7 @@ describe("marking a class", () => {
 
   it("unmarked students have no row; paused ones sit last, flagged, and can't be marked", async () => {
     const [e] = await withTenant(T, (tx) => tx.select().from(enrollments).where(eq(enrollments.studentId, kids[3] ?? "")));
-    await withTenant(T, (tx) => pauseEnrollment(tx, owner, e?.id ?? ""));
+    await withTenant(T, (tx) => pauseEnrollment(tx, owner, e?.id ?? "", { now: at("2026-10-01T06:00:00Z") }));
     const id = await classOn(A, "2026-10-09");
     const view = await withTenant(T, (tx) => classRoster(tx, teacherA, id, { now: at("2026-10-09T13:00:00Z") }));
     expect(view.entries.map((x) => [x.studentId, x.mark, x.paused])).toEqual([

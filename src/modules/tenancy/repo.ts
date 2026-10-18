@@ -21,8 +21,8 @@ export async function findTenantBySlug(tx: PlatformTx, slug: string): Promise<Te
   return row;
 }
 
-export async function tenantToday(tx: Tx): Promise<string> {
-  return todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata");
+export async function tenantToday(tx: Tx, now?: Date): Promise<string> {
+  return todayIn((await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata", now);
 }
 
 export async function updateOwnTenant(tx: Tx, id: string, patch: Partial<Pick<Tenant, "gstin" | "proration" | "messageLanguage" | "messageSendHour" | "absenceSendHour" | "messageDailyCap" | "familyAccess">>): Promise<Tenant> {

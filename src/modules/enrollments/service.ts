@@ -61,11 +61,11 @@ export async function enroll(tx: Tx, ctx: ScopedCtx, input: z.input<typeof enrol
   return e;
 }
 
-export async function pauseEnrollment(tx: Tx, ctx: ScopedCtx, id: string): Promise<Enrollment> {
+export async function pauseEnrollment(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<Enrollment> {
   assertCan(ctx, "enrollments:manage");
   const e = await requireOpen(tx, ctx, id);
   if (e.status === "paused") throw new ConflictError("Already paused");
-  const after = await updateEnrollment(tx, id, { status: "paused", pausedOn: await tenantToday(tx) });
+  const after = await updateEnrollment(tx, id, { status: "paused", pausedOn: await tenantToday(tx, opts.now) });
   await writeAudit(tx, { ...actor(ctx), action: "enrollment.pause", entityType: "enrollment", entityId: id, after: { pausedOn: after.pausedOn } });
   return after;
 }
