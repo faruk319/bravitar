@@ -47,16 +47,16 @@ export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string
       <CardHeader title="Fees & Payments" />
       <dl className="divide-y divide-neutral-100">
         {plans ? (
-          <div className="flex min-h-12 items-center justify-between gap-3">
+          <div className="flex min-h-10 items-center justify-between gap-3">
             <dt className="text-label text-muted-foreground">Plan</dt>
             <dd className="text-right text-body">{plans.length ? plans.join(", ") : dash}</dd>
           </div>
         ) : null}
-        <div className="flex min-h-12 items-center justify-between gap-3">
+        <div className="flex min-h-10 items-center justify-between gap-3">
           <dt className="text-label text-muted-foreground">Next due</dt>
           <dd className="text-right text-body">{nextDue ? `${formatDate(nextDue)}${nextDue < today ? " · overdue" : ""}` : dash}</dd>
         </div>
-        <div className="flex min-h-12 items-center justify-between gap-3">
+        <div className="flex min-h-10 items-center justify-between gap-3">
           <dt className="text-label text-muted-foreground">Last payment</dt>
           <dd className="text-right text-body">
             {last ? (
@@ -103,7 +103,7 @@ export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string
       {receipts.length ? (
         <ul className="divide-y divide-neutral-100">
           {receipts.map((r) => (
-            <li key={`${r.paymentId}-${r.invoiceId}`} className="flex min-h-12 items-center justify-between gap-3 py-1">
+            <li key={`${r.paymentId}-${r.invoiceId}`} className="flex min-h-10 items-center justify-between gap-3 py-1">
               <span className="min-w-0">
                 <span className="block text-body">{formatDate(r.receivedOn)}</span>
                 <span className="block truncate text-caption text-muted-foreground">

@@ -75,12 +75,12 @@ export function InvoiceFacts({ d }: { d: InvoiceDetail }) {
       <p className="text-caption text-muted-foreground">{[d.academy.branch, d.academy.address].filter(Boolean).join(" · ")}</p>
       {d.academy.gstin ? <p className="mt-1 text-caption tabular-nums">GSTIN {d.academy.gstin}</p> : null}
       <dl className="mt-3 divide-y divide-neutral-100 border-t border-neutral-100">
-        <div className="flex min-h-12 items-center justify-between gap-3">
+        <div className="flex min-h-10 items-center justify-between gap-3">
           <dt className="text-label text-muted-foreground">Bill to</dt>
           <dd className="text-body">{d.billToName}</dd>
         </div>
         {facts.map(([k, v]) => (
-          <div key={k} className="flex min-h-12 items-center justify-between gap-3">
+          <div key={k} className="flex min-h-10 items-center justify-between gap-3">
             <dt className="text-label text-muted-foreground">{k}</dt>
             <dd className="text-right text-body tabular-nums">{v}</dd>
           </div>

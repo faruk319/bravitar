@@ -11,7 +11,7 @@ export function StillDue({ items }: { items: DueItem[] }) {
       <p className="text-label text-warning-700">Still due after leaving</p>
       <ul className="divide-y divide-warning-600/10">
         {items.map((i) => (
-          <li key={i.invoiceId} className="flex min-h-12 items-center justify-between gap-3">
+          <li key={i.invoiceId} className="flex min-h-10 items-center justify-between gap-3">
             <span className="min-w-0">
               <span className="block truncate text-body">{i.description}</span>
               <span className="block text-caption text-muted-foreground tabular-nums">

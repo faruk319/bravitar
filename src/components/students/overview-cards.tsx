@@ -24,7 +24,7 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return (
     <dl className="divide-y divide-neutral-100">
       {rows.map(([k, v], i) => (
-        <div key={`${k}-${i}`} className="flex min-h-12 items-center justify-between gap-3">
+        <div key={`${k}-${i}`} className="flex min-h-10 items-center justify-between gap-3">
           <dt className="shrink-0 text-label text-muted-foreground">{k}</dt>
           <dd className="min-w-0 break-words text-right text-body">{v}</dd>
         </div>
@@ -38,7 +38,7 @@ function IconRows({ rows }: { rows: [LucideIcon, string, ReactNode][] }) {
   return (
     <dl className="divide-y divide-neutral-100">
       {rows.map(([Icon, k, v], i) => (
-        <div key={`${k}-${i}`} className="flex min-h-12 items-center justify-between gap-3">
+        <div key={`${k}-${i}`} className="flex min-h-10 items-center justify-between gap-3">
           <dt className="flex shrink-0 items-center gap-2 text-label text-muted-foreground">
             <Icon className="size-4" aria-hidden />
             {k}
@@ -95,7 +95,7 @@ export function GuardianCard({ o, account, canUpdate, canMessage }: { o: Student
       {account && (account.open.length || account.advancePaise > 0n) ? (
         <dl className="mb-2 divide-y divide-neutral-100 border-y border-neutral-100">
           {account.open.length ? (
-            <div className="flex min-h-12 items-center justify-between gap-3">
+            <div className="flex min-h-10 items-center justify-between gap-3">
               <dt className="text-label text-muted-foreground">Due</dt>
               <dd>
                 <Money paise={sum(account.open.map((i) => i.balancePaise))} className="text-body font-medium" />
@@ -103,7 +103,7 @@ export function GuardianCard({ o, account, canUpdate, canMessage }: { o: Student
             </div>
           ) : null}
           {account.advancePaise > 0n ? (
-            <div className="flex min-h-12 items-center justify-between gap-3">
+            <div className="flex min-h-10 items-center justify-between gap-3">
               <dt className="text-label text-muted-foreground">Advance</dt>
               <dd>
                 <Money paise={account.advancePaise} className="text-body font-medium" />
