@@ -156,16 +156,19 @@ export function GuardianCard({ o, account, canUpdate, canMessage }: { o: Student
 export function EnrollmentCard({ o, canUpdate, due }: { o: StudentProfile; canUpdate: boolean; due: DueItem[] }) {
   const s = o.student;
   const current = o.batches?.current ?? [];
-  const rows: [string, ReactNode][] = [];
-  if (o.batches) {
-    if (!current.length) rows.push(["Batch", "Not in a batch yet"]);
-    for (const e of current) rows.push(["Program", e.programName], ["Batch", e.batchName], ["Coach", e.coachName ?? dash]);
-  }
-  rows.push(["Joined", formatDate(s.joinedOn)], ["Status", <StatusBadge key="st" status={s.status} />]);
   return (
     <Card>
-      <CardHeader title="Current program" />
-      <Rows rows={rows} />
+      <CardHeader title={current.length > 1 ? "Current programs" : "Current program"} />
+      {/* The student's own facts, apart from any one batch. */}
+      <Rows rows={[["Status", <StatusBadge key="st" status={s.status} />], ["Joined", formatDate(s.joinedOn)]]} />
+      {o.batches && !current.length ? <p className="mt-3 text-body text-muted-foreground">Not in a batch yet</p> : null}
+      {/* One group per enrolment, headed by its batch, so two never run together. */}
+      {current.map((e) => (
+        <section key={e.id} aria-label={e.batchName} className="mt-4">
+          <h3 className="text-label font-medium text-neutral-900">{e.batchName}</h3>
+          <Rows rows={[["Program", e.programName], ["Coach", e.coachName ?? dash], ...(e.planName ? [["Plan", e.planName] as [string, ReactNode]] : [])]} />
+        </section>
+      ))}
       {s.status === "left" ? <p className="mt-2 text-caption text-muted-foreground">Left {formatDate(s.leftOn)}{s.leftReason ? ` (${s.leftReason.replace("_", " ")})` : ""}</p> : null}
       <div className="mt-3 [&>div]:justify-start">
         <StatusActions student={s} canUpdate={canUpdate} due={due} />

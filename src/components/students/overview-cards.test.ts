@@ -56,4 +56,18 @@ describe("current program card", () => {
     expect(out).toContain("Not in a batch yet");
     expect(out).not.toContain("Coach");
   });
+
+  it("gives each of two enrolments its own group, with the student's Joined and Status outside both", () => {
+    const second: StudentEnrollment = { ...enrollment, id: "e2", batchId: "b2", batchName: "Advanced A", coachName: "Coach Iyer", planName: "Karate Advanced" };
+    const out = html(createElement(EnrollmentCard, { o: { ...placed, batches: { current: [enrollment, second], past: [] } }, canUpdate: false, due: [] }));
+    const groups = [...out.matchAll(/<section aria-label="([^"]+)"[\s\S]*?<\/section>/g)];
+    expect(groups.map((g) => g[1])).toEqual(["Karate A", "Advanced A"]);
+    // Each coach sits in its own batch's group, not run together in one list.
+    expect(groups[0]?.[0]).toContain("Coach Rao");
+    expect(groups[1]?.[0]).toContain("Coach Iyer");
+    expect(groups[1]?.[0]).not.toContain("Coach Rao");
+    // Joined and Status describe the student, so neither belongs to a batch group.
+    for (const g of groups) expect(g[0]).not.toMatch(/Joined|Status/);
+    expect(out).toContain("Current programs");
+  });
 });
