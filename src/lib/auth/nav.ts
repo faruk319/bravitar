@@ -10,7 +10,7 @@ export type NavItem = {
   href: string;
   label: NavLabel;
   icon: string; // lucide icon name, resolved in the component
-  permission: PermissionKey | null;
+  permission: PermissionKey | PermissionKey[] | null; // a list = any of them
   count?: number;
 };
 
@@ -38,9 +38,9 @@ export const NAV_GROUPS: NavGroup[] = [
         title: { text: "Finance" },
         icon: "Landmark",
         children: [
+          // Front Desk collects without payments:read; the page shows them their own receipts.
+          { href: "/finance/collections", label: { text: "Collections" }, icon: "Wallet", permission: ["payments:read", "fees:collect"] },
           { href: "/finance/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
-          { href: "/finance/collections", label: { text: "Collections" }, icon: "Wallet", permission: "payments:read" },
-          { href: "/finance/collections/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
           { href: "/finance/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
         ],
       },
@@ -68,7 +68,8 @@ export type NavSession = { isOwner: boolean; modules: Record<string, boolean>; p
 
 export function allowed(session: NavSession, item: NavItem): boolean {
   if (!item.permission) return true;
-  return can({ tenantId: "", staffId: "", ...session }, PERMISSIONS[item.permission].module, item.permission);
+  const keys = Array.isArray(item.permission) ? item.permission : [item.permission];
+  return keys.some((key) => can({ tenantId: "", staffId: "", ...session }, PERMISSIONS[key].module, key));
 }
 
 // A parent with no permitted child vanishes; with one, it becomes that link.
@@ -86,8 +87,7 @@ export function navFor(session: NavSession, groups: NavGroup[] = NAV_GROUPS): Na
     .filter((g) => g.items.length > 0);
 }
 
-// The item for this page, or a parent of it; a more specific item wins
-// (/finance/collections/new is Collect payment, not Collections).
+// The item for this page, or a parent of it; a more specific item wins.
 export function isActive(pathname: string, href: string, others: string[] = []): boolean {
   const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
   return under(href) && !others.some((h) => h.length > href.length && under(h));

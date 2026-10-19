@@ -131,7 +131,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
         actions={
           <>
             {allows(ctx, "fees:collect") ? (
-              <Button nativeButton={false} render={<Link href={`/finance/collections/new?student=${s.id}`} />}>
+              <Button nativeButton={false} render={<Link href={`/finance/collections?collect=1&student=${s.id}`} />}>
                 Collect
               </Button>
             ) : null}

@@ -220,9 +220,9 @@ const recorded = (tx: Tx, where: SQL | undefined) =>
     .where(where)
     .orderBy(asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id));
 
-// One branch's payments recorded on a day, cancelled ones too, in the order taken.
-export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string): Promise<SheetPayment[]> {
-  return recorded(tx, and(eq(payments.branchId, branchId), eq(payments.recordedOn, day)));
+// One branch's payments recorded on a day, cancelled ones too, in the order taken; with receivedBy, only that collector's.
+export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string, receivedBy?: string): Promise<SheetPayment[]> {
+  return recorded(tx, and(eq(payments.branchId, branchId), eq(payments.recordedOn, day), receivedBy ? eq(payments.receivedBy, receivedBy) : undefined));
 }
 
 // The collection register: every day in [from, to] in the viewer's branches.
@@ -370,8 +370,8 @@ export async function memberIdsWithSiblings(tx: Tx, memberId: string): Promise<s
   return rows.map((r) => r.id);
 }
 
-// A member's name, deleted ones too.
-export async function memberHeader(tx: Tx, id: string): Promise<{ name: string } | undefined> {
-  const [row] = await tx.select({ name: students.fullName }).from(students).where(eq(students.id, id));
+// A member's name and code, deleted ones too.
+export async function memberHeader(tx: Tx, id: string): Promise<{ name: string; code: string } | undefined> {
+  const [row] = await tx.select({ name: students.fullName, code: students.code }).from(students).where(eq(students.id, id));
   return row;
 }

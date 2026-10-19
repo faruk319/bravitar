@@ -43,6 +43,12 @@ export function picked(amount: Paise, open: Open[], chosen: Share[]): Split {
   return { shares, advance: amount - total };
 }
 
+// The collect form's live split, by the rules recording runs (and their messages), with what is left on `open` after it.
+export function splitPreview(amount: Paise, open: Open[], chosen?: Share[]): Split & { stillDue: Paise } {
+  const split = chosen ? picked(amount, open, chosen) : oldestFirst(amount, open);
+  return { ...split, stillDue: sum(open.map((o) => o.balance)) - sum(split.shares.map((s) => s.amountPaise)) };
+}
+
 export type Paid = { invoiceId: string; net: Paise }; // what one payment has on each invoice, latest due first
 
 // Where a refund comes from: the payment's unused advance first, then its

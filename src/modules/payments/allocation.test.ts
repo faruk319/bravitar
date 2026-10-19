@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { oldestFirst, picked, refundFrom } from "./allocation";
+import { oldestFirst, picked, refundFrom, splitPreview } from "./allocation";
 
 const open = [
   { invoiceId: "sep", balance: 150_000n },
@@ -55,6 +55,19 @@ describe("picked", () => {
         { invoiceId: "oct", amountPaise: 60_000n },
       ]),
     ).toThrow("add up to more than the payment");
+  });
+});
+
+describe("splitPreview", () => {
+  it("previews a split and what is still due", () => {
+    expect(splitPreview(200_000n, [{ invoiceId: "a", balance: 150_000n }, { invoiceId: "b", balance: 150_000n }]))
+      .toEqual({ shares: [{ invoiceId: "a", amountPaise: 150_000n }, { invoiceId: "b", amountPaise: 50_000n }], advance: 0n, stillDue: 100_000n });
+  });
+
+  it("with amounts typed, runs the picked rules and refuses with the server's words", () => {
+    expect(splitPreview(200_000n, open, [{ invoiceId: "oct", amountPaise: 150_000n }])).toEqual({ shares: [{ invoiceId: "oct", amountPaise: 150_000n }], advance: 50_000n, stillDue: 150_000n });
+    expect(() => splitPreview(100_000n, open, [{ invoiceId: "sep", amountPaise: 150_001n }])).toThrow("That's more than the invoice's balance");
+    expect(() => splitPreview(100_000n, open, [{ invoiceId: "sep", amountPaise: 150_000n }])).toThrow("The invoices add up to more than the payment");
   });
 });
 

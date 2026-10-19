@@ -21,14 +21,29 @@ import { collectionRegister } from "@/modules/reports/service";
 import { payerKey } from "@/modules/students/payer";
 import { createGuardian, guardiansOfMembers, insertStudent, removeFamilyLink, upsertFamilyLink } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
-import { guardians } from "@/modules/students/schema";
+import { guardians, students } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, updateOwnTenant } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { collectedByMonth, familyContact, insertPayment } from "./repo";
 import { applyAdvanceRoute, cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
-import { applyAdvanceNow, cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordGatewayPayment, recordPayment, refundPayment } from "./service";
+import {
+  applyAdvanceNow,
+  cancelPayment,
+  collectedToday,
+  collectScreen,
+  collectTarget,
+  collectionSheet,
+  familyAccount,
+  invoiceReceipts,
+  myReceiptsToday,
+  type PaymentInput,
+  receipt,
+  recordGatewayPayment,
+  recordPayment,
+  refundPayment,
+} from "./service";
 
 // docs/04 "Test list": the database guards under the payments code
 // (migration 0015) in academy G, and the payments service in academy T, where
@@ -262,6 +277,10 @@ describe("payments", () => {
     const [base, branchIds] = await withTenant(T, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
     return { ...base, branchIds };
   };
+  const hire = async (name: string, role: string): Promise<ScopedCtx> => {
+    const roleId = (await withTenant(T, listRoles)).find((r) => r.name === role)?.id ?? "";
+    return ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId }))).id);
+  };
   // A member (the handle is their id) and their mother, who is the payer of everything billed to them.
   const payerOfFamily = new Map<string, string>();
   const nameOfKid = new Map<string, string>();
@@ -337,8 +356,6 @@ describe("payments", () => {
     T = t.tenant.id;
     main = t.branch.id;
     owner = await ctxFor(t.owner.id);
-    const roles = Object.fromEntries((await withTenant(T, listRoles)).map((r) => [r.name, r.id]));
-    const hire = async (name: string, role: string) => ctxFor((await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `${name}-${stamp}@example.test`, fullName: name, roleId: roles[role] ?? "" }))).id);
     desk = await hire("Priya", "Front Desk");
     desk2 = await hire("Amit", "Front Desk");
     teacher = await hire("Coach", "Teacher");
@@ -853,10 +870,11 @@ describe("payments", () => {
       expect(await facts(other)).toEqual([[rupees(700)], rupees(300), [sibling.fullName]]);
     });
 
-    it("says which branch, the days a payment can be dated, and whether the academy charges GST", async () => {
+    it("says who and which branch, the days a payment can be dated, and whether the academy charges GST", async () => {
       const kid = await family();
       const s = await screen(kid);
-      expect([s.memberId, s.memberName, s.branchId, s.today, s.earliest, s.gst]).toEqual([kid, name(kid), main, "2026-09-24", "2026-09-17", false]);
+      const [row] = await withTenant(T, (tx) => tx.select({ code: students.code }).from(students).where(eq(students.id, kid)));
+      expect([s.memberId, s.memberName, s.memberCode, s.branchId, s.today, s.earliest, s.gst]).toEqual([kid, name(kid), row?.code, main, "2026-09-24", "2026-09-17", false]);
       expect((await screen(kid, desk, other)).branchName).toBe("Second branch");
       await withTenant(T, (tx) => updateOwnTenant(tx, T, { gstin: "27ABCDE1234F1Z5" }));
       try {
@@ -921,6 +939,65 @@ describe("payments", () => {
       await expect(applyNow(mum, main, { ...desk, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
       await expect(apply({ branchId: main, payerGuardianId: mum, payerMemberId: kid })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
       await expect(apply({ branchId: main })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
+    });
+  });
+
+  describe("opening the collect drawer, and the desk's own receipts", () => {
+    let deskA: ScopedCtx;
+    let deskB: ScopedCtx;
+    const target = (q: Parameters<typeof collectTarget>[2], as: ScopedCtx = desk) => withTenant(T, (tx) => collectTarget(tx, as, q));
+    const mine = (as: ScopedCtx) => withTenant(T, (tx) => myReceiptsToday(tx, as, { now: NOW }));
+
+    beforeAll(async () => {
+      [deskA, deskB] = [await hire("Neha", "Front Desk"), await hire("Ravi", "Front Desk")];
+    });
+
+    it("Front Desk's own receipts today, nobody else's and not yesterday's", async () => {
+      const h = await family();
+      const [first, second] = [await pay(h, 100, {}, deskA), await pay(h, 200, {}, deskA)];
+      await pay(h, 300, {}, deskB);
+      await pay(h, 400, {}, deskA, new Date(NOW.getTime() - 86_400_000));
+      expect((await withTenant(T, (tx) => myReceiptsToday(tx, deskA, { now: NOW }))).length).toBe(2);
+      expect((await mine(deskA)).map((p) => p.id)).toEqual([first.id, second.id]);
+    });
+
+    it("the desk's own receipts are only from the viewer's branches, and need fees:collect", async () => {
+      const h = await family();
+      const [here, there] = [await pay(h, 100, {}, deskB), await pay(h, 100, { branchId: other }, deskB)];
+      expect((await mine(deskB)).map((p) => p.id)).toEqual(expect.arrayContaining([here.id, there.id]));
+      expect((await mine({ ...deskB, branchIds: [main] })).map((p) => p.id)).not.toContain(there.id);
+      await expect(mine(teacher)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("the drawer's Advance sends no invoices: the payer's dues stay open and it is all advance", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      await pay(h, 700, { payerGuardianId: payerOfFamily.get(h) ?? "", allocations: [] });
+      expect(await state(inv.id)).toEqual(["issued", 0n]);
+      expect(await advanceOf(h)).toBe(rupees(700));
+    });
+
+    it("collectTarget opens an invoice's member with that invoice ticked", async () => {
+      const child = await family();
+      const inv = await bill(child, 1500);
+      const t = await target({ invoiceId: inv.id });
+      expect(t).toEqual({ memberId: child, branchId: main, preselect: [inv.id] });
+    });
+
+    it("collectTarget opens a student at their branch with nothing ticked, and nobody without either", async () => {
+      const kid = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: other, fullName: "Second branch kid", code: `PAY/TGT${++families}` }));
+      expect(await target({ studentId: kid.id })).toEqual({ memberId: kid.id, branchId: other, preselect: [] });
+      expect(await target({})).toBeNull();
+    });
+
+    it("collectTarget needs fees:collect and an invoice or student in the viewer's branches", async () => {
+      const child = await family();
+      const elsewhere = await bill(child, 1500, "2026-09-10", other);
+      await expect(target({ invoiceId: elsewhere.id }, teacher)).rejects.toMatchObject({ status: 403 });
+      await expect(target({ invoiceId: elsewhere.id }, { ...desk, branchIds: [main] })).rejects.toMatchObject({ status: 404 });
+      await expect(target({ studentId: child }, { ...desk, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
+      await expect(target({ invoiceId: uuidv7() })).rejects.toMatchObject({ status: 404 });
+      await expect(target({ studentId: "not-an-id" })).rejects.toMatchObject({ status: 404 });
     });
   });
 

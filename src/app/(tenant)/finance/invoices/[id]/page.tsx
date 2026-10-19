@@ -48,7 +48,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
           canManage || canCollect || canRemind ? (
             <>
               {canCollect ? (
-                <Button nativeButton={false} render={<Link href={`/finance/collections/new?invoice=${inv.id}`} />}>
+                <Button nativeButton={false} render={<Link href={`/finance/collections?collect=1&invoice=${inv.id}`} />}>
                   Collect
                 </Button>
               ) : null}

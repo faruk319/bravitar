@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { moduleFlags } from "./can";
-import { COACH_NAV, coachNavFor, crumbsFor, isParent, NAV_GROUPS, navFor } from "./nav";
+import { COACH_NAV, coachNavFor, crumbsFor, isParent, NAV_GROUPS, type NavGroup, navFor } from "./nav";
 import { PRESET_ROLES } from "./permissions";
 
 const all = moduleFlags({ students: true, batches: true, attendance: true, fees: true, enquiries: true, messaging: true, reports: true });
@@ -16,7 +16,7 @@ describe("navFor", () => {
     expect(hrefs(groups)).toEqual(hrefs(NAV_GROUPS));
     expect(hrefs(groups)).toEqual([
       "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches",
-      "/finance/invoices", "/finance/collections", "/finance/collections/new", "/finance/fee-plans", "/reports",
+      "/finance/collections", "/finance/invoices", "/finance/fee-plans", "/reports",
       "/staff", "/messages", "/settings", "/billing",
     ]);
   });
@@ -24,12 +24,32 @@ describe("navFor", () => {
   it("a Front Desk sees people and collection, not staff, reports or setup", () => {
     const groups = navFor({ isOwner: false, modules: all, permissions: PRESET_ROLES["Front Desk"].permissions });
     const h = hrefs(groups);
-    expect(h).toEqual(expect.arrayContaining(["/students", "/enquiries", "/finance/invoices", "/finance/collections/new"]));
+    expect(h).toEqual(expect.arrayContaining(["/students", "/enquiries", "/finance/invoices"]));
     expect(h).not.toContain("/attendance"); // marks, but does not hold attendance:read
     expect(h).not.toContain("/staff");
     expect(h).not.toContain("/reports");
     expect(h).not.toContain("/settings");
     expect(groups.map((g) => g.title)).toEqual(["Main"]);
+  });
+
+  it("Front Desk reaches Collections through fees:collect", () => {
+    expect(hrefs(navFor({ isOwner: false, modules: all, permissions: PRESET_ROLES["Front Desk"].permissions }))).toContain("/finance/collections");
+  });
+
+  it("Collections shows for payments:read or fees:collect, and not with fees switched off", () => {
+    expect(hrefs(as(["payments:read"]))).toContain("/finance/collections");
+    expect(hrefs(as(["fees:collect"]))).toContain("/finance/collections");
+    expect(hrefs(as(["invoices:read"]))).not.toContain("/finance/collections");
+    expect(hrefs(navFor({ isOwner: true, modules: { ...all, fees: false }, permissions: [] }))).not.toContain("/finance/collections");
+  });
+
+  it("a list of keys is any of them, each under its own module", () => {
+    const groups: NavGroup[] = [{ title: "Main", items: [{ href: "/x", label: { text: "X" }, icon: "Circle", permission: ["reports:view", "students:read"] }] }];
+    const see = (modules: Record<string, boolean>, permissions: string[]) => hrefs(navFor({ isOwner: false, modules, permissions }, groups));
+    expect(see(all, ["students:read"])).toEqual(["/x"]);
+    expect(see({ ...all, reports: false }, ["reports:view", "students:read"])).toEqual(["/x"]);
+    expect(see({ ...all, reports: false }, ["reports:view"])).toEqual([]);
+    expect(see(all, ["fees:collect"])).toEqual([]);
   });
 
   it("a switched-off module hides its items even when the role grants them", () => {
@@ -60,8 +80,8 @@ describe("navFor", () => {
   });
 
   it("keeps Finance with only the permitted children when two or more remain", () => {
-    const parent = finance(as(["invoices:read", "payments:read", "fees:collect"]));
-    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/finance/invoices", "/finance/collections", "/finance/collections/new"]);
+    const parent = finance(as(["invoices:read", "fees:collect"]));
+    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/finance/collections", "/finance/invoices"]);
   });
 
   it("keeps the Finance parent between Batches and Reports", () => {
@@ -125,13 +145,6 @@ describe("crumbsFor", () => {
       { label: { labelKey: "staff", form: "many" }, href: "/staff" },
       { label: { text: "Roles" }, href: "/staff/roles" },
       { label: { text: "Accountant" }, href: null },
-    ]);
-  });
-
-  it("/finance/collections/new is Collect payment under Finance, not Collections", () => {
-    expect(crumbsFor("/finance/collections/new")).toEqual([
-      { label: { text: "Finance" }, href: null },
-      { label: { text: "Collect payment" }, href: null },
     ]);
   });
 

@@ -21,7 +21,7 @@ export function DashboardHeader({ name, hour, date, canAddStudent, canCollect }:
           </Button>
         ) : null}
         {canCollect ? (
-          <Button nativeButton={false} render={<Link href="/finance/collections/new" />} className="min-h-11">
+          <Button nativeButton={false} render={<Link href="/finance/collections?collect=1" />} className="min-h-11">
             <Plus aria-hidden />
             Collect fee
           </Button>

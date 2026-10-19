@@ -16,8 +16,8 @@ import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/payer";
 import { RELATION_LABELS } from "@/modules/students/relations";
-import { activeStudentsOf, guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
-import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
+import { activeStudentsOf, getStudent, guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
+import { getBranch, getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
   collectedOn,
@@ -75,6 +75,7 @@ export const HAND_METHODS = ["cash", "upi", "card", "bank_transfer", "cheque"] a
 export const BACKDATE_DAYS = 7;
 
 const inScope = (ctx: ScopedCtx, branchId: string) => !ctx.branchIds.length || ctx.branchIds.includes(branchId);
+const isUuid = (v: string) => z.uuid().safeParse(v).success;
 
 async function clock(tx: Tx, now: Date = new Date()): Promise<{ now: Date; today: string; fyStartMonth: number; gst: boolean }> {
   const t = await getOwnTenant(tx);
@@ -130,6 +131,7 @@ export type PayerOption = { key: string; payer: Payer; name: string; relation: s
 export type CollectScreen = {
   memberId: string;
   memberName: string;
+  memberCode: string;
   branchId: string;
   branchName: string;
   today: string;
@@ -204,6 +206,7 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, br
   return {
     memberId,
     memberName: member.name,
+    memberCode: member.code,
     branchId,
     branchName: branch?.name ?? "",
     today,
@@ -213,6 +216,23 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, br
     gst,
     enrollments: placed.filter((p) => p.e.studentId === memberId).map((p) => ({ id: p.e.id, programId: p.programId, programName: p.programName, batchName: p.batchName })),
   };
+}
+
+// Whom the collect drawer opens on: an invoice's member with that invoice ticked, else a student at their branch.
+// Neither asked for is null: the drawer finds the member first.
+export async function collectTarget(tx: Tx, ctx: ScopedCtx, q: { studentId?: string; invoiceId?: string }): Promise<{ memberId: string; branchId: string; preselect: string[] } | null> {
+  assertCan(ctx, "fees:collect");
+  if (q.invoiceId) {
+    const inv = isUuid(q.invoiceId) ? await getInvoice(tx, ctx.branchIds, q.invoiceId) : undefined;
+    if (!inv) throw new NotFoundError("Invoice");
+    return { memberId: inv.studentId, branchId: inv.branchId, preselect: [inv.id] };
+  }
+  if (q.studentId) {
+    const s = isUuid(q.studentId) ? await getStudent(tx, { branchIds: ctx.branchIds }, q.studentId) : undefined;
+    if (!s) throw new NotFoundError("Student");
+    return { memberId: s.id, branchId: s.branchId, preselect: [] };
+  }
+  return null;
 }
 
 // The collect screen is opened on one member; memberIdsWithSiblings turns that into the members
@@ -595,6 +615,15 @@ export async function collectionSheet(tx: Tx, ctx: ScopedCtx, input: { branchId:
     cashInHandPaise: cash(counted) - cash(refunded),
     payments: rows,
   };
+}
+
+// Collections for someone who collects without payments:read: the receipts they recorded today, in their branches.
+export async function myReceiptsToday(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } = {}): Promise<SheetPayment[]> {
+  assertCan(ctx, "fees:collect");
+  const { today } = await clock(tx, opts.now);
+  const branchIds = ctx.branchIds.length ? ctx.branchIds : (await listBranches(tx)).map((b) => b.id);
+  const rows = (await Promise.all(branchIds.map((b) => paymentsRecordedOn(tx, b, today, ctx.staffId)))).flat();
+  return rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
 }
 
 // For the dashboard: what came in today in the viewer's branches.
