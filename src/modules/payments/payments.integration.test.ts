@@ -9,7 +9,7 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { login, setPassword } from "@/modules/auth/service";
-import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
+import { insertInvoice, insertLines, updateInvoice } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
 import { allocateNumber } from "@/modules/numbering/repo";
@@ -25,7 +25,7 @@ import { testAcademy } from "@/lib/db/isolation/academy";
 import { collectedByMonth, familyContact, insertPayment } from "./repo";
 import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
-import { cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordPayment, refundPayment } from "./service";
+import { cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordGatewayPayment, recordPayment, refundPayment } from "./service";
 
 // docs/04 "Test list": the database guards under the payments code
 // (migration 0015) in academy G, and the payments service in academy T, where
@@ -84,7 +84,7 @@ describe("at the database", () => {
   });
 
   describe("a payment", () => {
-    it("never changes its amount, method, dates, payer, branch, collector or receipt number", async () => {
+    it("never changes its amount, method, dates, payer, branch, collector, receipt number or balance after", async () => {
       const p = await newPayment();
       const patches: Partial<typeof payments.$inferInsert>[] = [
         { amountPaise: 1n },
@@ -95,6 +95,7 @@ describe("at the database", () => {
         { payerGuardianId: G.guardian },
         { branchId: G.branch },
         { receivedBy: null },
+        { balanceAfterPaise: 1n },
       ];
       for (const patch of patches) {
         await expect(withTenant(G.tenant, (tx) => tx.update(payments).set(patch).where(eq(payments.id, p.id))), JSON.stringify(Object.keys(patch))).rejects.toSatisfy(fails(DENIED));
@@ -129,6 +130,12 @@ describe("at the database", () => {
     it("refuses a zero or negative amount", async () => {
       await expect(newPayment({ amountPaise: 0n })).rejects.toSatisfy(fails(CHECK));
       await expect(newPayment({ amountPaise: -100n })).rejects.toSatisfy(fails(CHECK));
+    });
+
+    it("records its balance after as zero or more, or leaves it empty", async () => {
+      await expect(newPayment({ balanceAfterPaise: -1n })).rejects.toSatisfy(fails(CHECK));
+      expect((await newPayment({ balanceAfterPaise: 0n })).balanceAfterPaise).toBe(0n);
+      expect((await newPayment()).balanceAfterPaise).toBeNull();
     });
   });
 
@@ -254,10 +261,13 @@ describe("payments", () => {
   };
   // A member (the handle is their id) and their mother, who is the payer of everything billed to them.
   const payerOfFamily = new Map<string, string>();
+  const nameOfKid = new Map<string, string>();
+  const name = (kid: string) => nameOfKid.get(kid) ?? "";
   const family = async () => {
     const n = ++families;
     const c = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: `Child ${n}`, guardian: { fullName: `Mother ${n}`, phone: `98765 ${40_000 + n}`, relation: "mother" }, consents: { dataProcessing: true } }));
     payerOfFamily.set(c.student.id, c.guardian.id);
+    nameOfKid.set(c.student.id, c.student.fullName);
     return c.student.id;
   };
   // An issued invoice with a real number from the series.
@@ -519,6 +529,58 @@ describe("payments", () => {
       const r = await receiptOf(p.id);
       expect(r.lines.map((l) => [l.number, l.amountPaise])).toEqual([[inv.number, rupees(1500)]]);
       expect([r.advancePaise, r.collectorName, r.payment.method, r.payment.reference]).toEqual([rupees(500), "Priya", "upi", "UPI 4471"]);
+    });
+
+    it("the receipt names what each invoice was for and whose it is", async () => {
+      const kid = await family();
+      const inv = await bill(kid, 1500);
+      await withTenant(T, (tx) => insertLines(tx, [{ tenantId: T, invoiceId: inv.id, studentId: kid, kind: "tuition", description: "Karate Kids", periodStart: "2026-09-01", periodEnd: "2026-09-30", unitPaise: rupees(1500), amountPaise: rupees(1500) }]));
+      const r = await receiptOf((await pay(kid, 1500)).id);
+      expect(r.lines[0]?.items[0]).toMatchObject({ description: "Karate Kids", studentName: name(kid), periodStart: "2026-09-01", periodEnd: "2026-09-30" });
+      expect(r.students).toEqual([name(kid)]);
+    });
+
+    it("balance after counts the payer's other open invoices in the branch", async () => {
+      const kid = await family();
+      await bill(kid, 1500);
+      await bill(kid, 1500);
+      await bill(kid, 700, "2026-09-10", other); // another branch is another balance
+      const p = await pay(kid, 1500);
+      expect((await receiptOf(p.id)).balanceAfterPaise).toBe(150_000n);
+    });
+
+    it("balance after counts the payer's members who are no longer on the collect screen", async () => {
+      const [a, b] = [await family(), await family()];
+      const shared = payerOfFamily.get(a) ?? "";
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b, guardianId: shared, relation: "mother" }));
+      await bill(b, 700, "2026-09-10", main, { payerGuardianId: shared });
+      await withTenant(T, (tx) => removeFamilyLink(tx, b, shared, NOW));
+      await bill(a, 1500, "2026-09-10", main, { payerGuardianId: shared });
+      const p = await pay(a, 1500, { payerGuardianId: shared });
+      expect((await receiptOf(p.id)).balanceAfterPaise).toBe(70_000n);
+    });
+
+    it("an all-advance receipt names the payer's active children", async () => {
+      const kid = await family();
+      const r = await receiptOf((await pay(kid, 500)).id);
+      expect(r.lines).toEqual([]);
+      expect([r.advancePaise, r.students]).toEqual([rupees(500), [name(kid)]]);
+    });
+
+    it("a later refund leaves the receipt's balance as recorded", async () => {
+      const kid = await family();
+      await bill(kid, 1500);
+      await bill(kid, 1500);
+      const p = await pay(kid, 1500);
+      await refund(p.id, 500);
+      expect((await receiptOf(p.id)).balanceAfterPaise).toBe(150_000n);
+    });
+
+    it("an online payment records its balance after too", async () => {
+      const kid = await family();
+      const inv = await bill(kid, 1500);
+      const { payment: p } = await withTenant(T, (tx) => recordGatewayPayment(tx, { invoiceId: inv.id, gatewayPaymentId: `pay_${stamp}`, amountPaise: rupees(1500), capturedAt: NOW }, { now: NOW }));
+      expect(p.balanceAfterPaise).toBe(0n);
     });
   });
 

@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { Money } from "@/components/money";
 import { METHOD_LABEL } from "@/modules/payments/labels";
 import { Card } from "@/components/ui/card";
-import { formatDate } from "@/lib/dates";
+import { formatDate, formatMonthYear } from "@/lib/dates";
+import type { ReceiptItem } from "@/modules/payments/repo";
 import type { Receipt } from "@/modules/payments/service";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -15,9 +16,18 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// "Oct 2026", or "Jul 2026 – Sept 2026" when it spans months.
+function months({ periodStart, periodEnd }: ReceiptItem): string {
+  if (!periodStart) return "";
+  const from = formatMonthYear(periodStart);
+  const to = periodEnd ? formatMonthYear(periodEnd) : from;
+  return from === to ? from : `${from} – ${to}`;
+}
+
 // The receipt as it was recorded (docs/03 §9), for staff and for the family's
-// private link. Invoice numbers link through only when `invoiceHref` is given.
-export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (invoiceId: string) => string }) {
+// private link. Invoice numbers link through only when `invoiceHref` is given;
+// the notes are staff's, so only `showNotes` shows them (and never on paper).
+export function ReceiptCard({ r, invoiceHref, showNotes }: { r: Receipt; invoiceHref?: (invoiceId: string) => string; showNotes?: boolean }) {
   const p = r.payment;
   return (
     <Card className="mx-auto max-w-xl print:max-w-none print:border-0 print:p-0 print:shadow-none">
@@ -41,6 +51,7 @@ export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (inv
 
       <dl className="divide-y divide-neutral-100">
         <Fact label="Received from">{r.billToName}</Fact>
+        {r.students.length ? <Fact label="For">{r.students.join(", ")}</Fact> : null}
         <Fact label="Amount">
           <Money paise={p.amountPaise} className="text-number" />
         </Fact>
@@ -52,24 +63,48 @@ export function ReceiptCard({ r, invoiceHref }: { r: Receipt; invoiceHref?: (inv
       <h2 className="mt-4 text-label text-muted-foreground">Towards</h2>
       <ul className="mt-1 divide-y divide-neutral-100">
         {r.lines.map((l) => (
-          <li key={l.invoiceId} className="flex min-h-11 items-center justify-between gap-3">
-            {invoiceHref ? (
-              <Link href={invoiceHref(l.invoiceId)} className="text-body tabular-nums text-accent-600 hover:underline print:text-neutral-900">
-                {l.number}
-              </Link>
-            ) : (
-              <span className="text-body tabular-nums">{l.number}</span>
-            )}
+          <li key={l.invoiceId} className="flex min-h-11 items-center justify-between gap-3 py-1">
+            <div className="min-w-0">
+              {invoiceHref ? (
+                <Link href={invoiceHref(l.invoiceId)} className="text-body tabular-nums text-accent-600 hover:underline print:text-neutral-900">
+                  {l.number}
+                </Link>
+              ) : (
+                <span className="text-body tabular-nums">{l.number}</span>
+              )}
+              {l.items.map((i, n) => (
+                <p key={n} className="text-caption text-muted-foreground">
+                  {[i.description, months(i), i.studentName].filter(Boolean).join(" · ")}
+                </p>
+              ))}
+            </div>
             <Money paise={l.amountPaise} className="text-body" />
           </li>
         ))}
         {r.advancePaise > 0n ? (
-          <li className="flex min-h-11 items-center justify-between gap-3">
-            <span className="text-body">Kept as advance</span>
+          <li className="flex min-h-11 items-center justify-between gap-3 py-1">
+            <p className="min-w-0 text-body">
+              Kept as advance <span className="text-muted-foreground">— pays the next invoice by itself</span>
+            </p>
             <Money paise={r.advancePaise} className="text-body" />
           </li>
         ) : null}
       </ul>
+
+      {r.balanceAfterPaise !== null ? (
+        <dl className="mt-1 border-t border-neutral-100">
+          <Fact label="Balance due after this payment">
+            <Money paise={r.balanceAfterPaise} className="text-body font-medium" />
+          </Fact>
+        </dl>
+      ) : null}
+
+      {showNotes && p.notes ? (
+        <div className="mt-4 print:hidden">
+          <h2 className="text-label text-muted-foreground">Notes</h2>
+          <p className="mt-1 break-words text-body">{p.notes}</p>
+        </div>
+      ) : null}
     </Card>
   );
 }

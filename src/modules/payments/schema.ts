@@ -32,7 +32,8 @@ export const payments = app.table("payments", {
   amountPaise: paise("amount_paise").notNull(),
   receivedOn: date("received_on").notNull(),
   recordedOn: date("recorded_on").notNull(),
-  billToName: text("bill_to_name").notNull(), // frozen when the receipt was made (migration 0040)
+  billToName: text("bill_to_name").notNull(), // frozen when the receipt was made (migration 0039)
+  balanceAfterPaise: paise("balance_after_paise"), // what the payer still owed in the branch after this payment; null before migration 0040
   receivedBy: uuid("received_by").references(() => staffUsers.id),
   reference: text("reference"),
   gatewayPaymentId: text("gateway_payment_id"),

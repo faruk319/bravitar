@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, type SQL, sql } 
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import type { Paise } from "@/lib/money/paise";
-import { payerIs } from "@/modules/fees/repo";
+import { linesOf, payerIs } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
@@ -166,17 +166,23 @@ export async function refundsOf(tx: Tx, paymentId: string): Promise<Refund[]> {
   return tx.select().from(refunds).where(eq(refunds.paymentId, paymentId)).orderBy(asc(refunds.refundedAt), asc(refunds.id));
 }
 
-export type ReceiptLine = { invoiceId: string; number: string | null; amountPaise: Paise };
+export type ReceiptItem = { description: string; studentName: string | null; periodStart: string | null; periodEnd: string | null };
+export type ReceiptLine = { invoiceId: string; number: string | null; amountPaise: Paise; items: ReceiptItem[] };
 
-// What the payment paid when it was recorded. Later refunds, voids and
-// advance use add other kinds of rows, so the receipt never changes.
+// What the payment paid when it was recorded, and what each invoice was for.
+// Later refunds, voids and advance use add other kinds of rows, so the receipt never changes.
 export async function receiptLines(tx: Tx, paymentId: string): Promise<ReceiptLine[]> {
-  return tx
+  const paid = await tx
     .select({ invoiceId: paymentAllocations.invoiceId, number: invoices.number, amountPaise: paymentAllocations.amountPaise })
     .from(paymentAllocations)
     .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
     .where(and(eq(paymentAllocations.paymentId, paymentId), eq(paymentAllocations.kind, "receipt")))
     .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number));
+  const lines = await linesOf(tx, paid.map((l) => l.invoiceId));
+  return paid.map((l) => ({
+    ...l,
+    items: lines.filter((x) => x.invoiceId === l.invoiceId).map((x) => ({ description: x.description, studentName: x.studentName, periodStart: x.periodStart, periodEnd: x.periodEnd })),
+  }));
 }
 
 export async function receiptNames(tx: Tx, p: Payment): Promise<{ billToName: string; collectorName: string | null }> {

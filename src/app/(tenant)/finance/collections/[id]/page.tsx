@@ -58,7 +58,7 @@ export default async function PaymentPage({ params }: PageProps<"/finance/collec
       {online && state.refundablePaise > 0n && allows(ctx, "fees:refund") ? (
         <p className="mx-auto mb-3 max-w-xl text-caption text-muted-foreground print:hidden">Paid online through Razorpay. To refund it, use your Razorpay dashboard; the refund shows here by itself.</p>
       ) : null}
-      <ReceiptCard r={r} {...(invoiceLinks ? { invoiceHref: (id: string) => `/finance/invoices/${id}` } : {})} />
+      <ReceiptCard r={r} showNotes {...(invoiceLinks ? { invoiceHref: (id: string) => `/finance/invoices/${id}` } : {})} />
 
       {state.refunds.length ? (
         <Card className="mx-auto mt-5 max-w-xl print:hidden">

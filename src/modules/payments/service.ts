@@ -14,7 +14,7 @@ import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardiansOfMembers } from "@/modules/students/repo";
+import { activeStudentsOf, guardiansOfMembers } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
@@ -168,6 +168,11 @@ async function isReplay(tx: Tx, again: Payment, data: z.output<typeof paymentSch
   return payerInScope(tx, memberIds, recorded);
 }
 
+// What the payer owes in a branch across all their members; a receipt's balance after is this less what it pays.
+async function owedBy(tx: Tx, payer: Payer, branchId: string): Promise<Paise> {
+  return sum((await openInvoices(tx, payer, branchId)).map((i) => i.totalPaise - i.paidPaise));
+}
+
 // Oldest invoice first unless invoices are picked; what is left is the family's
 // advance in this branch. The receipt number is taken in this transaction, so a
 // failure gives it back.
@@ -200,12 +205,14 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);
   const billToName = (await payerNames(tx, [payer])).get(payerKey(payer));
   if (!billToName) throw new ConflictError("This payer has no name on record");
+  const owedBefore = await owedBy(tx, payer, data.branchId);
   const payment = await insertPayment(tx, {
     tenantId: ctx.tenantId,
     branchId: data.branchId,
     payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
     payerMemberId: payer.kind === "member" ? payer.memberId : null,
     billToName,
+    balanceAfterPaise: owedBefore - sum(split.shares.map((s) => s.amountPaise)),
     requestId: data.requestId,
     receiptNumber,
     fy,
@@ -392,7 +399,9 @@ export type Receipt = {
   billToName: string;
   collectorName: string | null;
   lines: ReceiptLine[];
+  students: string[]; // whom the money was for
   advancePaise: Paise;
+  balanceAfterPaise: Paise | null; // what the payer still owed after it, as recorded; null on older receipts
   academy: { name: string; gstin: string | null; branch: string; address: string | null };
 };
 
@@ -405,11 +414,15 @@ export async function receipt(tx: Tx, ctx: ScopedCtx, id: string): Promise<Recei
 // Also what the family's private link shows; callers check access.
 export async function receiptOf(tx: Tx, payment: Payment): Promise<Receipt> {
   const [lines, names, tenant, branch] = await Promise.all([receiptLines(tx, payment.id), receiptNames(tx, payment), getOwnTenant(tx), getBranch(tx, payment.branchId)]);
+  // The students on the invoices it paid; with none (all advance), the payer's children, since advance is the payer's.
+  const whom = lines.length ? lines.flatMap((l) => l.items.map((i) => i.studentName)) : (await activeStudentsOf(tx, { branchIds: [] }, [payerOfRow(payment)])).map((a) => a.student.fullName);
   return {
     payment,
     ...names,
     lines,
+    students: [...new Set(whom.filter((n) => n !== null))].sort((a, b) => a.localeCompare(b)),
     advancePaise: payment.amountPaise - sum(lines.map((l) => l.amountPaise)),
+    balanceAfterPaise: payment.balanceAfterPaise,
     academy: { name: tenant?.name ?? "", gstin: tenant?.gstin ?? null, branch: branch?.name ?? "", address: branch?.address ?? null },
   };
 }
@@ -546,12 +559,14 @@ export async function recordGatewayPayment(
   const fy = financialYear(receivedOn, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, inv.tenantId, "receipt", fy);
   const billToName = inv.billToName?.trim() || (await gatewayPayerName(tx, inv));
+  const owedBefore = await owedBy(tx, payerOfRow(inv), inv.branchId);
   const payment = await insertPayment(tx, {
     tenantId: inv.tenantId,
     branchId: inv.branchId,
     payerGuardianId: inv.payerGuardianId,
     payerMemberId: inv.payerMemberId,
     billToName,
+    balanceAfterPaise: owedBefore - sum(split.shares.map((s) => s.amountPaise)),
     receiptNumber,
     fy,
     method: "online",
