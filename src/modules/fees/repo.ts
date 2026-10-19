@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, gte, ilike, inArray, isNotNull, isNull, like, lt, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { addDays } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
@@ -7,6 +7,8 @@ import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardians, students } from "@/modules/students/schema";
+import { type DisplayStatus, displayStatus, installmentOf } from "./billing";
+import type { InvoiceQuery, InvoiceSort } from "./invoice-query";
 import { type Discount, discounts, type FeePlan, feePlans, type Invoice, type InvoiceLine, invoiceLines, invoices, type StudentDiscount, studentDiscounts } from "./schema";
 
 // ---- fee plans
@@ -277,12 +279,16 @@ export async function nextDueDate(tx: Tx, branchIds: string[], studentId: string
   return row?.due ?? null;
 }
 
-export const INVOICE_VIEWS = ["draft", "unpaid", "overdue", "month", "void"] as const;
-export type InvoiceView = (typeof INVOICE_VIEWS)[number];
 // A draft that never got a name cannot be issued; it lists blank.
 const billToName = sql<string>`coalesce(${invoices.billToName}, '')`;
 
-export type InvoiceRow = Omit<Invoice, "billToName"> & { billToName: string; students: string[] };
+export type InvoiceRow = Omit<Invoice, "billToName"> & {
+  billToName: string;
+  students: string[];
+  display: DisplayStatus;
+  programs: string[]; // by name, through the lines' enrollments and batches
+  installment: { n: number; of: number } | null; // "2 of 4", for a term plan's installment
+};
 
 // Overdue is worked out when reading (due date passed), never stored.
 const OWED = ["issued", "part_paid"] as const;
@@ -296,32 +302,124 @@ export async function owedDueBetween(tx: Tx, from: string, to: string): Promise<
     .orderBy(asc(invoices.dueDate), asc(invoices.id));
 }
 
-function viewFilter(view: InvoiceView, today: string): SQL | undefined {
-  switch (view) {
-    case "draft":
-      return eq(invoices.status, "draft");
-    case "unpaid":
-      return inArray(invoices.status, [...OWED]);
-    case "overdue":
-      return and(inArray(invoices.status, [...OWED]), lt(invoices.dueDate, today));
-    case "month":
-      return and(inArray(invoices.status, [...OWED, "paid"]), gte(invoices.issueDate, `${today.slice(0, 7)}-01`), lte(invoices.issueDate, today));
-    case "void":
-      return eq(invoices.status, "void");
+// displayStatus() as SQL, for the tabs and their counts; a test keeps the two agreeing.
+const displaySql = (today: string): SQL<DisplayStatus> => sql<DisplayStatus>`CASE
+  WHEN ${invoices.status} = 'draft' THEN 'draft'
+  WHEN ${invoices.status} = 'void' THEN 'cancelled'
+  WHEN ${invoices.status} = 'paid' THEN 'paid'
+  WHEN ${invoices.status} = 'overdue' OR ${invoices.dueDate} < ${today}::date THEN 'overdue'
+  WHEN ${invoices.status} = 'part_paid' THEN 'part_paid'
+  ELSE 'due' END`;
+
+// `status` narrows to a tab (or Open); everything else is what the tab counts are worked out under.
+export type InvoiceFilter = Partial<Pick<InvoiceQuery, "status" | "q" | "programId" | "batchId" | "issuedFrom" | "issuedTo" | "dueFrom" | "dueTo">> & { today: string; studentId?: string };
+
+// % _ and \ in what was typed are characters, not wildcards.
+const likeOf = (typed: string) => `%${typed.replace(/[\\%_]/g, "\\$&")}%`;
+
+function filterWhere(tx: Tx, branchIds: string[], f: InvoiceFilter): SQL | undefined {
+  const where = [invoiceScope(branchIds)];
+  if (f.studentId) where.push(exists(tx.select({ one: sql`1` }).from(invoiceLines).where(and(eq(invoiceLines.invoiceId, invoices.id), eq(invoiceLines.studentId, f.studentId)))));
+  if (f.issuedFrom) where.push(gte(invoices.issueDate, f.issuedFrom));
+  if (f.issuedTo) where.push(lte(invoices.issueDate, f.issuedTo));
+  if (f.dueFrom) where.push(gte(invoices.dueDate, f.dueFrom));
+  if (f.dueTo) where.push(lte(invoices.dueDate, f.dueTo));
+  if (f.programId || f.batchId) {
+    // One line must be in both the program and the batch asked for.
+    const on = [eq(invoiceLines.invoiceId, invoices.id)];
+    if (f.programId) on.push(eq(batches.programId, f.programId));
+    if (f.batchId) on.push(eq(batches.id, f.batchId));
+    where.push(exists(tx.select({ one: sql`1` }).from(invoiceLines).innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId)).innerJoin(batches, eq(batches.id, enrollments.batchId)).where(and(...on))));
   }
+  const q = f.q?.trim();
+  if (q) {
+    const pattern = likeOf(q);
+    const student = exists(tx.select({ one: sql`1` }).from(students).where(and(eq(students.id, invoices.studentId), ilike(students.fullName, pattern))));
+    where.push(or(ilike(invoices.number, pattern), ilike(invoices.billToName, pattern), student));
+  }
+  return and(...where);
 }
 
-export async function listInvoices(tx: Tx, branchIds: string[], opts: { view?: InvoiceView; today: string; studentId?: string; limit?: number }): Promise<InvoiceRow[]> {
-  const forStudent = opts.studentId ? sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND l.student_id = ${opts.studentId})` : undefined;
+function statusWhere(status: InvoiceFilter["status"], today: string): SQL | undefined {
+  if (!status || status === "all") return undefined;
+  return status === "open" ? sql`${displaySql(today)} IN ('due', 'part_paid', 'overdue')` : sql`${displaySql(today)} = ${status}`;
+}
+
+// How many invoices each tab holds under these filters; the tab itself is not one of them, so the tabs add up to All.
+export async function invoiceCounts(tx: Tx, branchIds: string[], f: Omit<InvoiceFilter, "status">): Promise<Record<DisplayStatus | "all", number>> {
+  const display = displaySql(f.today);
+  const n = (s: DisplayStatus) => sql<number>`count(*) FILTER (WHERE ${display} = ${s})::int`;
+  const [r] = await tx
+    .select({ all: sql<number>`count(*)::int`, draft: n("draft"), due: n("due"), part_paid: n("part_paid"), overdue: n("overdue"), paid: n("paid"), cancelled: n("cancelled") })
+    .from(invoices)
+    .where(filterWhere(tx, branchIds, f));
+  return { all: r?.all ?? 0, draft: r?.draft ?? 0, due: r?.due ?? 0, part_paid: r?.part_paid ?? 0, overdue: r?.overdue ?? 0, paid: r?.paid ?? 0, cancelled: r?.cancelled ?? 0 };
+}
+
+const ORDER: Record<InvoiceSort, SQL[]> = {
+  newest: [desc(invoices.issueDate), desc(invoices.number), desc(invoices.id)],
+  oldest: [asc(invoices.issueDate), asc(invoices.number), asc(invoices.id)],
+  amount: [desc(invoices.totalPaise), desc(invoices.issueDate), desc(invoices.id)],
+  due: [asc(invoices.dueDate), asc(invoices.issueDate), asc(invoices.id)],
+};
+
+// Program names by invoice, first by name.
+async function programsOf(tx: Tx, invoiceIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!invoiceIds.length) return out;
+  const rows = await tx
+    .selectDistinct({ invoiceId: invoiceLines.invoiceId, name: programs.name })
+    .from(invoiceLines)
+    .innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId))
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .innerJoin(programs, eq(programs.id, batches.programId))
+    .where(inArray(invoiceLines.invoiceId, invoiceIds))
+    .orderBy(asc(programs.name));
+  for (const r of rows) out.set(r.invoiceId, [...(out.get(r.invoiceId) ?? []), r.name]);
+  return out;
+}
+
+// "2 of 4" for the installment invoices among these lines: the position from the key, the size from every key of that series.
+async function installmentsOf(tx: Tx, lines: LineRow[]): Promise<Map<string, { n: number; of: number }>> {
+  const mine = new Map<string, NonNullable<ReturnType<typeof installmentOf>>>();
+  for (const l of lines) {
+    const i = installmentOf(l.billingKey);
+    if (i && !mine.has(l.invoiceId)) mine.set(l.invoiceId, i);
+  }
+  const seqs = [...new Set([...mine.values()].map((i) => i.seq))];
+  if (!seqs.length) return new Map();
+  const keys = await tx.selectDistinct({ key: invoiceLines.billingKey }).from(invoiceLines).where(or(...seqs.map((seq) => like(invoiceLines.billingKey, `installment|${seq}|%`))));
+  const series = new Map<string, { keys: number; last: number }>();
+  for (const { key } of keys) {
+    const i = installmentOf(key);
+    if (!i) continue;
+    const s = series.get(i.seq) ?? { keys: 0, last: -1 };
+    series.set(i.seq, { keys: s.keys + 1, last: Math.max(s.last, i.index) });
+  }
+  return new Map([...mine].map(([invoiceId, i]) => [invoiceId, { n: i.index + 1, of: Math.max(series.get(i.seq)?.keys ?? 0, i.index + 1) }]));
+}
+
+export async function listInvoices(tx: Tx, branchIds: string[], opts: InvoiceFilter & { sort?: InvoiceSort; limit?: number; offset?: number }): Promise<InvoiceRow[]> {
   const rows = await tx
     .select({ inv: invoices, billToName })
     .from(invoices)
-    .where(and(invoiceScope(branchIds), opts.view ? viewFilter(opts.view, opts.today) : undefined, forStudent))
-    .orderBy(...(opts.view === "draft" ? [asc(invoices.issueDate), asc(billToName)] : [desc(invoices.issueDate), desc(invoices.number), desc(invoices.id)]))
-    .limit(opts.limit ?? 200);
+    .where(and(filterWhere(tx, branchIds, opts), statusWhere(opts.status, opts.today)))
+    .orderBy(...ORDER[opts.sort ?? "newest"])
+    .limit(opts.limit ?? 200)
+    .offset(opts.offset ?? 0);
+  const ids = rows.map((r) => r.inv.id);
+  const [lines, programNames] = await Promise.all([linesOf(tx, ids), programsOf(tx, ids)]);
+  const positions = await installmentsOf(tx, lines);
   const names = new Map<string, Set<string>>();
-  for (const l of await linesOf(tx, rows.map((r) => r.inv.id))) if (l.studentName) names.set(l.invoiceId, (names.get(l.invoiceId) ?? new Set()).add(l.studentName));
-  return rows.map((r) => ({ ...r.inv, billToName: r.billToName, students: [...(names.get(r.inv.id) ?? [])] }));
+  for (const l of lines) if (l.studentName) names.set(l.invoiceId, (names.get(l.invoiceId) ?? new Set()).add(l.studentName));
+  return rows.map((r) => ({
+    ...r.inv,
+    billToName: r.billToName,
+    students: [...(names.get(r.inv.id) ?? [])],
+    display: displayStatus(r.inv, opts.today),
+    programs: programNames.get(r.inv.id) ?? [],
+    installment: positions.get(r.inv.id) ?? null,
+  }));
 }
 
 export async function draftSummary(tx: Tx, branchIds: string[]): Promise<{ count: number; total: bigint }> {

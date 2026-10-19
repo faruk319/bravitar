@@ -61,7 +61,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
         }
       >
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <InvoiceStatus status={inv.status} overdue={d.overdue} />
+          <InvoiceStatus status={d.display} />
           <span className="text-caption text-muted-foreground">{d.billToName}</span>
         </div>
       </PageHeader>

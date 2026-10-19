@@ -6,14 +6,15 @@ import type { Tx } from "@/lib/db/client";
 import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { type Paise, sum } from "@/lib/money/paise";
-import { getProgram, listPrograms } from "@/modules/batches/repo";
+import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { applyAdvance } from "@/modules/payments/service";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
-import { isOverdue } from "./billing";
+import { type DisplayStatus, displayStatus } from "./billing";
+import type { InvoiceQuery } from "./invoice-query";
 import { type GenerateResult, generateInvoices, voidAndRebill } from "./invoicing";
 import {
   discountsOf,
@@ -27,8 +28,8 @@ import {
   insertDiscount,
   insertPlan,
   insertStudentDiscount,
+  invoiceCounts,
   type InvoiceRow,
-  type InvoiceView,
   type LineRow,
   listDiscounts,
   listInvoices,
@@ -225,11 +226,46 @@ export async function endDiscount(tx: Tx, ctx: ScopedCtx, id: string): Promise<v
 
 // ---- invoices
 
-export async function invoiceList(tx: Tx, ctx: ScopedCtx, view: InvoiceView, opts: { now?: Date } = {}): Promise<{ today: string; invoices: InvoiceRow[]; drafts: { count: number; total: Paise } }> {
+const PAGE_SIZE = 10;
+
+export type InvoiceList = {
+  today: string;
+  rows: InvoiceRow[];
+  matched: number; // under the tab and filters asked for
+  page: number;
+  pageSize: number;
+  counts: Record<DisplayStatus | "all", number>; // per tab, under the filters but not the tab
+  drafts: { count: number; total: Paise }; // all that wait for review, whatever the filters
+  applied: Omit<InvoiceQuery, "page">;
+  options: { programs: { id: string; name: string }[]; batches: { id: string; name: string }[] };
+};
+
+export async function invoiceList(tx: Tx, ctx: ScopedCtx, q: InvoiceQuery, opts: { now?: Date } = {}): Promise<InvoiceList> {
   assertCan(ctx, "invoices:read");
   const today = todayIn(await timeZone(tx), opts.now);
-  const [invoices, drafts] = await Promise.all([listInvoices(tx, ctx.branchIds, { view, today }), draftSummary(tx, ctx.branchIds)]);
-  return { today, invoices, drafts };
+  const { page: asked, ...applied } = q;
+  const filter = { ...applied, today };
+  const [counts, drafts, programs, batches] = await Promise.all([
+    invoiceCounts(tx, ctx.branchIds, filter),
+    draftSummary(tx, ctx.branchIds),
+    listPrograms(tx),
+    listBatchRows(tx, ctx.branchIds, { includeEnded: true }),
+  ]);
+  const matched = q.status === "all" ? counts.all : q.status === "open" ? counts.due + counts.part_paid + counts.overdue : counts[q.status];
+  // A page past the end (a stale link) shows the last one.
+  const page = Math.min(asked, Math.max(1, Math.ceil(matched / PAGE_SIZE)));
+  const rows = await listInvoices(tx, ctx.branchIds, { ...filter, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  return {
+    today,
+    rows,
+    matched,
+    page,
+    pageSize: PAGE_SIZE,
+    counts,
+    drafts,
+    applied,
+    options: { programs: programs.map((p) => ({ id: p.id, name: p.name })), batches: batches.map((b) => ({ id: b.id, name: b.name })) },
+  };
 }
 
 async function requireInvoice(tx: Tx, ctx: ScopedCtx, id: string): Promise<Invoice> {
@@ -240,6 +276,7 @@ async function requireInvoice(tx: Tx, ctx: ScopedCtx, id: string): Promise<Invoi
 
 export type InvoiceDetail = {
   invoice: Invoice;
+  display: DisplayStatus;
   overdue: boolean;
   billToName: string;
   lines: LineRow[];
@@ -255,10 +292,11 @@ export async function invoiceDetail(tx: Tx, ctx: ScopedCtx, id: string, opts: { 
 export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
   const id = invoice.id;
   const [lines, tenant, branch] = await Promise.all([linesOf(tx, [id]), getOwnTenant(tx), getBranch(tx, invoice.branchId)]);
-  const today = todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now);
+  const display = displayStatus(invoice, todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now));
   return {
     invoice,
-    overdue: isOverdue(invoice, today),
+    display,
+    overdue: display === "overdue",
     billToName: invoice.billToName ?? "",
     lines,
     academy: { name: tenant?.name ?? "", gstin: tenant?.gstin ?? null, branch: branch?.name ?? "", address: branch?.address ?? null },

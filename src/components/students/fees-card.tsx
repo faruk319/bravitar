@@ -3,7 +3,6 @@ import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { Money } from "@/components/money";
 import { Card, CardHeader } from "@/components/ui/card";
 import { formatDate } from "@/lib/dates";
-import { isOverdue } from "@/modules/fees/billing";
 import type { InvoiceRow } from "@/modules/fees/repo";
 import { METHOD_LABEL } from "@/modules/payments/labels";
 import type { StudentProfile } from "@/modules/students/profile";
@@ -11,7 +10,7 @@ import type { StudentProfile } from "@/modules/students/profile";
 type Fees = NonNullable<StudentProfile["fees"]>;
 
 // One invoice is one payer's bill: never summed with another's.
-function InvoiceItem({ i, today }: { i: InvoiceRow; today: string }) {
+function InvoiceItem({ i }: { i: InvoiceRow }) {
   const balance = i.totalPaise - i.paidPaise;
   return (
     <li>
@@ -25,7 +24,7 @@ function InvoiceItem({ i, today }: { i: InvoiceRow; today: string }) {
         <span className="flex shrink-0 flex-col items-end gap-1">
           <Money paise={i.totalPaise} className="text-body font-medium" />
           {balance > 0n ? <span className="text-caption text-muted-foreground">Owes <Money paise={balance} /></span> : null}
-          <InvoiceStatus status={i.status} overdue={isOverdue(i, today)} />
+          <InvoiceStatus status={i.display} />
         </span>
       </Link>
     </li>
@@ -73,7 +72,7 @@ export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string
       {thisMonth.length ? (
         <ul className="divide-y divide-neutral-100">
           {thisMonth.map((i) => (
-            <InvoiceItem key={i.id} i={i} today={today} />
+            <InvoiceItem key={i.id} i={i} />
           ))}
         </ul>
       ) : (
@@ -84,7 +83,7 @@ export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string
           <p className="mb-1 mt-4 text-label text-muted-foreground">Earlier, unpaid</p>
           <ul className="divide-y divide-neutral-100">
             {earlier.map((i) => (
-              <InvoiceItem key={i.id} i={i} today={today} />
+              <InvoiceItem key={i.id} i={i} />
             ))}
           </ul>
         </>
@@ -94,7 +93,7 @@ export function FeesCard({ fees, nextDue, plans }: { fees: Fees; nextDue: string
           <summary className="flex min-h-11 cursor-pointer items-center text-label text-accent-600">Earlier invoices · {history.length}</summary>
           <ul className="divide-y divide-neutral-100">
             {history.map((i) => (
-              <InvoiceItem key={i.id} i={i} today={today} />
+              <InvoiceItem key={i.id} i={i} />
             ))}
           </ul>
         </details>

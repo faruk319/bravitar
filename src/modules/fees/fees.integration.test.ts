@@ -23,14 +23,15 @@ import { removeFamilyLink, updateGuardian } from "@/modules/students/repo";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
-import { addMonths } from "./billing";
+import { addMonths, DISPLAY_STATUSES, displayStatus } from "./billing";
+import type { InvoiceQuery } from "./invoice-query";
 import { generateInvoices, resolvePayers } from "./invoicing";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoices } from "./schema";
-import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
+import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -39,6 +40,7 @@ const M1 = addMonths(M0, 1); // next month's, still ahead
 const M2 = addMonths(M0, 2);
 const at = (day: string) => new Date(`${day}T04:00:00Z`); // 09:30 in India
 const monthEndOf = (day: string) => addDays(addMonths(`${day.slice(0, 7)}-01`, 1), -1);
+const NOW = at(M1);
 let T = "";
 let owner: ScopedCtx;
 let desk: ScopedCtx;
@@ -72,6 +74,18 @@ const invoicesOf = (memberIds: string[]): Promise<Invoice[]> =>
   withTenant(T, (tx) => tx.select().from(invoices).where(inArray(invoices.studentId, memberIds)).orderBy(asc(invoices.issueDate), asc(invoices.createdAt), asc(invoices.dueDate)));
 const linesOn = (invoiceId: string) => withTenant(T, (tx) => linesOf(tx, [invoiceId]));
 const summary = async (invoiceId: string) => (await linesOn(invoiceId)).map((l) => [l.studentName, l.kind, l.description, l.unitPaise, l.discountPaise, l.taxPaise]);
+const list = (q: Partial<InvoiceQuery> = {}, as: ScopedCtx = owner, now: Date = NOW) => withTenant(T, (tx) => invoiceList(tx, as, { status: "all", sort: "newest", page: 1, ...q }, { now }));
+const ids = (l: InvoiceList) => l.rows.map((r) => r.id);
+// Every row of a listing, page after page.
+async function everyRow(q: Partial<InvoiceQuery> = {}, as: ScopedCtx = owner, now: Date = NOW): Promise<InvoiceList["rows"]> {
+  const rows: InvoiceList["rows"] = [];
+  for (let page = 1; ; page++) {
+    const l = await list({ ...q, page }, as, now);
+    rows.push(...l.rows);
+    if (page * l.pageSize >= l.matched) return rows;
+  }
+}
+const everyId = async (q: Partial<InvoiceQuery> = {}, as: ScopedCtx = owner, now: Date = NOW) => (await everyRow(q, as, now)).map((r) => r.id);
 const actions = async (id: string) => (await withTenant(T, (tx) => tx.select({ a: auditLog.action }).from(auditLog).where(eq(auditLog.entityId, id)))).map((r) => r.a).sort();
 
 beforeAll(async () => {
@@ -86,6 +100,7 @@ beforeAll(async () => {
   const addP = async (name: string) => (await withTenant(T, (tx) => addProgram(tx, owner, { name }))).id;
   const [karate, dance, class9, swim] = [await addP("Karate"), await addP("Dance"), await addP("Class 9"), await addP("Swimming")];
   program.karate = karate;
+  program.dance = dance;
   const plans: Record<string, PlanInput> = {
     karate: { name: "Karate Monthly", kind: "recurring", billingCycle: "monthly", amountPaise: "80000", admissionFeePaise: "50000" },
     advanced: { name: "Karate Advanced", kind: "recurring", billingCycle: "monthly", amountPaise: "120000" },
@@ -194,7 +209,7 @@ describe("generating invoices", () => {
     await gen(M1, [e]);
     const [second] = await invoicesOf(g.ids);
 
-    expect((await withTenant(T, (tx) => invoiceList(tx, desk, "draft"))).invoices.map((i) => i.id)).toEqual(expect.arrayContaining([first?.id, second?.id]));
+    expect(await everyId({ status: "draft" }, desk)).toEqual(expect.arrayContaining([first?.id, second?.id]));
     await expect(withTenant(T, (tx) => issueInvoices(tx, desk, "all"))).rejects.toMatchObject({ status: 403 });
 
     const day = addDays(M1, 1);
@@ -212,11 +227,11 @@ describe("generating invoices", () => {
     const [inv] = await invoicesOf(ids);
     await expect(withTenant(T, (tx) => voidInvoice(tx, owner, inv?.id ?? "", { reason: "" }))).rejects.toThrow();
     await withTenant(T, (tx) => voidInvoice(tx, owner, inv?.id ?? "", { reason: "Paid in cash before the app" }));
-    const late = { now: at(addDays(M1, 40)) };
-    const view = async (v: "unpaid" | "overdue" | "void") => (await withTenant(T, (tx) => invoiceList(tx, owner, v, late))).invoices.map((i) => i.id);
-    expect(await view("unpaid")).not.toContain(inv?.id);
+    const late = at(addDays(M1, 40));
+    const view = (status: "open" | "overdue" | "cancelled") => everyId({ status }, owner, late);
+    expect(await view("open")).not.toContain(inv?.id);
     expect(await view("overdue")).not.toContain(inv?.id);
-    expect(await view("void")).toContain(inv?.id);
+    expect(await view("cancelled")).toContain(inv?.id);
     expect((await invoicesOf(ids))[0]).toMatchObject({ status: "void", number: inv?.number });
     expect(await gen(M1, enrollments)).toEqual({ invoices: 0, lines: 0, skipped: [] });
     await expect(withTenant(T, (tx) => voidInvoice(tx, owner, inv?.id ?? "", { reason: "Again" }))).rejects.toThrow("Already void");
@@ -361,7 +376,7 @@ describe("leaving and moving", () => {
     expect(await snapshot()).toEqual(before);
     expect(before.map((b) => b.invoice?.status)).toEqual(["issued", "issued"]);
     expect((await invoicesOf(f.ids)).map((i) => i.status)).toEqual(["paid", "issued", "issued"]);
-    expect((await withTenant(T, (tx) => invoiceList(tx, owner, "unpaid"))).invoices.map((i) => i.id)).toEqual(expect.arrayContaining([second?.id, third?.id]));
+    expect(await everyId({ status: "open" })).toEqual(expect.arrayContaining([second?.id, third?.id]));
     const due = await withTenant(T, (tx) => installmentsDue(tx, owner, student));
     expect(due.map((d) => [d.invoiceId, d.description, d.voidable])).toEqual([
       [second?.id, "2nd installment · Class 9 Term", true],
@@ -395,7 +410,7 @@ describe("leaving and moving", () => {
 describe("who can do what", () => {
   it("Teacher sees no fees; Front Desk reads but can't issue, void, discount or generate", async () => {
     const { ids } = await family("Nia");
-    await expect(withTenant(T, (tx) => invoiceList(tx, teacher, "unpaid"))).rejects.toMatchObject({ status: 403 });
+    await expect(list({ status: "open" }, teacher)).rejects.toMatchObject({ status: 403 });
     await expect(withTenant(T, (tx) => studentFees(tx, desk, ids[0] ?? ""))).resolves.toMatchObject({ invoices: [] });
     const d = await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Staff child", kind: "amount", value: 20000 }));
     await expect(withTenant(T, (tx) => giveDiscount(tx, desk, ids[0] ?? "", { discountId: d.id, reason: "Coach's son" }))).rejects.toMatchObject({ status: 403 });
@@ -520,7 +535,7 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: guardianName, phone: phoneNo(), relation: "mother" }, consents: { dataProcessing: true } }));
   const setPayer = (enrollmentId: string, guardianId: string) => withTenant(T, (tx) => tx.update(enrollments).set({ payerGuardianId: guardianId, payerMemberId: null }).where(eq(enrollments.id, enrollmentId)));
   const issue = (id: string, day: string) => withTenant(T, (tx) => issueInvoices(tx, owner, [id], { now: at(day) }));
-  const listed = async (id: string) => (await withTenant(T, (tx) => invoiceList(tx, owner, "unpaid", { now: at(M1) }))).invoices.find((i) => i.id === id);
+  const listed = async (inv: Invoice | undefined) => (await list({ status: "open", q: inv?.number ?? "" })).rows.find((i) => i.id === inv?.id);
 
   it("the enrollment's payer lands on the invoice, and its name is the bill-to", async () => {
     const s = await one("Payer Kid", "Mother Payer");
@@ -609,7 +624,7 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     expect(issued?.billToName).toBe("Mother Issue");
     await withTenant(T, (tx) => updateGuardian(tx, s.guardian.id, { fullName: "Mother Later" }));
     // A live read would show Mother Later (or a name read live).
-    expect((await listed(issued?.id ?? ""))?.billToName).toBe("Mother Issue");
+    expect((await listed(issued))?.billToName).toBe("Mother Issue");
     expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, issued?.id ?? "", { now: at(M1) }))).billToName).toBe("Mother Issue");
   });
 
@@ -620,7 +635,7 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     const [inv] = await issue((await invoicesOf([s.student.id]))[0]?.id ?? "", M1);
     await withTenant(T, (tx) => removeFamilyLink(tx, s.student.id, s.guardian.id, new Date()));
     await withTenant(T, (tx) => updateGuardian(tx, s.guardian.id, { fullName: "Renamed Away", deletedAt: new Date() }));
-    expect((await listed(inv?.id ?? ""))?.billToName).toBe("Mother Gone");
+    expect((await listed(inv))?.billToName).toBe("Mother Gone");
     expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, inv?.id ?? "", { now: at(M1) }))).billToName).toBe("Mother Gone");
   });
 
@@ -630,9 +645,222 @@ describe("an invoice carries its payer and the name it was issued with", () => {
     await gen(M1, [e]);
     const [inv] = await issue((await invoicesOf([s.student.id]))[0]?.id ?? "", M1);
     await withTenant(T, (tx) => tx.update(invoices).set({ billToName: null }).where(eq(invoices.id, inv?.id ?? "")));
-    const row = await listed(inv?.id ?? "");
+    const row = await listed(inv);
     expect(row?.id).toBe(inv?.id); // found, so the blank is the name and not a missing row
     expect(row?.billToName).toBe("");
     expect((await withTenant(T, (tx) => invoiceDetail(tx, owner, inv?.id ?? "", { now: at(M1) }))).billToName).toBe("");
+  });
+});
+
+describe("the invoice list", () => {
+  const phoneNo = () => `+9197${String(30_000_000 + ++phone)}`;
+  const one = (fullName: string, guardianName: string) =>
+    withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: guardianName, phone: phoneNo(), relation: "mother" }, consents: { dataProcessing: true } }));
+  // A student billed for next month in these batches: the draft(s), not yet numbered.
+  const billed = async (fullName: string, payer: string, ...batchNames: string[]) => {
+    const s = await one(fullName, payer);
+    await gen(M1, await Promise.all(batchNames.map((b) => join(s.student.id, b, M0))));
+    return invoicesOf([s.student.id]);
+  };
+  const issue = (drafts: Invoice[]) => withTenant(T, (tx) => issueInvoices(tx, owner, drafts.map((d) => d.id), { now: NOW }));
+  const only = (rows: Invoice[]): Invoice => {
+    const [row] = rows;
+    if (!row) throw new Error("expected an invoice");
+    return row;
+  };
+  const pay = (inv: Invoice, rupees: number) =>
+    withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: inv.studentId, branchId: inv.branchId, amountPaise: String(rupees * 100), allocations: [{ invoiceId: inv.id, amountPaise: String(rupees * 100) }] }));
+  const numbered = (inv: Invoice | undefined) => inv?.number ?? "";
+  // A hand-made invoice (no lines) for a payer of its own, due on `due`.
+  const direct = (branchId: string, label: string, rupees: number, due: string, paidRupees: number) =>
+    withTenant(T, async (tx) => {
+      const payer = await createGuardian(tx, { tenantId: T, fullName: `Mother ${label}`, phone: phoneNo() });
+      const kid = await insertStudent(tx, { tenantId: T, branchId, fullName: `Kid ${label}`, code: `LIST/${stamp}/${label}` });
+      const total = BigInt(rupees) * 100n;
+      const inv = await insertInvoice(tx, { tenantId: T, branchId, studentId: kid.id, payerGuardianId: payer.id, billToName: payer.fullName, issueDate: addDays(due, -8), dueDate: due, subtotalPaise: total, totalPaise: total });
+      const fy = financialYear(today);
+      return updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T, "invoice", fy), fy, status: paidRupees ? "part_paid" : "issued", paidPaise: BigInt(paidRupees) * 100n, issuedAt: new Date() });
+    });
+
+  let main = "";
+  let karate: Invoice;
+  let dance: Invoice;
+  let both: Invoice;
+  let paid: Invoice;
+  let cancelled: Invoice;
+  let draft: Invoice;
+  let installments: Invoice[];
+  let termStudent = "";
+  let overdue: Invoice;
+  let elsewhere: Invoice;
+  let other = "";
+
+  beforeAll(async () => {
+    karate = only(await issue(await billed("List Karate", "Mother 7 Lister", "Karate A")));
+    main = karate.branchId;
+    dance = only(await issue(await billed("List Dancer", "Father Dancer", "Dance A")));
+    both = only(await issue(await billed("List Both", "Mother Both", "Karate A", "Dance A")));
+    paid = only(await issue(await billed("List Paid", "Mother 50% Paid_Up", "Karate A")));
+    cancelled = only(await issue(await billed("List Void", "Mother Void", "Karate A")));
+    draft = only(await billed("List Draft", "Mother Draft", "Karate A"));
+    installments = await issue(await billed("List Term", "Mother Term", "Class 9 A"));
+    termStudent = only(installments).studentId;
+    await pay(dance, 500); // part paid, and not yet due
+    await pay(paid, Number(paid.totalPaise / 100n));
+    await withTenant(T, (tx) => voidInvoice(tx, owner, cancelled.id, { reason: "Joined elsewhere" }, { now: NOW }));
+    overdue = await direct(main, "Overdue", 1500, addDays(M1, -1), 500);
+    other = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "List branch" }))).id;
+    elsewhere = await direct(other, "Elsewhere", 700, addDays(M1, 3), 0);
+  });
+
+  it("each invoice is in one status tab, the tabs add up to All, and they match the rule in code", async () => {
+    const l = await list();
+    expect(DISPLAY_STATUSES.reduce((n, s) => n + l.counts[s], 0)).toBe(l.counts.all);
+    for (const s of DISPLAY_STATUSES) expect(l.counts[s], s).toBeGreaterThan(0); // every branch of the rule is exercised
+    // The SQL rule against displayStatus(), invoice by invoice.
+    const every = await withTenant(T, (tx) => tx.select().from(invoices));
+    expect(l.counts.all).toBe(every.length);
+    for (const s of DISPLAY_STATUSES) expect((await everyId({ status: s })).sort(), s).toEqual(every.filter((i) => displayStatus(i, M1) === s).map((i) => i.id).sort());
+  });
+
+  it("a part-paid invoice past its due date is listed under Overdue only", async () => {
+    // ₹1,500 due the day before NOW, ₹500 paid
+    expect(await everyId({ status: "overdue" })).toContain(overdue.id);
+    expect(await everyId({ status: "part_paid" })).not.toContain(overdue.id);
+    expect((await list({ q: numbered(overdue) })).rows[0]).toMatchObject({ display: "overdue", totalPaise: 150_000n, paidPaise: 50_000n });
+    // Positive control: read two days before its due date it is part paid.
+    const before = at(addDays(M1, -2));
+    expect(await everyId({ status: "part_paid" }, owner, before)).toContain(overdue.id);
+    expect(await everyId({ status: "overdue" }, owner, before)).not.toContain(overdue.id);
+  });
+
+  it("Open is issued or part paid on any due date, and is not a tab of its own", async () => {
+    const l = await list({ status: "open" });
+    expect(l.matched).toBe(l.counts.due + l.counts.part_paid + l.counts.overdue);
+    const rows = await everyRow({ status: "open" });
+    expect(rows.filter((r) => r.display === "draft" || r.display === "paid" || r.display === "cancelled")).toEqual([]);
+    expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining([karate.id, dance.id, overdue.id]));
+  });
+
+  it("finds by number, student or payer, and ignores case", async () => {
+    expect(ids(await list({ q: numbered(karate) }))).toEqual([karate.id]);
+    expect(ids(await list({ q: "Mother 7" }))).toEqual([karate.id]); // the payer's name
+    expect(ids(await list({ q: "list karate" }))).toEqual([karate.id]); // the student's name
+    expect(ids(await list({ q: "father dancer" }))).toEqual([dance.id]);
+    expect(ids(await list({ q: "no such person" }))).toEqual([]);
+  });
+
+  it("takes % _ and \\ in a search as the characters they are", async () => {
+    expect(ids(await list({ q: "50%" }))).toEqual([paid.id]);
+    expect(ids(await list({ q: "Paid_Up" }))).toEqual([paid.id]);
+    // As wildcards these would find "Paid_Up"; as themselves they find nothing.
+    expect(ids(await list({ q: "Paid%Up" }))).toEqual([]);
+    expect(ids(await list({ q: "Pa_d" }))).toEqual([]);
+    expect(ids(await list({ q: "\\" }))).toEqual([]);
+  });
+
+  it("filters by program and by batch, and the tab counts follow the filters", async () => {
+    const inDance = await everyId({ programId: program.dance ?? "" });
+    expect(inDance).toEqual(expect.arrayContaining([dance.id, both.id]));
+    expect(inDance).not.toContain(karate.id);
+    const inBatch = await everyId({ batchId: batch["Dance A"] ?? "" });
+    expect(inBatch).toEqual(expect.arrayContaining([dance.id, both.id]));
+    expect(inBatch).not.toContain(karate.id);
+    expect(await everyId({ programId: program.dance ?? "", batchId: batch["Karate A"] ?? "" })).toEqual([]); // one placement must be both
+    const l = await list({ programId: program.dance ?? "" });
+    expect(l.counts.all).toBe(inDance.length);
+    expect(l.matched).toBe(inDance.length);
+  });
+
+  it("names the programs on an invoice, by name, and offers the programs and batches to filter by", async () => {
+    expect((await list({ q: numbered(karate) })).rows[0]?.programs).toEqual(["Karate"]);
+    expect((await list({ q: numbered(both) })).rows[0]?.programs).toEqual(["Dance", "Karate"]);
+    expect((await list({ q: numbered(overdue) })).rows[0]?.programs).toEqual([]); // a hand-made invoice has no lines
+    const { options } = await list();
+    expect(options.programs.map((p) => p.name)).toEqual(expect.arrayContaining(["Karate", "Dance", "Class 9"]));
+    expect(options.batches.map((b) => b.name)).toEqual(expect.arrayContaining(["Karate A", "Dance A", "Class 9 A"]));
+  });
+
+  it("filters by issue and due dates, both ends included", async () => {
+    const dueEve = addDays(M1, -1);
+    expect(await everyId({ dueFrom: dueEve, dueTo: dueEve })).toContain(overdue.id);
+    expect(await everyId({ dueFrom: dueEve, dueTo: addDays(dueEve, -1) })).not.toContain(overdue.id);
+    expect(await everyId({ dueFrom: addDays(dueEve, 1) })).not.toContain(overdue.id);
+    const issuedOn = await everyId({ issuedFrom: M1, issuedTo: M1 });
+    expect(issuedOn).toEqual(expect.arrayContaining([karate.id, dance.id]));
+    expect(issuedOn).not.toContain(overdue.id); // issued nine days before
+    expect(await everyId({ issuedTo: addDays(M1, -1) })).toContain(overdue.id);
+  });
+
+  it("pages by ten, newest first, and a page past the end shows the last", async () => {
+    const all = await list();
+    expect(all.counts.all).toBeGreaterThan(10); // the eleven above, and whatever earlier tests billed
+    expect(all.pageSize).toBe(10);
+    expect(all.rows).toHaveLength(10);
+    const second = await list({ page: 2 });
+    expect(second.rows).toHaveLength(Math.min(10, all.counts.all - 10));
+    expect(second.page).toBe(2);
+    expect(ids(all).filter((id) => ids(second).includes(id))).toEqual([]);
+    const issued = (await everyRow()).map((r) => r.issueDate);
+    expect(issued).toEqual([...issued].sort().reverse());
+    const last = await list({ page: 99 });
+    expect(last.page).toBe(Math.ceil(all.matched / 10));
+    expect(last.rows.length).toBeGreaterThan(0);
+  });
+
+  it("sorts oldest first, by amount, and by due date, without repeating or dropping a row at a page edge", async () => {
+    const oldest = (await everyRow({ sort: "oldest" })).map((r) => r.issueDate);
+    expect(oldest).toEqual([...oldest].sort());
+    const byAmount = await everyRow({ sort: "amount" });
+    const amounts = byAmount.map((r) => r.totalPaise);
+    expect(amounts).toEqual([...amounts].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0)));
+    const dues = (await everyRow({ sort: "due" })).map((r) => r.dueDate);
+    expect(dues).toEqual([...dues].sort());
+    expect(new Set(byAmount.map((r) => r.id)).size).toBe((await list()).counts.all);
+  });
+
+  it("shows the installment position", async () => {
+    // a term plan with 3 installments, all billed; the second one
+    const [first, second, third] = [...installments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    expect(installments).toHaveLength(3);
+    expect((await list({ q: numbered(second) })).rows[0]?.installment).toEqual({ n: 2, of: 3 });
+    expect((await list({ q: numbered(first) })).rows[0]?.installment).toEqual({ n: 1, of: 3 });
+    expect((await list({ q: numbered(third) })).rows[0]?.installment).toEqual({ n: 3, of: 3 });
+    expect((await list({ q: numbered(karate) })).rows[0]?.installment).toBeNull(); // a monthly fee is no installment
+    expect((await list({ q: numbered(first) })).rows[0]?.programs).toEqual(["Class 9"]);
+  });
+
+  it("a viewer limited to one branch never counts another branch's invoices", async () => {
+    // one invoice in the second branch; ctx with branchIds [main]
+    const mainOnly = { ...owner, branchIds: [main] };
+    expect(ids(await list({ q: numbered(elsewhere) }))).toEqual([elsewhere.id]);
+    expect(ids(await list({ q: numbered(elsewhere) }, mainOnly))).toEqual([]);
+    expect(await everyId({}, mainOnly)).not.toContain(elsewhere.id);
+    expect((await list({}, mainOnly)).counts.all).toBe((await list({}, { ...owner, branchIds: [main, other] })).counts.all - 1);
+  });
+
+  it("counts the drafts waiting for review across the academy, whatever the filters", async () => {
+    const drafts = (await withTenant(T, (tx) => tx.select().from(invoices))).filter((i) => i.status === "draft");
+    expect(drafts.map((d) => d.id)).toContain(draft.id);
+    expect((await list({ status: "paid", q: "no such person" })).drafts).toEqual({ count: drafts.length, total: sum(drafts.map((d) => d.totalPaise)) });
+  });
+
+  it("Front Desk can read the list; Teacher cannot", async () => {
+    expect((await list({}, desk)).rows.length).toBeGreaterThan(0);
+    await expect(list({}, teacher)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("an invoice and a student's fees carry the same status as the list", async () => {
+    const detail = (id: string, now: Date = NOW) => withTenant(T, (tx) => invoiceDetail(tx, owner, id, { now }));
+    expect(await detail(overdue.id)).toMatchObject({ display: "overdue", overdue: true });
+    expect(await detail(overdue.id, at(addDays(M1, -2)))).toMatchObject({ display: "part_paid", overdue: false });
+    expect((await detail(draft.id)).display).toBe("draft");
+    expect((await detail(cancelled.id)).display).toBe("cancelled");
+
+    const fees = await withTenant(T, (tx) => studentFees(tx, owner, termStudent, { now: NOW }));
+    expect(fees.invoices.map((i) => i.installment?.of)).toEqual([3, 3, 3]);
+    expect(fees.invoices.map((i) => i.display)).toEqual(["due", "due", "due"]);
+    const mine = await withTenant(T, (tx) => studentFees(tx, owner, dance.studentId, { now: NOW }));
+    expect(mine.invoices.map((i) => [i.id, i.display, i.programs])).toEqual([[dance.id, "part_paid", ["Dance"]]]);
   });
 });

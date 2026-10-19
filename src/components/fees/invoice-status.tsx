@@ -1,22 +1,24 @@
 import { cn } from "@/lib/utils";
-import type { Invoice } from "@/modules/fees/schema";
+import type { DisplayStatus } from "@/modules/fees/billing";
 
-const STYLE: Record<Invoice["status"], [string, string, string]> = {
-  draft: ["Draft", "◌", "bg-neutral-100 text-neutral-700"],
-  issued: ["Unpaid", "●", "bg-accent-50 text-accent-600"],
-  part_paid: ["Part paid", "◐", "bg-warning-600/10 text-warning-700"],
-  paid: ["Paid", "✓", "bg-success-600/10 text-success-700"],
-  overdue: ["Overdue", "!", "bg-danger-600/10 text-danger-700"],
-  void: ["Void", "○", "bg-neutral-100 text-neutral-500 line-through"],
+export const STATUS_WORD: Record<DisplayStatus, string> = { draft: "Draft", due: "Due", part_paid: "Part paid", overdue: "Overdue", paid: "Paid", cancelled: "Cancelled" };
+
+const STYLE: Record<DisplayStatus, [string, string]> = {
+  draft: ["◌", "bg-neutral-100 text-neutral-700"],
+  due: ["●", "bg-warning-600/10 text-warning-700"],
+  part_paid: ["◐", "bg-accent-50 text-accent-600"],
+  overdue: ["!", "bg-danger-600/10 text-danger-700"],
+  paid: ["✓", "bg-success-600/10 text-success-700"],
+  cancelled: ["○", "bg-neutral-100 text-neutral-700 line-through"],
 };
 
-// Filled pill: glyph + word + tint (docs/07 §2). Overdue is worked out by the caller.
-export function InvoiceStatus({ status, overdue }: { status: Invoice["status"]; overdue?: boolean }) {
-  const [word, glyph, cls] = STYLE[overdue ? "overdue" : status];
+// Filled pill: glyph + word + tint (docs/07 §2). `label` swaps the word, for a Bravitar bill that is "Void".
+export function InvoiceStatus({ status, label }: { status: DisplayStatus; label?: string }) {
+  const [glyph, cls] = STYLE[status];
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-label", cls)}>
       <span aria-hidden>{glyph}</span>
-      {word}
+      {label ?? STATUS_WORD[status]}
     </span>
   );
 }

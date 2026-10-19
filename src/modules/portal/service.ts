@@ -104,7 +104,7 @@ export async function childPage(tx: Tx, g: GuardianCtx, studentId: string, opts:
     month,
     attendance,
     fees: own.has("fees")
-      ? (await listInvoices(tx, [], { view: "unpaid", today, studentId })).map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, duePaise: i.totalPaise - i.paidPaise, overdue: isOverdue(i, today), payOnline: online && family.has("pay") }))
+      ? (await listInvoices(tx, [], { status: "open", today, studentId })).map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, duePaise: i.totalPaise - i.paidPaise, overdue: isOverdue(i, today), payOnline: online && family.has("pay") }))
       : null,
     receipts: family.has("receipts"),
     timings: current.map((e) => ({ batchName: e.batchName, programName: e.programName, schedule: summarizeSchedule(rulesOn(rules.filter((r) => r.batchId === e.batchId), today)), paused: e.status === "paused" })),

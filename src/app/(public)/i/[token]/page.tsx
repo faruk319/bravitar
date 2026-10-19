@@ -25,7 +25,7 @@ export default async function SharedInvoicePage({ params, searchParams }: PagePr
           <p className="text-caption text-muted-foreground">{d.academy.name}</p>
           <h1 className="text-display tabular-nums">{d.invoice.number}</h1>
         </div>
-        <InvoiceStatus status={d.invoice.status} overdue={d.overdue} />
+        <InvoiceStatus status={d.display} />
       </div>
       {d.payOnline ? (
         <Button size="lg" nativeButton={false} render={<a href={`/i/${token}/pay`} />}>

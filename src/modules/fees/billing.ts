@@ -1,5 +1,6 @@
 import { addDays } from "@/lib/dates";
 import { type Paise, percent, roundHalfUp, sum } from "@/lib/money/paise";
+import type { Invoice } from "./schema";
 
 // Pure billing rules (docs/04, docs/03 §8 agreed 2026-09-24). No database here.
 
@@ -78,4 +79,35 @@ export function invoiceTotals(lines: Pick<LineAmounts, "gross" | "discount" | "t
   const discount = sum(lines.map((l) => l.discount));
   const tax = sum(lines.map((l) => l.tax));
   return { subtotal, discount, tax, total: subtotal - discount + tax };
+}
+
+// ---- what an invoice reads as on screen (finance spec, "Words on screen")
+
+export const DISPLAY_STATUSES = ["draft", "due", "part_paid", "overdue", "paid", "cancelled"] as const;
+export type DisplayStatus = (typeof DISPLAY_STATUSES)[number];
+
+// One word per invoice, so it sits in one tab: past its due date beats Part paid, and void reads Cancelled.
+// fees/repo.ts writes this rule again as SQL for the tabs; the tab tests keep the two agreeing.
+export function displayStatus(inv: Pick<Invoice, "status" | "dueDate">, today: string): DisplayStatus {
+  switch (inv.status) {
+    case "draft":
+      return "draft";
+    case "void":
+      return "cancelled";
+    case "paid":
+      return "paid";
+    case "overdue":
+      return "overdue";
+    case "part_paid":
+      return inv.dueDate < today ? "overdue" : "part_paid";
+    case "issued":
+      return inv.dueDate < today ? "overdue" : "due";
+  }
+}
+
+// "installment|<root>|<plan>|<i>" is the i-th installment (from 0) of one plan; `seq` names the series.
+const INSTALLMENT_KEY = /^installment\|([^|]+\|[^|]+)\|(\d+)$/;
+export function installmentOf(billingKey: string | null): { seq: string; index: number } | null {
+  const m = billingKey ? INSTALLMENT_KEY.exec(billingKey) : null;
+  return m ? { seq: m[1] ?? "", index: Number(m[2]) } : null;
 }

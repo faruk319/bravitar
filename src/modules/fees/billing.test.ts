@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, cycleContaining, invoiceTotals, lineAmounts, recurringCharges } from "./billing";
+import { addMonths, cycleContaining, DISPLAY_STATUSES, displayStatus, installmentOf, invoiceTotals, lineAmounts, recurringCharges } from "./billing";
+import { INVOICE_STATUSES } from "./schema";
 
 const plan = { cycle: "monthly" as const, billingDay: 1, amount: 80000n, proration: "full" as const };
 
@@ -77,5 +78,40 @@ describe("line money", () => {
     const b = lineAmounts(150000n, 1, [{ name: "Sibling", reason: "2nd", kind: "percent", value: 15 }], 1800);
     const t = invoiceTotals([a, b]);
     expect(t).toEqual({ subtotal: 230000n, discount: 22500n, tax: 14400n + 22950n, total: 230000n - 22500n + 37350n });
+  });
+});
+
+describe("invoice status on screen", () => {
+  it("overdue beats part paid; void reads cancelled", () => {
+    expect(displayStatus({ status: "part_paid", dueDate: "2026-09-10" }, "2026-09-11")).toBe("overdue");
+    expect(displayStatus({ status: "part_paid", dueDate: "2026-09-11" }, "2026-09-11")).toBe("part_paid");
+    expect(displayStatus({ status: "issued", dueDate: "2026-09-11" }, "2026-09-11")).toBe("due");
+    expect(displayStatus({ status: "void", dueDate: "2026-09-01" }, "2026-09-11")).toBe("cancelled");
+  });
+
+  it("an unpaid invoice turns overdue the day after its due date", () => {
+    expect(displayStatus({ status: "issued", dueDate: "2026-09-10" }, "2026-09-11")).toBe("overdue");
+    expect(displayStatus({ status: "issued", dueDate: "2026-09-12" }, "2026-09-11")).toBe("due");
+  });
+
+  it("draft, paid and cancelled never read overdue, whatever the due date", () => {
+    expect(displayStatus({ status: "draft", dueDate: "2020-01-01" }, "2026-09-11")).toBe("draft");
+    expect(displayStatus({ status: "paid", dueDate: "2020-01-01" }, "2026-09-11")).toBe("paid");
+    expect(displayStatus({ status: "void", dueDate: "2020-01-01" }, "2026-09-11")).toBe("cancelled");
+  });
+
+  it("every stored status reads as one of the six words", () => {
+    expect(DISPLAY_STATUSES).toEqual(["draft", "due", "part_paid", "overdue", "paid", "cancelled"]);
+    for (const status of INVOICE_STATUSES) expect(DISPLAY_STATUSES).toContain(displayStatus({ status, dueDate: "2026-09-11" }, "2026-09-11"));
+  });
+});
+
+describe("installments", () => {
+  it("reads an installment key", () => expect(installmentOf("installment|r1|p1|2")).toEqual({ seq: "r1|p1", index: 2 }));
+
+  it("any other charge, or none, is not an installment", () => {
+    expect(installmentOf("tuition|e1|2026-10-01")).toBeNull();
+    expect(installmentOf("admission|s1|pr1")).toBeNull();
+    expect(installmentOf(null)).toBeNull();
   });
 });
