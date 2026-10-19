@@ -414,8 +414,8 @@ export async function receipt(tx: Tx, ctx: ScopedCtx, id: string): Promise<Recei
 // Also what the family's private link shows; callers check access.
 export async function receiptOf(tx: Tx, payment: Payment): Promise<Receipt> {
   const [lines, names, tenant, branch] = await Promise.all([receiptLines(tx, payment.id), receiptNames(tx, payment), getOwnTenant(tx), getBranch(tx, payment.branchId)]);
-  // The students on the invoices it paid; with none (all advance), the payer's children, since advance is the payer's.
-  const whom = lines.length ? lines.flatMap((l) => l.items.map((i) => i.studentName)) : (await activeStudentsOf(tx, { branchIds: [] }, [payerOfRow(payment)])).map((a) => a.student.fullName);
+  // The students on the invoices it paid; with none (all advance), the payer's children in its branch, where the advance sits.
+  const whom = lines.length ? lines.flatMap((l) => l.items.map((i) => i.studentName)) : (await activeStudentsOf(tx, { branchIds: [payment.branchId] }, [payerOfRow(payment)])).map((a) => a.student.fullName);
   return {
     payment,
     ...names,

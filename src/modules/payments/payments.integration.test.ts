@@ -560,11 +560,16 @@ describe("payments", () => {
       expect((await receiptOf(p.id)).balanceAfterPaise).toBe(70_000n);
     });
 
-    it("an all-advance receipt names the payer's active children", async () => {
+    it("an all-advance receipt names the payer's active children in its branch", async () => {
       const kid = await family();
       const r = await receiptOf((await pay(kid, 500)).id);
       expect(r.lines).toEqual([]);
       expect([r.advancePaise, r.students]).toEqual([rupees(500), [name(kid)]]);
+      // A sibling who shares the payer but attends the other branch is named only on a receipt of that branch.
+      const sibling = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: other, fullName: `Sibling of ${name(kid)}`, code: `PAY/SIB${++families}` }));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: sibling.id, guardianId: payerOfFamily.get(kid) ?? "", relation: "mother" }));
+      expect((await receiptOf((await pay(kid, 500)).id)).students).toEqual([name(kid)]);
+      expect((await receiptOf((await pay(kid, 500, { branchId: other })).id)).students).toEqual([sibling.fullName]);
     });
 
     it("a later refund leaves the receipt's balance as recorded", async () => {
