@@ -38,10 +38,10 @@ export const NAV_GROUPS: NavGroup[] = [
         title: { text: "Finance" },
         icon: "Landmark",
         children: [
-          { href: "/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
-          { href: "/payments", label: { text: "Collections" }, icon: "Wallet", permission: "payments:read" },
-          { href: "/payments/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
-          { href: "/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
+          { href: "/finance/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
+          { href: "/finance/collections", label: { text: "Collections" }, icon: "Wallet", permission: "payments:read" },
+          { href: "/finance/collections/new", label: { text: "Collect payment" }, icon: "IndianRupee", permission: "fees:collect" },
+          { href: "/finance/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
         ],
       },
       { href: "/reports", label: { text: "Reports" }, icon: "BarChart3", permission: "reports:view" },
@@ -87,7 +87,7 @@ export function navFor(session: NavSession, groups: NavGroup[] = NAV_GROUPS): Na
 }
 
 // The item for this page, or a parent of it; a more specific item wins
-// (/payments/new is Collect payment, not Collections).
+// (/finance/collections/new is Collect payment, not Collections).
 export function isActive(pathname: string, href: string, others: string[] = []): boolean {
   const under = (h: string) => pathname === h || pathname.startsWith(`${h}/`);
   return under(href) && !others.some((h) => h.length > href.length && under(h));

@@ -19,7 +19,7 @@ export function StillDue({ items }: { items: DueItem[] }) {
               </span>
             </span>
             {i.voidable ? (
-              <Link href={`/invoices/${i.invoiceId}?void=1`} className="shrink-0 text-label text-danger-700 hover:underline">
+              <Link href={`/finance/invoices/${i.invoiceId}?void=1`} className="shrink-0 text-label text-danger-700 hover:underline">
                 Void
               </Link>
             ) : null}

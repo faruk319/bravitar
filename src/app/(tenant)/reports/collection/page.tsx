@@ -36,7 +36,7 @@ function byDay(r: CollectionRegister) {
       tip: `${when} · ${formatPaise(b.totalPaise)} · ${receipts(b.count)}`,
       value: Number(b.totalPaise),
       valueText: formatPaise(b.totalPaise),
-      href: unit === "day" ? `/payments?day=${b.from}` : `/reports/collection?from=${b.from}&to=${b.to}`,
+      href: unit === "day" ? `/finance/collections?day=${b.from}` : `/reports/collection?from=${b.from}&to=${b.to}`,
     };
   });
 }

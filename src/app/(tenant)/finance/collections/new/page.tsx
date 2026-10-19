@@ -15,7 +15,7 @@ import { requireStudent } from "@/modules/students/service";
 
 // docs/07 §7.4. Opened from a student (their family and branch), from an
 // invoice (just that one ticked), or from the menu (find the member first).
-export default async function CollectPage({ searchParams }: PageProps<"/payments/new">) {
+export default async function CollectPage({ searchParams }: PageProps<"/finance/collections/new">) {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "fees:collect")) return <Gate permission="fees:collect">{null}</Gate>;
@@ -61,7 +61,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/payments
         <p className="mt-1 text-caption text-muted-foreground">
           {screen.memberName}
           {session.branchIds.length !== 1 ? ` · ${screen.branchName}` : ""} ·{" "}
-          <Link href="/payments/new" className="text-accent-600 hover:underline">
+          <Link href="/finance/collections/new" className="text-accent-600 hover:underline">
             Another member
           </Link>
         </p>

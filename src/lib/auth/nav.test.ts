@@ -16,7 +16,7 @@ describe("navFor", () => {
     expect(hrefs(groups)).toEqual(hrefs(NAV_GROUPS));
     expect(hrefs(groups)).toEqual([
       "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches",
-      "/invoices", "/payments", "/payments/new", "/fee-plans", "/reports",
+      "/finance/invoices", "/finance/collections", "/finance/collections/new", "/finance/fee-plans", "/reports",
       "/staff", "/messages", "/settings", "/billing",
     ]);
   });
@@ -24,7 +24,7 @@ describe("navFor", () => {
   it("a Front Desk sees people and collection, not staff, reports or setup", () => {
     const groups = navFor({ isOwner: false, modules: all, permissions: PRESET_ROLES["Front Desk"].permissions });
     const h = hrefs(groups);
-    expect(h).toEqual(expect.arrayContaining(["/students", "/enquiries", "/invoices", "/payments/new"]));
+    expect(h).toEqual(expect.arrayContaining(["/students", "/enquiries", "/finance/invoices", "/finance/collections/new"]));
     expect(h).not.toContain("/attendance"); // marks, but does not hold attendance:read
     expect(h).not.toContain("/staff");
     expect(h).not.toContain("/reports");
@@ -49,19 +49,19 @@ describe("navFor", () => {
   it("drops the Finance parent when every child is refused", () => {
     const groups = as(["students:read"]);
     expect(finance(groups)).toBeUndefined();
-    expect(hrefs(groups)).not.toContain("/invoices");
+    expect(hrefs(groups)).not.toContain("/finance/invoices");
   });
 
   it("collapses Finance into a plain link when exactly one child is permitted", () => {
     const groups = as(["fee_plans:manage"]);
     expect(finance(groups)).toBeUndefined();
-    const entry = groups[0]?.items.find((e) => !isParent(e) && e.href === "/fee-plans");
-    expect(entry).toMatchObject({ href: "/fee-plans", label: { text: "Fee plans" } });
+    const entry = groups[0]?.items.find((e) => !isParent(e) && e.href === "/finance/fee-plans");
+    expect(entry).toMatchObject({ href: "/finance/fee-plans", label: { text: "Fee plans" } });
   });
 
   it("keeps Finance with only the permitted children when two or more remain", () => {
     const parent = finance(as(["invoices:read", "payments:read", "fees:collect"]));
-    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/invoices", "/payments", "/payments/new"]);
+    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/finance/invoices", "/finance/collections", "/finance/collections/new"]);
   });
 
   it("keeps the Finance parent between Batches and Reports", () => {
@@ -128,17 +128,17 @@ describe("crumbsFor", () => {
     ]);
   });
 
-  it("/payments/new is Collect payment under Finance, not Collections", () => {
-    expect(crumbsFor("/payments/new")).toEqual([
+  it("/finance/collections/new is Collect payment under Finance, not Collections", () => {
+    expect(crumbsFor("/finance/collections/new")).toEqual([
       { label: { text: "Finance" }, href: null },
       { label: { text: "Collect payment" }, href: null },
     ]);
   });
 
   it("a receipt sits under Finance > Collections", () => {
-    expect(crumbsFor("/payments/0192-abc", "Receipt 7")).toEqual([
+    expect(crumbsFor("/finance/collections/0192-abc", "Receipt 7")).toEqual([
       { label: { text: "Finance" }, href: null },
-      { label: { text: "Collections" }, href: "/payments" },
+      { label: { text: "Collections" }, href: "/finance/collections" },
       { label: { text: "Receipt 7" }, href: null },
     ]);
   });

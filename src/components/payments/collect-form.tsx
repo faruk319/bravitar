@@ -72,7 +72,7 @@ export function CollectForm({ memberId, branchId, due, advance, preselect, today
       ...(earlier && receivedOn !== today ? { receivedOn } : {}),
       allocations: (split?.shares ?? []).map((s) => ({ invoiceId: s.invoiceId, amountPaise: String(s.amountPaise) })),
     });
-    if (r.data) return router.push(`/payments/${r.data.id}`);
+    if (r.data) return router.push(`/finance/collections/${r.data.id}`);
     setBusy(false);
     setError(r.offline ? "No connection. Nothing was saved; try again." : r.error);
   }
@@ -220,7 +220,7 @@ export function MemberSearch() {
         <ul className="flex flex-col">
           {hits.map((h) => (
             <li key={h.student.id}>
-              <Link href={`/payments/new?student=${h.student.id}`} className="flex min-h-14 items-center gap-3 rounded-lg px-2 hover:bg-neutral-50">
+              <Link href={`/finance/collections/new?student=${h.student.id}`} className="flex min-h-14 items-center gap-3 rounded-lg px-2 hover:bg-neutral-50">
                 <Avatar name={h.student.fullName} size="sm" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-body text-neutral-900">

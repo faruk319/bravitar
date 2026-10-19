@@ -25,7 +25,7 @@ const TABS: Record<InvoiceView, [string, string]> = {
   void: ["Void", "Nothing voided."],
 };
 
-export default async function InvoicesPage({ searchParams }: PageProps<"/invoices">) {
+export default async function InvoicesPage({ searchParams }: PageProps<"/finance/invoices">) {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
@@ -43,7 +43,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/invoice
       <PageHeader title="Invoices" actions={canManage ? <GenerateNow /> : undefined} />
       <SegmentedTabs
         label="Invoices"
-        items={INVOICE_VIEWS.map((v) => ({ href: `/invoices?view=${v}`, label: v === "draft" && data.drafts.count ? `${TABS[v][0]} · ${data.drafts.count}` : TABS[v][0], active: v === data.view }))}
+        items={INVOICE_VIEWS.map((v) => ({ href: `/finance/invoices?view=${v}`, label: v === "draft" && data.drafts.count ? `${TABS[v][0]} · ${data.drafts.count}` : TABS[v][0], active: v === data.view }))}
       />
       {data.view === "draft" && data.drafts.count ? (
         <Card className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -63,7 +63,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/invoice
           <ul className="divide-y divide-neutral-100">
             {data.invoices.map((i) => (
               <li key={i.id}>
-                <Link href={`/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 hover:bg-neutral-50 md:px-5">
+                <Link href={`/finance/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 hover:bg-neutral-50 md:px-5">
                   <span className="min-w-0">
                     <span className="block truncate text-body font-medium text-neutral-900">{i.billToName}</span>
                     <span className="block truncate text-caption text-muted-foreground">{[i.number ?? "Draft", i.students.join(", "), `due ${formatDate(i.dueDate)}`].filter(Boolean).join(" · ")}</span>

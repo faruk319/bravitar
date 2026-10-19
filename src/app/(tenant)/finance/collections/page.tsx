@@ -69,7 +69,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
               const facts = [timeIn(timeZone, p.createdAt), METHOD_LABEL[p.method], p.collectorName, p.receivedOn !== p.recordedOn ? `received ${formatDate(p.receivedOn)}` : "", cancelled ? `cancelled: ${p.cancelReason}` : ""];
               return (
                 <li key={p.id}>
-                  <Link href={`/payments/${p.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
+                  <Link href={`/finance/collections/${p.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
                     <span className="min-w-0">
                       <span className="block truncate text-body text-neutral-900">
                         {p.billToName} <span className="text-caption tabular-nums text-muted-foreground">{p.receiptNumber}</span>
@@ -89,7 +89,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
               <ul className="mt-1 divide-y divide-neutral-100">
                 {s.refunds.rows.map((r) => (
                   <li key={r.id}>
-                    <Link href={`/payments/${r.paymentId}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
+                    <Link href={`/finance/collections/${r.paymentId}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
                       <span className="min-w-0">
                         <span className="block truncate text-body text-neutral-900">
                           {r.billToName} <span className="text-caption tabular-nums text-muted-foreground">{r.receiptNumber}</span>
@@ -113,7 +113,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
 
 // docs/04 "The daily reconciliation screen": what the owner checks against the
 // cash drawer at closing time. One sheet per branch; counted by the day recorded.
-export default async function CollectionPage({ searchParams }: PageProps<"/payments">) {
+export default async function CollectionPage({ searchParams }: PageProps<"/finance/collections">) {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "payments:read")) return <Gate permission="payments:read">{null}</Gate>;
@@ -134,7 +134,7 @@ export default async function CollectionPage({ searchParams }: PageProps<"/payme
         title="Collection"
         actions={
           canCollect ? (
-            <Button nativeButton={false} render={<Link href="/payments/new" />}>
+            <Button nativeButton={false} render={<Link href="/finance/collections/new" />}>
               Collect payment
             </Button>
           ) : undefined
@@ -143,15 +143,15 @@ export default async function CollectionPage({ searchParams }: PageProps<"/payme
         <p className="mt-1 text-caption text-muted-foreground">{day === today ? `Today, ${formatDate(day)}` : formatDate(day)}</p>
       </PageHeader>
       <nav aria-label="Day" className="mb-5 flex items-center gap-2">
-        <Button variant="outline" nativeButton={false} render={<Link href={`/payments?day=${addDays(day, -1)}`} />}>
+        <Button variant="outline" nativeButton={false} render={<Link href={`/finance/collections?day=${addDays(day, -1)}`} />}>
           ← {formatDate(addDays(day, -1))}
         </Button>
         {day < today ? (
           <>
-            <Button variant="outline" nativeButton={false} render={<Link href={`/payments?day=${addDays(day, 1)}`} />}>
+            <Button variant="outline" nativeButton={false} render={<Link href={`/finance/collections?day=${addDays(day, 1)}`} />}>
               {formatDate(addDays(day, 1))} →
             </Button>
-            <Button variant="ghost" nativeButton={false} render={<Link href="/payments" />}>
+            <Button variant="ghost" nativeButton={false} render={<Link href="/finance/collections" />}>
               Today
             </Button>
           </>
@@ -162,7 +162,7 @@ export default async function CollectionPage({ searchParams }: PageProps<"/payme
           <EmptyState
             title="No payments on this day"
             hint="Payments recorded on a day show here, by method and by collector, with the cash to deposit."
-            {...(canCollect && day === today ? { action: "Collect payment", href: "/payments/new" } : {})}
+            {...(canCollect && day === today ? { action: "Collect payment", href: "/finance/collections/new" } : {})}
           />
         </Card>
       ) : (

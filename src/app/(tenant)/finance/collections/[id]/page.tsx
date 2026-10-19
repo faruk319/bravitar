@@ -18,7 +18,7 @@ import { paymentState, receipt } from "@/modules/payments/service";
 
 // The receipt as it was recorded (docs/03 §9): printed by the browser, which can
 // also save it as a PDF. Refunds and cancelling happen here but never change it.
-export default async function PaymentPage({ params }: PageProps<"/payments/[id]">) {
+export default async function PaymentPage({ params }: PageProps<"/finance/collections/[id]">) {
   const { id } = await params;
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
@@ -58,7 +58,7 @@ export default async function PaymentPage({ params }: PageProps<"/payments/[id]"
       {online && state.refundablePaise > 0n && allows(ctx, "fees:refund") ? (
         <p className="mx-auto mb-3 max-w-xl text-caption text-muted-foreground print:hidden">Paid online through Razorpay. To refund it, use your Razorpay dashboard; the refund shows here by itself.</p>
       ) : null}
-      <ReceiptCard r={r} {...(invoiceLinks ? { invoiceHref: (id: string) => `/invoices/${id}` } : {})} />
+      <ReceiptCard r={r} {...(invoiceLinks ? { invoiceHref: (id: string) => `/finance/invoices/${id}` } : {})} />
 
       {state.refunds.length ? (
         <Card className="mx-auto mt-5 max-w-xl print:hidden">

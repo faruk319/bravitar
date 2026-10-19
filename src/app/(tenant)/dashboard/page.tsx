@@ -42,7 +42,7 @@ export default async function DashboardPage() {
   const trend = money?.trendPct;
 
   const alerts: Alert[] = [];
-  if (money?.dueTomorrow !== undefined) alerts.push({ key: "due", n: money.dueTomorrow, text: `${count(money.dueTomorrow, "invoice", "invoices")} due tomorrow`, href: "/invoices?view=unpaid", icon: CalendarClock, tone: "warning" });
+  if (money?.dueTomorrow !== undefined) alerts.push({ key: "due", n: money.dueTomorrow, text: `${count(money.dueTomorrow, "invoice", "invoices")} due tomorrow`, href: "/finance/invoices?view=unpaid", icon: CalendarClock, tone: "warning" });
   if (today) alerts.push({ key: "capacity", n: today.nearCapacity, text: `${count(today.nearCapacity, "batch", "batches")} near capacity today`, href: "/today", icon: UsersRound, tone: "warning" });
   if (roll) alerts.push({ key: "waiting", n: roll.waitingForBatch, text: `${count(roll.waitingForBatch, "student", "students")} waiting for a batch`, href: "/students", icon: UsersRound, tone: "warning" });
   if (atRisk?.attendance != null) alerts.push({ key: "risk-att", n: atRisk.attendance, text: `${count(atRisk.attendance, "student", "students")} under ${AT_RISK.below}% attendance`, href: "/reports/at-risk", icon: UserX, tone: "danger" });
@@ -73,8 +73,8 @@ export default async function DashboardPage() {
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {roll ? <StatCard label="Active students" value={roll.active} note={`+${roll.joinedThisMonth} this month`} icon={UsersRound} href="/students" /> : null}
             {att ? <StatCard label="Today's attendance" value={pct === null ? "—" : `${pct}%`} note={attNote} icon={ClipboardCheck} href="/attendance" /> : null}
-            {owed ? <StatCard label="Fees due" value={formatPaise(owed.owedPaise)} note={count(owed.invoices, "invoice", "invoices")} icon={Wallet} href="/invoices?view=unpaid" /> : null}
-            {collected ? <StatCard label="This month" value={formatPaise(collected.total)} trend={trend} note={trend === null || trend === undefined ? count(collected.count, "receipt", "receipts") : "so far vs all of last month"} icon={IndianRupee} href="/payments" /> : null}
+            {owed ? <StatCard label="Fees due" value={formatPaise(owed.owedPaise)} note={count(owed.invoices, "invoice", "invoices")} icon={Wallet} href="/finance/invoices?view=unpaid" /> : null}
+            {collected ? <StatCard label="This month" value={formatPaise(collected.total)} trend={trend} note={trend === null || trend === undefined ? count(collected.count, "receipt", "receipts") : "so far vs all of last month"} icon={IndianRupee} href="/finance/collections" /> : null}
           </div>
           <QuickActions actions={actions} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

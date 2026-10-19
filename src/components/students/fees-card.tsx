@@ -15,7 +15,7 @@ function InvoiceItem({ i, today }: { i: InvoiceRow; today: string }) {
   const balance = i.totalPaise - i.paidPaise;
   return (
     <li>
-      <Link href={`/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
+      <Link href={`/finance/invoices/${i.id}`} className="flex min-h-14 items-center justify-between gap-3 py-2 hover:bg-neutral-50">
         <span className="min-w-0">
           <span className="block truncate text-body font-medium">{i.billToName}</span>
           <span className="block text-caption text-muted-foreground">

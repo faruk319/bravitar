@@ -21,7 +21,7 @@ import { invoiceReceipts } from "@/modules/payments/service";
 import { razorpayConnected } from "@/modules/integrations/service";
 import { PaymentLink } from "@/components/payments/payment-link";
 
-export default async function InvoicePage({ params, searchParams }: PageProps<"/invoices/[id]">) {
+export default async function InvoicePage({ params, searchParams }: PageProps<"/finance/invoices/[id]">) {
   const { id } = await params;
   const openVoid = (await searchParams).void === "1"; // straight from the leave screens
   const session = await requireStaffPage();
@@ -48,7 +48,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
           canManage || canCollect || canRemind ? (
             <>
               {canCollect ? (
-                <Button nativeButton={false} render={<Link href={`/payments/new?invoice=${inv.id}`} />}>
+                <Button nativeButton={false} render={<Link href={`/finance/collections/new?invoice=${inv.id}`} />}>
                   Collect
                 </Button>
               ) : null}
@@ -76,7 +76,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
                 {d.receipts.map((r) => (
                   <li key={r.paymentId} className="flex min-h-12 items-center justify-between gap-3">
                     {receiptLinks ? (
-                      <Link href={`/payments/${r.paymentId}`} className="text-body tabular-nums text-accent-600 hover:underline">
+                      <Link href={`/finance/collections/${r.paymentId}`} className="text-body tabular-nums text-accent-600 hover:underline">
                         {r.receiptNumber}
                       </Link>
                     ) : (
