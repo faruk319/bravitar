@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 import { Money } from "@/components/money";
 import { METHOD_LABEL } from "@/modules/payments/labels";
 import { Card } from "@/components/ui/card";
-import { formatDate, formatMonthYear } from "@/lib/dates";
-import type { ReceiptItem } from "@/modules/payments/repo";
+import { formatDate, periodLabel } from "@/lib/dates";
 import type { Receipt } from "@/modules/payments/service";
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -14,14 +13,6 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
       <dd className="text-right text-body">{children}</dd>
     </div>
   );
-}
-
-// "Oct 2026", or "Jul 2026 – Sept 2026" when it spans months.
-function months({ periodStart, periodEnd }: ReceiptItem): string {
-  if (!periodStart) return "";
-  const from = formatMonthYear(periodStart);
-  const to = periodEnd ? formatMonthYear(periodEnd) : from;
-  return from === to ? from : `${from} – ${to}`;
 }
 
 // The receipt as it was recorded (docs/03 §9), for staff and for the family's
@@ -74,7 +65,7 @@ export function ReceiptCard({ r, invoiceHref, showNotes }: { r: Receipt; invoice
               )}
               {l.items.map((i, n) => (
                 <p key={n} className="text-caption text-muted-foreground">
-                  {[i.description, months(i), i.studentName].filter(Boolean).join(" · ")}
+                  {[i.description, periodLabel(i.periodStart, i.periodEnd), i.studentName].filter(Boolean).join(" · ")}
                 </p>
               ))}
             </div>

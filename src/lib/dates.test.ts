@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, isIsoDate, monthsLaterOn, startOfWeek, todayIn, weekdayOf } from "./dates";
+import { addDays, formatDate, isIsoDate, monthsLaterOn, periodLabel, startOfWeek, todayIn, weekdayOf } from "./dates";
 
 describe("calendar dates", () => {
   it("knows what day it is in the tenant's timezone, not the server's", () => {
@@ -39,5 +39,26 @@ describe("calendar dates", () => {
     expect(isIsoDate("2028-02-29")).toBe(true);
     expect(isIsoDate("23/09/2026")).toBe(false);
     expect(formatDate("2026-10-02")).toBe("2 Oct 2026");
+  });
+});
+
+describe("periodLabel", () => {
+  it("a period inside one month is that month, with or without an end", () => {
+    expect(periodLabel("2026-10-01", "2026-10-31")).toBe("Oct 2026");
+    expect(periodLabel("2026-10-01", null)).toBe("Oct 2026");
+  });
+
+  it("several months of one year share the year", () => {
+    expect(periodLabel("2026-10-01", "2026-12-31")).toBe("Oct – Dec 2026");
+  });
+
+  it("across years it names both", () => {
+    expect(periodLabel("2026-12-01", "2027-02-28")).toBe("Dec 2026 – Feb 2027");
+    expect(periodLabel("2026-10-01", "2027-10-31")).toBe("Oct 2026 – Oct 2027");
+  });
+
+  it("has no label without a start", () => {
+    expect(periodLabel(null, null)).toBeNull();
+    expect(periodLabel(null, "2026-10-31")).toBeNull();
   });
 });

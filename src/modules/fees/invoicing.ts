@@ -5,7 +5,7 @@ import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { Paise } from "@/lib/money/paise";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { releaseInvoice } from "@/modules/payments/service";
-import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
+import { type Payer, payerKey, planPayer } from "@/modules/students/payer";
 import { leadGuardians } from "@/modules/students/repo";
 import { getOwnTenant } from "@/modules/tenancy/repo";
 import { type Cycle, invoiceTotals, type LineDiscount, lineAmounts, recurringCharges } from "./billing";
@@ -137,15 +137,13 @@ export type GenerateOptions = { now?: Date; enrollmentIds?: string[]; onlyKeys?:
 export type SkippedMember = { enrollmentId: string; studentId: string; reason: "corrupt_payer" | "no_payer_name" };
 export type GenerateResult = { invoices: number; lines: number; skipped: SkippedMember[] };
 
-// The enrollment's own payer; one with none falls back to the member's lead guardian, else the member themselves.
-// Both payer columns set is corrupt: that member is skipped, never guessed at.
+// Who pays each enrollment (planPayer). Both payer columns set is corrupt: that member is skipped, never guessed at.
 export function resolvePayers(es: Enrollment[], lead: Map<string, string>): { payers: Map<string, Payer>; corrupt: Enrollment[] } {
   const payers = new Map<string, Payer>();
   const corrupt: Enrollment[] = [];
   for (const e of es) {
     try {
-      const guardianId = lead.get(e.studentId);
-      payers.set(e.id, payerOf(e) ?? (guardianId ? { kind: "guardian", guardianId } : { kind: "member", memberId: e.studentId }));
+      payers.set(e.id, planPayer(e, lead.get(e.studentId)));
     } catch {
       corrupt.push(e);
     }

@@ -819,7 +819,7 @@ describe("payments", () => {
       );
       const [first, second] = (await screen(kid)).payers.flatMap((p) => p.open);
       expect([first?.id, first?.description, first?.students]).toEqual([month.id, "Swimming Beginner · Oct 2026", [name(kid)]]);
-      expect([second?.id, second?.description, second?.students]).toEqual([quarter.id, "Karate Quarterly · Oct 2026 – Dec 2026, Admission", [name(kid)]]);
+      expect([second?.id, second?.description, second?.students]).toEqual([quarter.id, "Karate Quarterly · Oct – Dec 2026, Admission", [name(kid)]]);
     });
 
     it("a guardian's relation is to the opened child, else to a sibling's", async () => {

@@ -3,7 +3,7 @@ import { allows, assertCan, ForbiddenError } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, formatMonthYear, isIsoDate, todayIn } from "@/lib/dates";
+import { addDays, isIsoDate, periodLabel, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
@@ -14,7 +14,7 @@ import type { FeePlan, Invoice } from "@/modules/fees/schema";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
+import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/payer";
 import { RELATION_LABELS } from "@/modules/students/relations";
 import { activeStudentsOf, guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
@@ -140,16 +140,8 @@ export type CollectScreen = {
   enrollments: { id: string; programId: string; programName: string; batchName: string }[]; // the opened member's, for a charge to name a program
 };
 
-// "Oct 2026", or "Oct 2026 – Dec 2026" over several months; nothing without a period.
-function monthsOf({ periodStart, periodEnd }: Pick<LineRow, "periodStart" | "periodEnd">): string {
-  if (!periodStart) return "";
-  const from = formatMonthYear(periodStart);
-  const to = periodEnd ? formatMonthYear(periodEnd) : from;
-  return from === to ? from : `${from} – ${to}`;
-}
-
 // What an open invoice is for, from its lines: "Swimming Beginner · Oct 2026".
-const dueWhat = (lines: LineRow[]): string => [...new Set(lines.map((l) => [l.description, monthsOf(l)].filter(Boolean).join(" · ")))].join(", ");
+const dueWhat = (lines: LineRow[]): string => [...new Set(lines.map((l) => [l.description, periodLabel(l.periodStart, l.periodEnd)].filter(Boolean).join(" · ")))].join(", ");
 
 // Everything the collect screen needs for one member (and their siblings) at one branch: each payer
 // with their own dues, advance and plans, and the one to pre-select.
@@ -181,12 +173,17 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, br
     dues.set(key, [...(dues.get(key) ?? []), row]);
   }
 
-  // An enrollment with no payer of its own is paid by the member's lead guardian, else by the member, as when it is billed.
+  // A plan is listed under whoever is billed for it; a row with both payer columns set is skipped, as billing skips it.
   const plans = new Map<string, PlanLine[]>();
   for (const { e, plan, studentName, branchId: studentBranch, programName, batchName } of placed) {
     if (!plan || studentBranch !== branchId) continue;
-    const guardianId = lead.get(e.studentId);
-    const key = payerKey(payerOf(e) ?? (guardianId ? { kind: "guardian", guardianId } : { kind: "member", memberId: e.studentId }));
+    let payer: Payer;
+    try {
+      payer = planPayer(e, lead.get(e.studentId));
+    } catch {
+      continue;
+    }
+    const key = payerKey(payer);
     plans.set(key, [...(plans.get(key) ?? []), { enrollmentId: e.id, studentName, programName, batchName, planName: plan.name, kind: plan.kind, cycle: plan.billingCycle, amountPaise: plan.amountPaise }]);
   }
 

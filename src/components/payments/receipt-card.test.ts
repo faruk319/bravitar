@@ -46,7 +46,7 @@ describe("receipt card", () => {
       { description: "Admission", studentName: null, periodStart: null, periodEnd: null },
     ];
     const out = text(render(receipt({ lines: [{ invoiceId: "i1", number: "INV/2026-27/0042", amountPaise: 150_000n, items }] })));
-    expect(out).toContain("Karate Annual · Oct 2026 – Dec 2026 · Child 1");
+    expect(out).toContain("Karate Annual · Oct – Dec 2026 · Child 1");
     expect(out).toContain("Admission ₹1,500");
   });
 

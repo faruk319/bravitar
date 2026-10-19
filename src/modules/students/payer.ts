@@ -8,6 +8,12 @@ export function payerOf(row: { payerGuardianId: string | null; payerMemberId: st
   return null;
 }
 
+// Who pays for an enrollment: its own payer; with none, the member's lead guardian, else the member themselves.
+// Billing and the collect screen both ask here. A row with both payer columns set throws (payerOf); callers skip it.
+export function planPayer(e: { studentId: string; payerGuardianId: string | null; payerMemberId: string | null }, leadGuardianId: string | undefined): Payer {
+  return payerOf(e) ?? (leadGuardianId ? { kind: "guardian", guardianId: leadGuardianId } : { kind: "member", memberId: e.studentId });
+}
+
 // Kind-prefixed, so a guardian and a member with the same id never share a key.
 export function payerKey(p: Payer): string {
   return p.kind === "guardian" ? `guardian:${p.guardianId}` : `member:${p.memberId}`;

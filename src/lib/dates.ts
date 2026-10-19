@@ -8,9 +8,18 @@ export function formatDate(iso: string | Date | null | undefined): string {
 
 const dm = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 const my = new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+const mo = new Intl.DateTimeFormat("en-IN", { month: "short", timeZone: "UTC" });
 // "2026-09-03" -> "3 Sept" / "Sept 2026", for chart ticks.
 export const formatDayMonth = (iso: string): string => dm.format(new Date(`${iso}T00:00:00Z`));
 export const formatMonthYear = (iso: string): string => my.format(new Date(`${iso}T00:00:00Z`));
+
+// A period by its months: "Oct 2026"; "Oct – Dec 2026" across months of one year; "Dec 2026 – Feb 2027" across years. No start, no label.
+export function periodLabel(start: string | null, end: string | null): string | null {
+  if (!start) return null;
+  if (!end || end.slice(0, 7) === start.slice(0, 7)) return formatMonthYear(start);
+  if (end.slice(0, 4) === start.slice(0, 4)) return `${mo.format(new Date(`${start}T00:00:00Z`))} – ${formatMonthYear(end)}`;
+  return `${formatMonthYear(start)} – ${formatMonthYear(end)}`;
+}
 
 export function isIsoDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(`${s}T00:00:00Z`).toISOString().slice(0, 10) === s;
