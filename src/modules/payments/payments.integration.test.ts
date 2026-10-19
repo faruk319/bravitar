@@ -9,23 +9,26 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { login, setPassword } from "@/modules/auth/service";
-import { insertInvoice, insertLines, updateInvoice } from "@/modules/fees/repo";
+import { createProgram, insertBatch } from "@/modules/batches/repo";
+import { insertEnrollment, updateEnrollment } from "@/modules/enrollments/repo";
+import { insertInvoice, insertLines, insertPlan, updateInvoice } from "@/modules/fees/repo";
 import { type Invoice, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { collectionRegister } from "@/modules/reports/service";
+import { payerKey } from "@/modules/students/payer";
 import { createGuardian, guardiansOfMembers, insertStudent, removeFamilyLink, upsertFamilyLink } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
 import { guardians } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
-import { createBranch } from "@/modules/tenancy/repo";
+import { createBranch, updateOwnTenant } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { collectedByMonth, familyContact, insertPayment } from "./repo";
-import { cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
+import { applyAdvanceRoute, cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
-import { cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordGatewayPayment, recordPayment, refundPayment } from "./service";
+import { applyAdvanceNow, cancelPayment, collectedToday, collectScreen, collectionSheet, familyAccount, invoiceReceipts, type PaymentInput, receipt, recordGatewayPayment, recordPayment, refundPayment } from "./service";
 
 // docs/04 "Test list": the database guards under the payments code
 // (migration 0015) in academy G, and the payments service in academy T, where
@@ -501,6 +504,12 @@ describe("payments", () => {
       const h = await family();
       await expect(pay(h, 100, {}, teacher)).rejects.toMatchObject({ status: 403 });
     });
+
+    it("card can be recorded by hand; online cannot", async () => {
+      const h = await family();
+      await expect(pay(h, 500, { method: "card" })).resolves.toMatchObject({ method: "card" });
+      await expect(pay(h, 500, { method: "online" as never })).rejects.toMatchObject({ issues: [{ path: ["method"] }] });
+    });
   });
 
   describe("receipts and numbering", () => {
@@ -668,7 +677,7 @@ describe("payments", () => {
       const shared = payerOfFamily.get(a) ?? "";
       const [childA, childB] = [a, b];
       const invB = await bill(b, 300, "2026-09-10", main, { payerGuardianId: shared });
-      const openOn = async (m: string) => (await withTenant(T, (tx) => collectScreen(tx, desk, m, main, { now: NOW }))).account.open.map((o) => o.id);
+      const openOn = async (m: string) => (await withTenant(T, (tx) => collectScreen(tx, desk, m, main, { now: NOW }))).payers.flatMap((p) => p.open.map((o) => o.id));
       expect(await openOn(childA)).toEqual([]);
       await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: childB, guardianId: shared, relation: "mother" }));
       expect(await openOn(childA)).toEqual([invB.id]);
@@ -688,6 +697,230 @@ describe("payments", () => {
       await withTenant(T, (tx) => removeFamilyLink(tx, lone.student.id, lone.guardian.id, NOW));
       const byMember = await bill(lone.student.id, 100, "2026-09-10", main, { payerGuardianId: null, payerMemberId: lone.student.id });
       expect(await withTenant(T, (tx) => familyContact(tx, byMember))).toEqual({ name: "Adult Gym", phone: lone.student.phone });
+    });
+  });
+
+  describe("the collect screen and using the advance", () => {
+    const screen = (memberId: string, as: ScopedCtx = desk, branchId = main) => withTenant(T, (tx) => collectScreen(tx, as, memberId, branchId, { now: NOW }));
+    const keyOf = (guardianId: string) => payerKey({ kind: "guardian", guardianId });
+    const optionOf = (s: Awaited<ReturnType<typeof screen>>, guardianId: string) => s.payers.find((p) => p.key === keyOf(guardianId));
+    const applyNow = (payerGuardianId: string, branchId: string, as: ScopedCtx = desk) => withTenant(T, (tx) => applyAdvanceNow(tx, as, { branchId, payerGuardianId }));
+    // A father for the child, a guardian of their own: a second payer next to the mother.
+    const addFather = (kid: string) =>
+      withTenant(T, async (tx) => {
+        const dad = await createGuardian(tx, { tenantId: T, fullName: "Father", phone: `+9198766${String(10_000 + ++families)}` });
+        await upsertFamilyLink(tx, { tenantId: T, studentId: kid, guardianId: dad.id, relation: "father" });
+        return dad.id;
+      });
+    const parents = async () => {
+      const kid = await family();
+      return { kid, mum: payerOfFamily.get(kid) ?? "", dad: await addFather(kid) };
+    };
+    const swim = { program: "", beginner: "", advanced: "", beginnerBatch: "", advancedBatch: "", otherBatch: "" };
+    const enrol = (studentId: string, batchId: string, feePlanId: string) => withTenant(T, (tx) => insertEnrollment(tx, { tenantId: T, studentId, batchId, startDate: "2026-09-01", feePlanId }));
+
+    beforeAll(async () => {
+      await withTenant(T, async (tx) => {
+        const program = await createProgram(tx, { tenantId: T, name: "Swimming", activityKey: "karate" });
+        const plan = (name: string, billingCycle: "monthly" | "quarterly", amountPaise: bigint) => insertPlan(tx, { tenantId: T, name, kind: "recurring", billingCycle, amountPaise });
+        const batch = (name: string, defaultFeePlanId: string, branchId: string) => insertBatch(tx, { tenantId: T, branchId, programId: program.id, name, defaultFeePlanId, startDate: "2026-01-01" });
+        const [beginner, advanced] = [await plan("Swimming Beginner", "monthly", rupees(2000)), await plan("Swimming Advanced", "quarterly", rupees(6000))];
+        Object.assign(swim, {
+          program: program.id,
+          beginner: beginner.id,
+          advanced: advanced.id,
+          beginnerBatch: (await batch("Beginner", beginner.id, main)).id,
+          advancedBatch: (await batch("Advanced", advanced.id, main)).id,
+          otherBatch: (await batch("Beginner (second branch)", beginner.id, other)).id,
+        });
+      });
+    });
+
+    it("a split-payer family lists each payer with only their own dues", async () => {
+      const { kid, mum, dad } = await parents();
+      await bill(kid, 1500, "2026-09-10", main, { payerGuardianId: mum });
+      await bill(kid, 2000, "2026-09-12", main, { payerGuardianId: dad });
+      const s = await screen(kid);
+      expect(s.payers.map((p) => [p.name, p.open.map((o) => o.balancePaise)])).toEqual([
+        ["Father", [rupees(2000)]],
+        [expect.stringMatching(/^Mother /), [rupees(1500)]],
+      ]);
+      expect(s.defaultPayerKey).toBeNull();
+    });
+
+    it("one payer with dues is the default, and a payer with nothing is not listed", async () => {
+      const { kid, mum } = await parents();
+      await bill(kid, 1500, "2026-09-10", main, { payerGuardianId: mum });
+      const s = await screen(kid);
+      expect(s.defaultPayerKey).toBe(keyOf(mum));
+      expect(s.payers.map((p) => p.key)).toEqual([keyOf(mum)]);
+    });
+
+    it("with nothing owed, the only guardian is the default, several guardians are all offered, and no guardian means the member", async () => {
+      const { kid, mum, dad } = await parents();
+      const solo = await family();
+      const adult = await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Adult Gym", dateOfBirth: "1990-01-01", adultPhone: `98766 ${String(40_000 + ++families)}`, consents: { dataProcessing: true } }));
+      await withTenant(T, (tx) => removeFamilyLink(tx, adult.student.id, adult.guardian.id, NOW));
+      const [both, one, self] = [await screen(kid), await screen(solo), await screen(adult.student.id)];
+      expect([both.defaultPayerKey, both.payers.map((p) => p.key)]).toEqual([null, [keyOf(dad), keyOf(mum)]]);
+      expect([one.defaultPayerKey, one.payers.map((p) => p.key)]).toEqual([keyOf(payerOfFamily.get(solo) ?? ""), [keyOf(payerOfFamily.get(solo) ?? "")]]);
+      expect([self.defaultPayerKey, self.payers.map((p) => [p.name, p.relation])]).toEqual([payerKey({ kind: "member", memberId: adult.student.id }), [["Adult Gym", null]]]);
+    });
+
+    it("a payer who holds advance is listed even when someone else is the one who owes", async () => {
+      const { kid, mum, dad } = await parents();
+      await pay(kid, 500, { payerGuardianId: mum });
+      await bill(kid, 1000, "2026-09-10", main, { payerGuardianId: dad });
+      const s = await screen(kid);
+      expect(s.payers.map((p) => [p.key, p.advancePaise, p.open.length])).toEqual([[keyOf(dad), 0n, 1], [keyOf(mum), rupees(500), 0]]);
+      expect(s.defaultPayerKey).toBe(keyOf(dad));
+    });
+
+    it("each payer carries their student plans, and the opened child's enrollments come with the screen", async () => {
+      const { kid, mum, dad } = await parents();
+      const monthly = await enrol(kid, swim.beginnerBatch, swim.beginner); // no payer of its own: the lead guardian, the mother, pays
+      const quarterly = await enrol(kid, swim.advancedBatch, swim.advanced);
+      await withTenant(T, (tx) => updateEnrollment(tx, quarterly.id, { payerGuardianId: dad }));
+      await pay(kid, 500, { payerGuardianId: mum });
+      await bill(kid, 1000, "2026-09-10", main, { payerGuardianId: dad });
+      const s = await screen(kid);
+      expect(optionOf(s, mum)).toMatchObject({
+        relation: "Mother",
+        advancePaise: rupees(500),
+        open: [],
+        plans: [{ enrollmentId: monthly.id, studentName: name(kid), programName: "Swimming", batchName: "Beginner", planName: "Swimming Beginner", kind: "recurring", cycle: "monthly", amountPaise: rupees(2000) }],
+      });
+      expect(optionOf(s, dad)).toMatchObject({ relation: "Father", advancePaise: 0n, plans: [{ enrollmentId: quarterly.id, batchName: "Advanced", planName: "Swimming Advanced", cycle: "quarterly", amountPaise: rupees(6000) }] });
+      expect(s.enrollments).toEqual([
+        { id: monthly.id, programId: swim.program, programName: "Swimming", batchName: "Beginner" },
+        { id: quarterly.id, programId: swim.program, programName: "Swimming", batchName: "Advanced" },
+      ]);
+    });
+
+    it("an open invoice says what it was for and for whom, from its lines", async () => {
+      const kid = await family();
+      const [month, quarter] = [await bill(kid, 1500, "2026-09-10"), await bill(kid, 3000, "2026-09-20")];
+      const line = (invoiceId: string, description: string, unit: number, period: { periodStart: string; periodEnd: string } | { periodStart: null; periodEnd: null }) => ({
+        tenantId: T,
+        invoiceId,
+        studentId: kid,
+        kind: "tuition" as const,
+        description,
+        unitPaise: rupees(unit),
+        amountPaise: rupees(unit),
+        ...period,
+      });
+      await withTenant(T, (tx) =>
+        insertLines(tx, [
+          line(month.id, "Swimming Beginner", 1500, { periodStart: "2026-10-01", periodEnd: "2026-10-31" }),
+          line(quarter.id, "Karate Quarterly", 2500, { periodStart: "2026-10-01", periodEnd: "2026-12-31" }),
+          line(quarter.id, "Admission", 500, { periodStart: null, periodEnd: null }),
+        ]),
+      );
+      const [first, second] = (await screen(kid)).payers.flatMap((p) => p.open);
+      expect([first?.id, first?.description, first?.students]).toEqual([month.id, "Swimming Beginner · Oct 2026", [name(kid)]]);
+      expect([second?.id, second?.description, second?.students]).toEqual([quarter.id, "Karate Quarterly · Oct 2026 – Dec 2026, Admission", [name(kid)]]);
+    });
+
+    it("a guardian's relation is to the opened child, else to a sibling's", async () => {
+      const [a, b] = [await family(), await family()];
+      const shared = payerOfFamily.get(a) ?? "";
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: b, guardianId: shared, relation: "grandparent" }));
+      const dadOfB = await addFather(b);
+      await bill(a, 300, "2026-09-10", main, { payerGuardianId: shared });
+      await bill(b, 400, "2026-09-10", main, { payerGuardianId: dadOfB });
+      const [onA, onB] = [await screen(a), await screen(b)];
+      expect([optionOf(onA, shared)?.relation, optionOf(onA, dadOfB)?.relation]).toEqual(["Mother", "Father"]);
+      expect([optionOf(onB, shared)?.relation, optionOf(onB, dadOfB)?.relation]).toEqual(["Grandparent", "Father"]);
+    });
+
+    it("shows only this branch's dues, advance and plans", async () => {
+      const kid = await family();
+      const mum = payerOfFamily.get(kid) ?? "";
+      const sibling = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: other, fullName: `Sibling of ${name(kid)}`, code: `PAY/COL${++families}` }));
+      await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: sibling.id, guardianId: mum, relation: "mother" }));
+      await enrol(kid, swim.beginnerBatch, swim.beginner);
+      await enrol(sibling.id, swim.otherBatch, swim.beginner);
+      await pay(kid, 800); // advance in main
+      await pay(kid, 300, { branchId: other }); // advance in the second branch
+      await bill(kid, 600, "2026-09-10");
+      await bill(kid, 700, "2026-09-10", other);
+      const facts = async (branchId: string) => {
+        const o = optionOf(await screen(kid, desk, branchId), mum);
+        return [o?.open.map((i) => i.balancePaise), o?.advancePaise, o?.plans.map((p) => p.studentName)];
+      };
+      expect(await facts(main)).toEqual([[rupees(600)], rupees(800), [name(kid)]]);
+      expect(await facts(other)).toEqual([[rupees(700)], rupees(300), [sibling.fullName]]);
+    });
+
+    it("says which branch, the days a payment can be dated, and whether the academy charges GST", async () => {
+      const kid = await family();
+      const s = await screen(kid);
+      expect([s.memberId, s.memberName, s.branchId, s.today, s.earliest, s.gst]).toEqual([kid, name(kid), main, "2026-09-24", "2026-09-17", false]);
+      expect((await screen(kid, desk, other)).branchName).toBe("Second branch");
+      await withTenant(T, (tx) => updateOwnTenant(tx, T, { gstin: "27ABCDE1234F1Z5" }));
+      try {
+        expect((await screen(kid)).gst).toBe(true);
+      } finally {
+        await withTenant(T, (tx) => updateOwnTenant(tx, T, { gstin: null }));
+      }
+    });
+
+    it("needs fees:collect, a branch in the viewer's scope and a member that exists", async () => {
+      const kid = await family();
+      await expect(screen(kid, teacher)).rejects.toMatchObject({ status: 403 });
+      await expect(screen(kid, { ...desk, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
+      await expect(screen(uuidv7())).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("use advance pays the payer's open invoices oldest first, in that branch only", async () => {
+      const kid = await family();
+      const mum = payerOfFamily.get(kid) ?? "";
+      await pay(kid, 1000); // ₹1,000 advance in main, nothing open yet
+      const [sep10, sep5, elsewhere] = [await bill(kid, 600, "2026-09-10"), await bill(kid, 600, "2026-09-05"), await bill(kid, 600, "2026-09-10", other)];
+      expect((await applyNow(mum, main)).appliedPaise).toBe(rupees(1000));
+      expect([await state(sep5.id), await state(sep10.id), await state(elsewhere.id)]).toEqual([
+        ["paid", rupees(600)],
+        ["part_paid", rupees(400)],
+        ["issued", 0n],
+      ]);
+      expect(await advanceOf(kid)).toBe(0n);
+      expect(await actions(sep5.id)).toContain("payment.apply_advance");
+    });
+
+    it("use advance with nothing owed, or no advance, moves nothing", async () => {
+      const [held, owing] = [await family(), await family()];
+      await pay(held, 500);
+      const inv = await bill(owing, 600);
+      expect((await applyNow(payerOfFamily.get(held) ?? "", main)).appliedPaise).toBe(0n);
+      expect((await applyNow(payerOfFamily.get(owing) ?? "", main)).appliedPaise).toBe(0n);
+      expect([await advanceOf(held), await state(inv.id)]).toEqual([rupees(500), ["issued", 0n]]);
+    });
+
+    it("use advance never pays the other payer's invoice", async () => {
+      const { kid, mum, dad } = await parents();
+      await pay(kid, 1000, { payerGuardianId: mum });
+      const dads = await bill(kid, 1500, "2026-09-10", main, { payerGuardianId: dad });
+      expect((await applyNow(mum, main)).appliedPaise).toBe(0n);
+      expect(await state(dads.id)).toEqual(["issued", 0n]);
+      expect(await advanceOf(kid)).toBe(rupees(1000));
+    });
+
+    it("use advance works for a member who pays for themselves", async () => {
+      const h = await family();
+      await pay(h, 700, { payerMemberId: h });
+      const inv = await bill(h, 1000, "2026-09-10", main, { payerGuardianId: null, payerMemberId: h });
+      expect((await withTenant(T, (tx) => applyAdvanceNow(tx, desk, { branchId: main, payerMemberId: h }))).appliedPaise).toBe(rupees(700));
+      expect(await state(inv.id)).toEqual(["part_paid", rupees(700)]);
+    });
+
+    it("use advance needs fees:collect, a branch in the viewer's scope and exactly one payer", async () => {
+      const { kid, mum } = await parents();
+      const apply = (input: Parameters<typeof applyAdvanceNow>[2]) => withTenant(T, (tx) => applyAdvanceNow(tx, desk, input));
+      await expect(applyNow(mum, main, teacher)).rejects.toMatchObject({ status: 403 });
+      await expect(applyNow(mum, main, { ...desk, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
+      await expect(apply({ branchId: main, payerGuardianId: mum, payerMemberId: kid })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
+      await expect(apply({ branchId: main })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
     });
   });
 
@@ -1025,6 +1258,24 @@ describe("payments", () => {
       expect([p.amountPaise, p.method]).toEqual(["150000", "cash"]);
       expect(((await (await call(recordPaymentRoute, "/api/payments", "desk", body)).json()) as { id: string }).id).toBe(p.id);
       expect((await call(recordPaymentRoute, "/api/payments", "desk", { ...body, requestId: uuidv7(), amountPaise: "0" })).status).toBe(400);
+    });
+
+    it("a card payment is recorded by hand; an online one is refused", async () => {
+      const h = await family();
+      const record = (method: string) => call(recordPaymentRoute, "/api/payments", "desk", { requestId: uuidv7(), memberId: h, branchId: main, amountPaise: "50000", method });
+      expect([(await record("card")).status, (await record("online")).status]).toEqual([201, 400]);
+    });
+
+    it("using the advance needs fees:collect and says how much it applied", async () => {
+      const h = await family();
+      await pay(h, 1000); // advance, nothing open yet
+      const inv = await bill(h, 600);
+      const body = { branchId: main, payerGuardianId: payerOfFamily.get(h) };
+      expect((await call(applyAdvanceRoute, "/api/payments/advance", "teacher", body)).status).toBe(403);
+      const res = await call(applyAdvanceRoute, "/api/payments/advance", "desk", body);
+      expect([res.status, await res.json()]).toEqual([200, { appliedPaise: "60000" }]);
+      expect(await state(inv.id)).toEqual(["paid", rupees(600)]);
+      expect((await call(applyAdvanceRoute, "/api/payments/advance", "desk", { branchId: main })).status).toBe(400);
     });
 
     it("refunding needs fees:refund at the route", async () => {

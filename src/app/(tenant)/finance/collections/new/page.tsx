@@ -9,6 +9,7 @@ import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
+import { sum } from "@/lib/money/paise";
 import { getInvoice } from "@/modules/fees/repo";
 import { collectScreen } from "@/modules/payments/service";
 import { requireStudent } from "@/modules/students/service";
@@ -53,7 +54,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/finance/
   }
 
   const { who, screen } = found;
-  const due: DueInvoice[] = screen.account.open.map((i) => ({ id: i.id, number: i.number ?? "", dueDate: i.dueDate, balance: String(i.balancePaise), overdue: i.dueDate < screen.today }));
+  const due: DueInvoice[] = screen.payers.flatMap((p) => p.open).map((i) => ({ id: i.id, number: i.number ?? "", dueDate: i.dueDate, balance: String(i.balancePaise), overdue: i.dueDate < screen.today }));
   const preselect = who.preselect?.filter((id) => due.some((d) => d.id === id));
   return (
     <Gate permission="fees:collect">
@@ -71,7 +72,7 @@ export default async function CollectPage({ searchParams }: PageProps<"/finance/
           memberId={who.memberId}
           branchId={who.branchId}
           due={due}
-          advance={String(screen.account.advancePaise)}
+          advance={String(sum(screen.payers.map((p) => p.advancePaise)))}
           {...(preselect?.length ? { preselect } : {})}
           today={screen.today}
           earliest={screen.earliest}

@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
-import { feePlans } from "@/modules/fees/schema";
+import { type FeePlan, feePlans } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { students } from "@/modules/students/schema";
 import { type Enrollment, enrollments } from "./schema";
@@ -129,6 +129,22 @@ export async function enrollmentsOfStudent(tx: Tx, studentId: string): Promise<S
     .where(eq(enrollments.studentId, studentId))
     .orderBy(asc(enrollments.startDate), asc(enrollments.createdAt));
   return rows.map((r) => ({ ...r.e, batchName: r.batchName, programName: r.programName, nextBatchName: r.nextBatchName, planName: r.planName, coachName: r.coachName }));
+}
+
+export type CurrentEnrollment = { e: Enrollment; studentName: string; branchId: string; programId: string; programName: string; batchName: string; plan: FeePlan | null };
+
+// Where these students are now (active or paused), with the program, the student's branch and the fee plan, for the collect screen.
+export async function currentEnrollmentsOf(tx: Tx, studentIds: string[]): Promise<CurrentEnrollment[]> {
+  if (!studentIds.length) return [];
+  return tx
+    .select({ e: enrollments, studentName: students.fullName, branchId: students.branchId, programId: programs.id, programName: programs.name, batchName: batches.name, plan: feePlans })
+    .from(enrollments)
+    .innerJoin(students, eq(students.id, enrollments.studentId))
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .innerJoin(programs, eq(programs.id, batches.programId))
+    .leftJoin(feePlans, and(eq(feePlans.id, enrollments.feePlanId), isNull(feePlans.deletedAt)))
+    .where(and(inArray(enrollments.studentId, studentIds), inArray(enrollments.status, ["active", "paused"]), isNull(students.deletedAt)))
+    .orderBy(asc(students.fullName), asc(enrollments.startDate), asc(enrollments.createdAt), asc(enrollments.id));
 }
 
 // Current students of a batch who have no fee plan get this one.

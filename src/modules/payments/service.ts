@@ -3,18 +3,20 @@ import { allows, assertCan, ForbiddenError } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate, todayIn } from "@/lib/dates";
+import { addDays, formatMonthYear, isIsoDate, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
+import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Actor } from "@/modules/fees/invoicing";
-import { getInvoice, payerNames } from "@/modules/fees/repo";
-import type { Invoice } from "@/modules/fees/schema";
+import { getInvoice, type LineRow, linesOf, payerNames } from "@/modules/fees/repo";
+import type { FeePlan, Invoice } from "@/modules/fees/schema";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { activeStudentsOf, guardiansOfMembers } from "@/modules/students/repo";
+import { RELATION_LABELS } from "@/modules/students/relations";
+import { activeStudentsOf, guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { getBranch, getOwnTenant } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom } from "./allocation";
 import {
@@ -68,15 +70,15 @@ const text = (p: Paise) => p.toString(); // audit JSON has no bigint
 // Agreed 2026-09-25: online payments are refunded in Razorpay and recorded from its webhook.
 export const ONLINE_REFUND = "Online payments are refunded in your Razorpay dashboard; the refund shows here by itself.";
 
-// What staff record by hand. Card and online payments come from the gateway (Prompt 16).
-export const HAND_METHODS = ["cash", "upi", "bank_transfer", "cheque"] as const;
+// What staff record by hand (card is a swipe machine). Online payments come from the gateway (Prompt 16).
+export const HAND_METHODS = ["cash", "upi", "card", "bank_transfer", "cheque"] as const;
 export const BACKDATE_DAYS = 7;
 
 const inScope = (ctx: ScopedCtx, branchId: string) => !ctx.branchIds.length || ctx.branchIds.includes(branchId);
 
-async function clock(tx: Tx, now: Date = new Date()): Promise<{ now: Date; today: string; fyStartMonth: number }> {
+async function clock(tx: Tx, now: Date = new Date()): Promise<{ now: Date; today: string; fyStartMonth: number; gst: boolean }> {
   const t = await getOwnTenant(tx);
-  return { now, today: todayIn(t?.timezone ?? "Asia/Kolkata", now), fyStartMonth: t?.fyStartMonth ?? 4 };
+  return { now, today: todayIn(t?.timezone ?? "Asia/Kolkata", now), fyStartMonth: t?.fyStartMonth ?? 4, gst: Boolean(t?.gstin) };
 }
 
 async function requireBranch(tx: Tx, ctx: ScopedCtx, branchId: string): Promise<void> {
@@ -120,13 +122,100 @@ function checkReceivedOn(receivedOn: string, today: string, fyStartMonth: number
   if (receivedOn < receivedOnRange(today, fyStartMonth).earliest) throw new BadRequestError("Not before this financial year began");
 }
 
-export type CollectScreen = { account: FamilyAccount; memberName: string; branchName: string; today: string; earliest: string };
+export type DueRow = OpenInvoiceRow & { description: string; students: string[] };
+export type PlanLine = { enrollmentId: string; studentName: string; programName: string; batchName: string; planName: string; kind: FeePlan["kind"]; cycle: FeePlan["billingCycle"]; amountPaise: Paise };
+// One person who might be paying: what they owe in the branch (oldest first), the advance they hold there and the plans they pay for.
+// relation reads "Mother", "Father"...: the guardian's to the opened member, else to a sibling; null for a member paying for themselves.
+export type PayerOption = { key: string; payer: Payer; name: string; relation: string | null; open: DueRow[]; advancePaise: Paise; plans: PlanLine[] };
+export type CollectScreen = {
+  memberId: string;
+  memberName: string;
+  branchId: string;
+  branchName: string;
+  today: string;
+  earliest: string;
+  payers: PayerOption[];
+  defaultPayerKey: string | null; // the payer to pre-select; null means ask who is paying
+  gst: boolean;
+  enrollments: { id: string; programId: string; programName: string; batchName: string }[]; // the opened member's, for a charge to name a program
+};
 
-// Everything the collect screen needs for one member (and their siblings) at one branch.
+// "Oct 2026", or "Oct 2026 – Dec 2026" over several months; nothing without a period.
+function monthsOf({ periodStart, periodEnd }: Pick<LineRow, "periodStart" | "periodEnd">): string {
+  if (!periodStart) return "";
+  const from = formatMonthYear(periodStart);
+  const to = periodEnd ? formatMonthYear(periodEnd) : from;
+  return from === to ? from : `${from} – ${to}`;
+}
+
+// What an open invoice is for, from its lines: "Swimming Beginner · Oct 2026".
+const dueWhat = (lines: LineRow[]): string => [...new Set(lines.map((l) => [l.description, monthsOf(l)].filter(Boolean).join(" · ")))].join(", ");
+
+// Everything the collect screen needs for one member (and their siblings) at one branch: each payer
+// with their own dues, advance and plans, and the one to pre-select.
 export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, branchId: string, opts: { now?: Date } = {}): Promise<CollectScreen> {
   assertCan(ctx, "fees:collect");
-  const [account, member, branch, { today, fyStartMonth }] = await Promise.all([familyAccount(tx, ctx, memberId, branchId), memberHeader(tx, memberId), getBranch(tx, branchId), clock(tx, opts.now)]);
-  return { account, memberName: member?.name ?? "", branchName: branch?.name ?? "", today, earliest: receivedOnRange(today, fyStartMonth).earliest };
+  await requireBranch(tx, ctx, branchId);
+  const [member, branch, { today, fyStartMonth, gst }] = await Promise.all([memberHeader(tx, memberId), getBranch(tx, branchId), clock(tx, opts.now)]);
+  if (!member) throw new NotFoundError("Member");
+  const memberIds = await memberIdsWithSiblings(tx, memberId);
+  const [open, candidates, live, own, placed, lead] = await Promise.all([
+    openInvoicesOfMembers(tx, memberIds, branchId),
+    payersOfMembers(tx, memberIds),
+    guardiansOfMembers(tx, memberIds),
+    guardiansOfMembers(tx, [memberId]),
+    currentEnrollmentsOf(tx, memberIds),
+    leadGuardians(tx, memberIds),
+  ]);
+  const [names, lines, held] = await Promise.all([
+    payerNames(tx, candidates),
+    linesOf(tx, open.map((i) => i.id)),
+    Promise.all(candidates.map(async (p) => sum((await unusedPayments(tx, p, branchId)).map((u) => u.unused)))),
+  ]);
+
+  const dues = new Map<string, DueRow[]>();
+  for (const i of open) {
+    const its = lines.filter((l) => l.invoiceId === i.id);
+    const row = { ...openRow(i), description: dueWhat(its), students: [...new Set(its.flatMap((l) => (l.studentName ? [l.studentName] : [])))] };
+    const key = payerKey(payerOfRow(i));
+    dues.set(key, [...(dues.get(key) ?? []), row]);
+  }
+
+  // An enrollment with no payer of its own is paid by the member's lead guardian, else by the member, as when it is billed.
+  const plans = new Map<string, PlanLine[]>();
+  for (const { e, plan, studentName, branchId: studentBranch, programName, batchName } of placed) {
+    if (!plan || studentBranch !== branchId) continue;
+    const guardianId = lead.get(e.studentId);
+    const key = payerKey(payerOf(e) ?? (guardianId ? { kind: "guardian", guardianId } : { kind: "member", memberId: e.studentId }));
+    plans.set(key, [...(plans.get(key) ?? []), { enrollmentId: e.id, studentName, programName, batchName, planName: plan.name, kind: plan.kind, cycle: plan.billingCycle, amountPaise: plan.amountPaise }]);
+  }
+
+  // Who is likely paying: whoever owes; with nobody owing, the members' guardians, else the member themselves.
+  const owing = candidates.filter((p) => dues.has(payerKey(p)));
+  const likely: Payer[] = owing.length ? owing : live.length ? live.map((g): Payer => ({ kind: "guardian", guardianId: g.id })) : [{ kind: "member", memberId }];
+  const likelyKeys = new Set(likely.map(payerKey));
+  const [only] = likely;
+  const relations = new Map([...live, ...own].map((g) => [g.id, RELATION_LABELS[g.relation]] as const)); // the opened member's own link wins
+
+  const payers = candidates
+    .map((payer, n): PayerOption => {
+      const key = payerKey(payer);
+      return { key, payer, name: names.get(key) ?? "", relation: payer.kind === "guardian" ? (relations.get(payer.guardianId) ?? null) : null, open: dues.get(key) ?? [], advancePaise: held[n] ?? 0n, plans: plans.get(key) ?? [] };
+    })
+    .filter((p) => likelyKeys.has(p.key) || p.advancePaise > 0n)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+  return {
+    memberId,
+    memberName: member.name,
+    branchId,
+    branchName: branch?.name ?? "",
+    today,
+    earliest: receivedOnRange(today, fyStartMonth).earliest,
+    payers,
+    defaultPayerKey: likely.length === 1 && only ? payerKey(only) : null,
+    gst,
+    enrollments: placed.filter((p) => p.e.studentId === memberId).map((p) => ({ id: p.e.id, programId: p.programId, programName: p.programName, batchName: p.batchName })),
+  };
 }
 
 // The collect screen is opened on one member; memberIdsWithSiblings turns that into the members
@@ -362,6 +451,19 @@ export async function applyAdvance(tx: Tx, by: Actor, payer: Payer, branchId: st
   return applied;
 }
 
+export const applyAdvanceSchema = z.object({ branchId: z.uuid(), payerGuardianId: z.uuid().optional(), payerMemberId: z.uuid().optional() });
+
+// "Use advance now": the payer's unused money pays their open invoices in the branch, oldest first,
+// without waiting for the next invoice to be issued. applyAdvance audits each move.
+export async function applyAdvanceNow(tx: Tx, ctx: ScopedCtx, input: z.input<typeof applyAdvanceSchema>): Promise<{ appliedPaise: Paise }> {
+  assertCan(ctx, "fees:collect");
+  const data = applyAdvanceSchema.parse(input);
+  const payer: Payer | undefined = data.payerGuardianId && !data.payerMemberId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId && !data.payerGuardianId ? { kind: "member", memberId: data.payerMemberId } : undefined;
+  if (!payer) throw new BadRequestError("Pick one payer");
+  await requireBranch(tx, ctx, data.branchId);
+  return { appliedPaise: await applyAdvance(tx, actor(ctx), payer, data.branchId) };
+}
+
 // Voiding an invoice with money on it: each payment's money comes off as a
 // 'void' row and is the family's advance again (docs/03 §6). Nothing is deleted.
 export async function releaseInvoice(tx: Tx, by: Actor, invoice: Pick<Invoice, "id" | "payerGuardianId" | "payerMemberId">): Promise<Paise> {
@@ -380,8 +482,10 @@ export async function releaseInvoice(tx: Tx, by: Actor, invoice: Pick<Invoice, "
 export type OpenInvoiceRow = Pick<Invoice, "id" | "number" | "dueDate" | "totalPaise" | "paidPaise" | "status"> & { balancePaise: Paise };
 export type FamilyAccount = { open: OpenInvoiceRow[]; advancePaise: Paise };
 
-// What the collect screen shows for a member and their siblings (members sharing a guardian)
-// in one branch: open invoices, oldest first, and the advance (docs/03 §9: visible on the family).
+const openRow = (i: Invoice): OpenInvoiceRow => ({ id: i.id, number: i.number, dueDate: i.dueDate, totalPaise: i.totalPaise, paidPaise: i.paidPaise, status: i.status, balancePaise: i.totalPaise - i.paidPaise });
+
+// A member and their siblings (members sharing a guardian) in one branch, all payers together:
+// open invoices, oldest first, and the advance (docs/03 §9: visible on the family). The student page shows it.
 export async function familyAccount(tx: Tx, ctx: ScopedCtx, memberId: string, branchId: string): Promise<FamilyAccount> {
   if (!allows(ctx, "fees:collect") && !allows(ctx, "invoices:read")) throw new ForbiddenError("Not allowed: fees");
   await requireBranch(tx, ctx, branchId);
@@ -389,7 +493,7 @@ export async function familyAccount(tx: Tx, ctx: ScopedCtx, memberId: string, br
   const memberIds = await memberIdsWithSiblings(tx, memberId);
   const [open, unused] = await Promise.all([openInvoicesOfMembers(tx, memberIds, branchId), payersOfMembers(tx, memberIds).then((payers) => unusedPaymentsOfPayers(tx, payers, branchId))]);
   return {
-    open: open.map((i) => ({ id: i.id, number: i.number, dueDate: i.dueDate, totalPaise: i.totalPaise, paidPaise: i.paidPaise, status: i.status, balancePaise: i.totalPaise - i.paidPaise })),
+    open: open.map(openRow),
     advancePaise: sum(unused.map((u) => u.unused)),
   };
 }
