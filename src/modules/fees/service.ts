@@ -19,6 +19,7 @@ import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
 import { type DisplayStatus, displayStatus, lineAmounts } from "./billing";
+import { type ManualLine, manualLine } from "./charge";
 import type { InvoiceQuery } from "./invoice-query";
 import { type Actor, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
 import {
@@ -380,15 +381,6 @@ export async function issueDrafts(tx: Tx, by: Actor, drafts: Invoice[], opts: { 
 }
 
 // ---- one-off charges (finance spec, "Create invoice")
-
-const manualLine = z.object({
-  kind: z.enum(["admission", "exam", "item", "other"]),
-  description: z.string().trim().min(1, "Say what the charge is for").max(120),
-  amountPaise: paise.refine((p) => p > 0n, "Enter an amount"),
-  enrollmentId: z.uuid().optional(), // the program it belongs to, so reports can attribute it
-  taxRateBp: z.number().int().min(0).max(10_000).optional(),
-});
-export type ManualLine = z.output<typeof manualLine>;
 
 export const manualInvoiceSchema = z.object({
   studentId: z.uuid(),

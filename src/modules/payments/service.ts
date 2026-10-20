@@ -11,7 +11,8 @@ import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Actor } from "@/modules/fees/invoicing";
 import { getInvoice, type LineRow, linesOf, lockInvoicing, payerNames } from "@/modules/fees/repo";
 import type { FeePlan, Invoice } from "@/modules/fees/schema";
-import { addCharge, issueDrafts, type ManualLine } from "@/modules/fees/service";
+import { type ManualLine, manualLine } from "@/modules/fees/charge";
+import { addCharge, issueDrafts } from "@/modules/fees/service";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
@@ -109,10 +110,7 @@ export const paymentSchema = z.object({
   allocations: z.array(z.object({ invoiceId: z.uuid(), amountPaise: paise })).max(100).optional(),
   payerGuardianId: z.uuid().optional(), // who is paying; left out, it is the payer of the invoices ticked or the only one with dues
   payerMemberId: z.uuid().optional(),
-  // A one-off charge for the member, made here and paid in full by this payment before anything else.
-  charge: z
-    .object({ kind: z.enum(["admission", "exam", "item", "other"]), description: z.string().trim().min(1, "Say what the charge is for").max(120), amountPaise: paise, enrollmentId: z.uuid().optional() })
-    .optional(),
+  charge: manualLine.omit({ taxRateBp: true }).optional(), // a one-off charge for the member, made here and paid in full first
 });
 export type PaymentInput = z.input<typeof paymentSchema>;
 
