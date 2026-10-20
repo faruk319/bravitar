@@ -32,6 +32,7 @@ export const tenants = app.table("tenants", {
   codePrefix: text("code_prefix").notNull().default("STU"),
   gstin: text("gstin"),
   proration: text("proration", { enum: ["full", "daily"] }).notNull().default("full"),
+  invoiceIssue: text("invoice_issue", { enum: ["review", "auto"] }).notNull().default("review"), // migration 0042
   messageLanguage: text("message_language", { enum: ["en", "hi", "mr"] }).notNull().default("en"),
   messageSendHour: smallint("message_send_hour").notNull().default(10),
   absenceSendHour: smallint("absence_send_hour").notNull().default(19),

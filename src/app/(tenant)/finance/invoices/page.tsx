@@ -24,6 +24,7 @@ import { formatPaise } from "@/lib/money/format";
 import { DISPLAY_STATUSES } from "@/modules/fees/billing";
 import { type InvoiceStatusFilter, invoiceParams, parseInvoiceQuery } from "@/modules/fees/invoice-query";
 import { type CreateScreen, createScreen, type EditSeed, editScreen, invoiceList } from "@/modules/fees/service";
+import { getOwnTenant } from "@/modules/tenancy/repo";
 
 const PATH = "/finance/invoices";
 const TABS = ["all", ...DISPLAY_STATUSES] as const;
@@ -55,11 +56,11 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
   const canManage = allows(ctx, "invoices:manage");
   const asked = (k: string) => (typeof sp[k] === "string" ? sp[k] : undefined);
   const [student, edit] = [asked("student"), asked("edit")];
-  const { list, sheet } = await withTenant(session.tenant.id, async (tx) => {
+  const { list, sheet, auto } = await withTenant(session.tenant.id, async (tx) => {
     let sheet: { screen: CreateScreen; seed?: EditSeed } | "search" | null = null;
     if (canManage && edit) sheet = await editScreen(tx, ctx, edit);
     else if (canManage && asked("create") === "1") sheet = student ? { screen: await createScreen(tx, ctx, student) } : "search";
-    return { list: await invoiceList(tx, ctx, query), sheet };
+    return { list: await invoiceList(tx, ctx, query), sheet, auto: (await getOwnTenant(tx))?.invoiceIssue === "auto" };
   }).catch((e: unknown) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
@@ -97,19 +98,22 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
           active: status === applied.status,
         }))}
       />
-      {showDrafts ? (
-        <Card className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-display">
-              <Money paise={drafts.total} />
-            </p>
-            <p className="text-caption text-muted-foreground">
-              {drafts.count} {drafts.count === 1 ? "draft" : "drafts"} · numbers are given on issue
-            </p>
-          </div>
-          {canManage ? <IssueInvoices ids="all" count={drafts.count} total={formatPaise(drafts.total)} /> : null}
-        </Card>
-      ) : null}
+      <div className="mb-5 flex flex-col gap-2">
+        {showDrafts ? (
+          <Card className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-display">
+                <Money paise={drafts.total} />
+              </p>
+              <p className="text-caption text-muted-foreground">
+                {drafts.count} {drafts.count === 1 ? "draft" : "drafts"} · numbers are given on issue
+              </p>
+            </div>
+            {canManage ? <IssueInvoices ids="all" count={drafts.count} total={formatPaise(drafts.total)} /> : null}
+          </Card>
+        ) : null}
+        <p className="text-caption text-muted-foreground">{auto ? "Invoices are sent automatically" : "Invoices are sent after you review them"}</p>
+      </div>
       <Card className="overflow-hidden p-0 md:p-0">
         <div className="p-4 md:p-5">
           <Suspense>

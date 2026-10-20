@@ -578,14 +578,15 @@ const GSTIN = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 export const feeSettingsSchema = z.object({
   gstin: z.string().trim().toUpperCase().nullable().optional(),
   proration: z.enum(["full", "daily"]).optional(),
+  invoiceIssue: z.enum(["review", "auto"]).optional(),
 });
 
-export async function saveFeeSettings(tx: Tx, ctx: ScopedCtx, input: z.input<typeof feeSettingsSchema>): Promise<{ gstin: string | null; proration: "full" | "daily" }> {
+export async function saveFeeSettings(tx: Tx, ctx: ScopedCtx, input: z.input<typeof feeSettingsSchema>): Promise<{ gstin: string | null; proration: "full" | "daily"; invoiceIssue: "review" | "auto" }> {
   assertCan(ctx, "settings:manage");
   const data = feeSettingsSchema.parse(input);
   if (data.gstin && !GSTIN.test(data.gstin)) throw new BadRequestError("A GSTIN has 15 characters, like 27ABCDE1234F1Z5");
   const before = await getOwnTenant(tx);
-  const after = await updateOwnTenant(tx, ctx.tenantId, { ...(data.gstin !== undefined ? { gstin: data.gstin || null } : {}), ...(data.proration ? { proration: data.proration } : {}) });
-  await writeAudit(tx, { ...actor(ctx), action: "settings.fees", entityType: "tenant", entityId: ctx.tenantId, before: { gstin: before?.gstin, proration: before?.proration }, after: { gstin: after.gstin, proration: after.proration } });
-  return { gstin: after.gstin, proration: after.proration };
+  const after = await updateOwnTenant(tx, ctx.tenantId, { ...(data.gstin !== undefined ? { gstin: data.gstin || null } : {}), ...(data.proration ? { proration: data.proration } : {}), ...(data.invoiceIssue ? { invoiceIssue: data.invoiceIssue } : {}) });
+  await writeAudit(tx, { ...actor(ctx), action: "settings.fees", entityType: "tenant", entityId: ctx.tenantId, before: { gstin: before?.gstin, proration: before?.proration, invoiceIssue: before?.invoiceIssue }, after: { gstin: after.gstin, proration: after.proration, invoiceIssue: after.invoiceIssue } });
+  return { gstin: after.gstin, proration: after.proration, invoiceIssue: after.invoiceIssue };
 }

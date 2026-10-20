@@ -40,7 +40,7 @@ export default async function SettingsPage() {
         {settings && ctx.modules.fees ? (
           <Card>
             <CardHeader title="Fees" />
-            <FeeSettings gstin={tenant?.gstin ?? null} proration={tenant?.proration ?? "full"} />
+            <FeeSettings gstin={tenant?.gstin ?? null} proration={tenant?.proration ?? "full"} invoiceIssue={tenant?.invoiceIssue ?? "review"} />
           </Card>
         ) : null}
         {razorpay ? (

@@ -24,12 +24,14 @@ import {
   invoicesAfterEnd,
   type Link,
   linesOf,
+  lockDrafts,
   lockInvoicing,
   payerNames,
   takenKeys,
   updateInvoice,
 } from "./repo";
 import type { Invoice } from "./schema";
+import { issueDrafts } from "./service";
 
 export type Actor = Pick<AuditEntry, "actorType" | "actorId"> & { tenantId: string };
 
@@ -136,7 +138,7 @@ const validOn = (g: GivenDiscount, day: string) => g.validFrom <= day && (g.vali
 
 export type GenerateOptions = { now?: Date; enrollmentIds?: string[]; onlyKeys?: Set<string> };
 export type SkippedMember = { enrollmentId: string; studentId: string; reason: "corrupt_payer" | "no_payer_name" };
-export type GenerateResult = { invoices: number; lines: number; skipped: SkippedMember[] };
+export type GenerateResult = { invoices: number; lines: number; skipped: SkippedMember[]; issued: number };
 
 // Who pays each enrollment (planPayer). Both payer columns set is corrupt: that member is skipped, never guessed at.
 export function resolvePayers(es: Enrollment[], lead: Map<string, string>): { payers: Map<string, Payer>; corrupt: Enrollment[] } {
@@ -162,9 +164,10 @@ export async function defaultPayerFor(tx: Tx, studentId: string, enrollmentId?: 
 
 // Drafts per member, payer, branch and billing day; installments get their own.
 // Re-running bills nothing twice. onlyKeys re-bills exactly those charges.
+// When the academy sends invoices automatically, the drafts this run made or added to are issued, and no others.
 export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptions = {}): Promise<GenerateResult> {
   const tenant = await getOwnTenant(tx);
-  if (!tenant?.enabledModules.fees) return { invoices: 0, lines: 0, skipped: [] };
+  if (!tenant?.enabledModules.fees) return { invoices: 0, lines: 0, skipped: [], issued: 0 };
   await lockInvoicing(tx, actor.tenantId);
   const today = todayIn(tenant.timezone, opts.now);
   const only = opts.onlyKeys;
@@ -194,6 +197,7 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
   for (const c of fresh) groups.set(c.group, [...(groups.get(c.group) ?? []), c]);
   let made = 0;
   let lines = 0;
+  const touched = new Set<string>();
   for (const cs of groups.values()) {
     const head = cs[0];
     if (!head) continue;
@@ -243,10 +247,16 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
       }),
     );
     await retotal(tx, inv, due);
+    touched.add(inv.id);
     made++;
     lines += cs.length;
   }
-  const result = { invoices: made, lines, skipped };
+  let issued = 0;
+  if (tenant.invoiceIssue === "auto" && touched.size) {
+    const drafts = await lockDrafts(tx, [], [...touched]);
+    issued = (await issueDrafts(tx, actor, drafts, { now: opts.now ?? new Date() })).length;
+  }
+  const result = { invoices: made, lines, skipped, issued };
   if (lines) await writeAudit(tx, { ...actor, action: "invoice.generate", after: { invoices: made, lines, rebill: Boolean(only) } });
   if (skipped.length) await writeAudit(tx, { ...actor, action: "invoice.generate_skipped", after: { skipped } });
   return result;
