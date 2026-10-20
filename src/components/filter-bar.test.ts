@@ -9,7 +9,7 @@ vi.mock("next/link", async () => {
   return { default: ({ children, ...p }: { children: React.ReactNode; href: string }) => h("a", p, children) };
 });
 
-const { FilterBar } = await import("./filter-bar");
+const { FilterBar, nextHref } = await import("./filter-bar");
 const { StudentSearchBar } = await import("./students/search-bar");
 
 const labels = (html: string) => [...html.matchAll(/aria-label="([^"]+)"/g)].map((m) => m[1]);
@@ -70,5 +70,17 @@ describe("a filter bar with a sort", () => {
 
   it("clearing the last filter with nothing else in the URL goes to the bare path", () => {
     expect(render("q=Riya", bar)).toContain('href="/finance/invoices"');
+  });
+});
+
+describe("the address after the bar changes", () => {
+  it("sets what is given, drops what is empty, and goes back to page 1", () => {
+    expect(nextHref("/x", "q=Riya&page=3", { method: "upi" })).toBe("/x?q=Riya&method=upi");
+    expect(nextHref("/x", "q=Riya&method=upi", { method: "" })).toBe("/x?q=Riya");
+  });
+
+  it("is the bare path, with no dangling ?, when the last param goes", () => {
+    expect(nextHref("/x", "q=Riya", { q: "" })).toBe("/x");
+    expect(nextHref("/x", "page=2", { q: "" })).toBe("/x");
   });
 });

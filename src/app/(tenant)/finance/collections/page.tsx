@@ -1,23 +1,47 @@
+import { Download } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { EmptyState } from "@/components/empty-state";
+import { FilterBar, type Option } from "@/components/filter-bar";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { PagingFooter } from "@/components/paging-footer";
 import { CollectDrawer, CollectSearch } from "@/components/payments/collect-form";
-import { METHOD_LABEL } from "@/modules/payments/labels";
+import { PaymentTable } from "@/components/payments/payment-table";
+import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
+import { formatDate, timeIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
-import { addDays, formatDate, isIsoDate, timeIn, todayIn } from "@/lib/dates";
 import { NotFoundError } from "@/lib/errors";
+import { withQuery } from "@/lib/url-query";
 import { cn } from "@/lib/utils";
+import { DISPLAY_LABEL, METHOD_LABEL, PAYMENT_DISPLAYS } from "@/modules/payments/labels";
 import type { SheetPayment } from "@/modules/payments/repo";
-import { type CollectionSheet, type CollectScreen, collectionSheet, collectScreen, collectTarget, myReceiptsToday } from "@/modules/payments/service";
-import { listBranches } from "@/modules/tenancy/repo";
+import { PAYMENT_METHODS } from "@/modules/payments/schema";
+import { COLLECTION_PERIODS, type CollectionPeriod, type CollectionSheet, type CollectScreen, collectionList, collectionParams, collectScreen, collectTarget, parseCollectionQuery } from "@/modules/payments/service";
+
+const PATH = "/finance/collections";
+const PERIOD_WORD: Record<CollectionPeriod, string> = { today: "Today", week: "This week", month: "This month", all: "All" };
+const METHODS: Option[] = PAYMENT_METHODS.map((id) => ({ id, name: METHOD_LABEL[id] }));
+const STATUSES: Option[] = PAYMENT_DISPLAYS.map((id) => ({ id, name: DISPLAY_LABEL[id] }));
+const SORTS = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "amount", label: "Highest amount" },
+];
+// Shown when a period holds nothing and no filter is on.
+const EMPTY: Record<CollectionPeriod, [string, string]> = {
+  today: ["No payments today", "Payments recorded today show here."],
+  week: ["No payments this week", "Payments recorded this week show here."],
+  month: ["No payments this month", "Payments recorded this month show here."],
+  all: ["No payments yet", "Every payment you record shows here."],
+};
 
 const receipts = (n: number) => `${n} ${n === 1 ? "receipt" : "receipts"}`;
 
@@ -123,8 +147,8 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
 
 const COLLECT_PARAMS = ["collect", "student", "invoice"];
 
-// docs/04 "The daily reconciliation screen": one sheet per branch, counted by the day recorded. Collecting
-// without payments:read shows only your own receipts today. ?collect=1[&student=][&invoice=] opens the drawer.
+// Every payment in one table by the day it was recorded, with the day's sheet above it on Today or a one-day range.
+// Collecting without payments:read shows only your own receipts today. ?collect=1[&student=][&invoice=] opens the drawer.
 export default async function CollectionPage({ searchParams }: PageProps<"/finance/collections">) {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
@@ -133,80 +157,120 @@ export default async function CollectionPage({ searchParams }: PageProps<"/finan
   if (!canRead && !canCollect) return <Gate permission="payments:read">{null}</Gate>;
   const sp = await searchParams;
   const param = (k: string) => (typeof sp[k] === "string" ? sp[k] : undefined);
-  const today = todayIn(session.tenant.timezone);
-  const asked = param("day");
-  const day = canRead && asked && isIsoDate(asked) && asked <= today ? asked : today;
   // The page without the drawer: where closing it goes back to.
   const kept = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" && !COLLECT_PARAMS.includes(k) ? [[k, v]] : [])));
-  const closeHref = `/finance/collections${kept.size ? `?${kept}` : ""}`;
-  const collectHref = `${closeHref}${kept.size ? "&" : "?"}collect=1`;
+  const closeHref = withQuery(PATH, kept);
+  const collectHref = withQuery(PATH, new URLSearchParams([...kept, ["collect", "1"]]));
   const [student, invoice] = [param("student"), param("invoice")];
   const chosen = await selectedBranchIds(session);
 
   const d = await withTenant(session.tenant.id, async (tx) => {
-    const branches = canRead ? (await listBranches(tx)).filter((b) => (chosen.length ? chosen.includes(b.id) : true)) : [];
-    const sheets = await Promise.all(branches.map((b) => collectionSheet(tx, ctx, { branchId: b.id, day })));
-    const mine = canRead ? [] : await myReceiptsToday(tx, { ...ctx, branchIds: chosen });
+    const list = await collectionList(tx, { ...ctx, branchIds: chosen }, parseCollectionQuery(sp));
     let drawer: { screen: CollectScreen; preselect: string[] } | "search" | null = null;
     if (canCollect && param("collect") === "1") {
       const t = await collectTarget(tx, ctx, { ...(student ? { studentId: student } : {}), ...(invoice ? { invoiceId: invoice } : {}) });
       drawer = t ? { screen: await collectScreen(tx, ctx, t.memberId, t.branchId), preselect: t.preselect } : "search";
     }
-    return { sheets, mine, drawer };
+    return { list, drawer };
   }).catch((e: unknown) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
-  const { sheets, mine, drawer } = d;
-  const nothing = sheets.every((s) => !s.payments.length && !s.refunds.rows.length);
+  const { list, drawer } = d;
+  const { applied, counts, own } = list;
+  const timeZone = session.tenant.timezone;
+  const pageHref = (p: number) => withQuery(PATH, collectionParams(applied, p));
+  const filtered = Boolean(applied.q || applied.method || applied.collectorId || applied.programId || applied.status || applied.from || applied.to);
+  const [emptyTitle, emptyHint] = filtered ? ["No payment matches", "Change the filters or clear them."] : EMPTY[applied.period];
+  // A day with nothing on it shows the table's empty state alone.
+  const sheets = list.sheets?.some((s) => s.payments.length || s.refunds.rows.length) ? list.sheets : [];
   const collect = (className: string, size?: "lg") => (
     <Button size={size ?? "default"} className={className} nativeButton={false} render={<Link href={collectHref} scroll={false} />}>
       Collect payment
     </Button>
   );
+  const csv =
+    !own && allows(ctx, "reports:export") ? (
+      <Button variant="outline" nativeButton={false} render={<a href={withQuery("/api/reports/collections", collectionParams(applied))} download />}>
+        <Download data-icon="inline-start" /> Download CSV
+      </Button>
+    ) : null;
 
   return (
     <Gate permission={canRead ? "payments:read" : "fees:collect"}>
-      <PageHeader title="Collections" actions={canCollect ? collect("hidden md:inline-flex") : undefined}>
-        <p className="mt-1 text-caption text-muted-foreground">{day === today ? `Today, ${formatDate(day)}` : formatDate(day)}</p>
-      </PageHeader>
-      {!canRead ? (
-        <Card>
-          <CardHeader title="Your receipts today" />
-          {mine.length ? <Receipts payments={mine} timeZone={session.tenant.timezone} /> : <EmptyState title="No receipts yet today" hint="What you collect today shows here." action="Collect payment" href={collectHref} />}
+      <PageHeader
+        title="Collections"
+        actions={
+          csv || canCollect ? (
+            <>
+              {csv}
+              {canCollect ? collect("hidden md:inline-flex") : null}
+            </>
+          ) : undefined
+        }
+      />
+      {own ? (
+        <Card className="overflow-hidden p-0 md:p-0">
+          <div className="px-4 pt-4 md:px-5 md:pt-5">
+            <CardHeader title="Your receipts today" />
+          </div>
+          {list.rows.length ? (
+            <>
+              <div className="px-4 pb-2 md:px-5">
+                <Receipts payments={list.rows} timeZone={timeZone} />
+              </div>
+              <PagingFooter page={list.page} pageSize={list.pageSize} shown={list.rows.length} matched={list.matched} href={pageHref} />
+            </>
+          ) : (
+            <EmptyState title="No receipts yet today" hint="What you collect today shows here." action="Collect payment" href={collectHref} />
+          )}
         </Card>
       ) : (
         <>
-          <nav aria-label="Day" className="mb-5 flex items-center gap-2">
-            <Button variant="outline" nativeButton={false} render={<Link href={`/finance/collections?day=${addDays(day, -1)}`} />}>
-              ← {formatDate(addDays(day, -1))}
-            </Button>
-            {day < today ? (
-              <>
-                <Button variant="outline" nativeButton={false} render={<Link href={`/finance/collections?day=${addDays(day, 1)}`} />}>
-                  {formatDate(addDays(day, 1))} →
-                </Button>
-                <Button variant="ghost" nativeButton={false} render={<Link href="/finance/collections" />}>
-                  Today
-                </Button>
-              </>
-            ) : null}
-          </nav>
-          {nothing && sheets.length <= 1 ? (
-            <Card>
-              <EmptyState
-                title="No payments on this day"
-                hint="Payments recorded on a day show here, by method and by collector, with the cash to deposit."
-                {...(canCollect && day === today ? { action: "Collect payment", href: collectHref } : {})}
-              />
-            </Card>
-          ) : (
-            <div className="flex flex-col gap-5">
+          <SegmentedTabs
+            label="Period"
+            items={COLLECTION_PERIODS.map((period) => ({
+              href: withQuery(PATH, collectionParams({ ...applied, period })),
+              label: `${PERIOD_WORD[period]} · ${counts[period]}`,
+              active: period === applied.period,
+            }))}
+          />
+          {sheets.length ? (
+            <div className="mb-5 flex flex-col gap-5">
               {sheets.map((s) => (
-                <Sheet key={s.branch.id} s={s} titled={sheets.length > 1} timeZone={session.tenant.timezone} />
+                <Sheet key={s.branch.id} s={s} titled={sheets.length > 1} timeZone={timeZone} />
               ))}
             </div>
-          )}
+          ) : null}
+          <Card className="overflow-hidden p-0 md:p-0">
+            <div className="p-4 md:p-5">
+              <Suspense>
+                <FilterBar
+                  path={PATH}
+                  search={{ placeholder: "Receipt, student, payer or reference" }}
+                  selects={[
+                    { name: "method", label: "Method", all: "All methods", options: METHODS },
+                    { name: "collector", label: "Collected by", all: "Anyone", options: list.options.collectors },
+                    { name: "program", label: "Program", all: "All programs", options: list.options.programs },
+                    { name: "status", label: "Status", all: "All statuses", options: STATUSES },
+                  ]}
+                  dates={[
+                    { name: "from", label: "From" },
+                    { name: "to", label: "To" },
+                  ]}
+                  sorts={SORTS}
+                />
+              </Suspense>
+            </div>
+            {list.rows.length === 0 ? (
+              <EmptyState title={emptyTitle} hint={emptyHint} {...(canCollect && !filtered && applied.period === "today" ? { action: "Collect payment", href: collectHref } : {})} />
+            ) : (
+              <>
+                <PaymentTable rows={list.rows} timeZone={timeZone} />
+                <PagingFooter page={list.page} pageSize={list.pageSize} shown={list.rows.length} matched={list.matched} href={pageHref} />
+              </>
+            )}
+          </Card>
         </>
       )}
       {canCollect ? <div className="sticky bottom-0 z-10 -mx-4 mt-5 border-t border-neutral-100 bg-background px-4 py-3 md:hidden">{collect("w-full", "lg")}</div> : null}

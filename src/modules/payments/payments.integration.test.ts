@@ -26,6 +26,7 @@ import { guardians, students } from "@/modules/students/schema";
 import { createStudent } from "@/modules/students/service";
 import { createBranch, updateOwnTenant } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
+import { PAYMENT_DISPLAYS } from "./labels";
 import { collectedByMonth, familyContact, insertPayment } from "./repo";
 import { applyAdvanceRoute, cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
@@ -33,12 +34,16 @@ import {
   applyAdvanceNow,
   cancelPayment,
   collectedToday,
+  type CollectionList,
+  type CollectionQuery,
   collectScreen,
   collectTarget,
+  collectionList,
+  collectionParams,
   collectionSheet,
   familyAccount,
   invoiceMoney,
-  myReceiptsToday,
+  parseCollectionQuery,
   type PaymentInput,
   receipt,
   recordGatewayPayment,
@@ -1015,7 +1020,7 @@ describe("payments", () => {
     let deskA: ScopedCtx;
     let deskB: ScopedCtx;
     const target = (q: Parameters<typeof collectTarget>[2], as: ScopedCtx = desk) => withTenant(T, (tx) => collectTarget(tx, as, q));
-    const mine = (as: ScopedCtx) => withTenant(T, (tx) => myReceiptsToday(tx, as, { now: NOW }));
+    const mine = async (as: ScopedCtx) => (await withTenant(T, (tx) => collectionList(tx, as, { period: "all", sort: "oldest", page: 1 }, { now: NOW }))).rows;
 
     beforeAll(async () => {
       [deskA, deskB] = [await hire("Neha", "Front Desk"), await hire("Ravi", "Front Desk")];
@@ -1026,7 +1031,6 @@ describe("payments", () => {
       const [first, second] = [await pay(h, 100, {}, deskA), await pay(h, 200, {}, deskA)];
       await pay(h, 300, {}, deskB);
       await pay(h, 400, {}, deskA, new Date(NOW.getTime() - 86_400_000));
-      expect((await withTenant(T, (tx) => myReceiptsToday(tx, deskA, { now: NOW }))).length).toBe(2);
       expect((await mine(deskA)).map((p) => p.id)).toEqual([first.id, second.id]);
     });
 
@@ -1365,6 +1369,139 @@ describe("payments", () => {
     });
   });
 
+  describe("the collections list", () => {
+    const late = new Date("2026-09-14T18:20:00Z"); // 23:50 in India on Monday the 14th
+    const old = new Date("2026-08-03T06:00:00Z");
+    let lb = ""; // its own branch, so the payments of other tests are not in it
+    let karate = "";
+    let [kid, kid2] = ["", ""];
+    let upiInvoice: Invoice;
+    const P = {} as Record<"cash" | "upi" | "byDesk2" | "cancelled" | "part" | "full" | "late" | "old" | "lastSmall", Payment>;
+    const at = (memberId: string, amount: number, extra: Partial<PaymentInput> = {}, as: ScopedCtx = desk, now = NOW) => pay(memberId, amount, { branchId: lb, ...extra }, as, now);
+    const list = (q: Partial<CollectionQuery> = {}, as: ScopedCtx = owner, now = NOW) =>
+      withTenant(T, (tx) => collectionList(tx, { ...as, branchIds: [lb] }, { period: "all", sort: "newest", page: 1, ...q }, { now }));
+    const every = (q: Partial<CollectionQuery> = {}) => withTenant(T, (tx) => collectionList(tx, { ...owner, branchIds: [lb] }, { period: "all", sort: "newest", page: 1, ...q }, { now: NOW, unpaged: true })); // the CSV's rows
+    const ids = (l: CollectionList) => l.rows.map((r) => r.id);
+    const line = (invoiceId: string, studentId: string, amount: number, enrollmentId?: string) =>
+      withTenant(T, (tx) =>
+        insertLines(tx, [{ tenantId: T, invoiceId, studentId, ...(enrollmentId ? { enrollmentId } : {}), kind: "tuition", description: "Tuition", periodStart: "2026-09-01", periodEnd: "2026-09-30", unitPaise: rupees(amount), amountPaise: rupees(amount) }]),
+      );
+
+    // 11 payments on the 24th (one cancelled), one on the 14th at 23:50, one in August.
+    beforeAll(async () => {
+      lb = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "List branch" }))).id;
+      [kid, kid2] = [await family(), await family()];
+      const enrollment = await withTenant(T, async (tx) => {
+        const program = await createProgram(tx, { tenantId: T, name: "List Karate", activityKey: "karate" });
+        const plan = await insertPlan(tx, { tenantId: T, name: "List Karate monthly", kind: "recurring", billingCycle: "monthly", amountPaise: rupees(500) });
+        const batch = await insertBatch(tx, { tenantId: T, branchId: lb, programId: program.id, name: "List Karate Kids", defaultFeePlanId: plan.id, startDate: "2026-01-01" });
+        karate = program.id;
+        return (await insertEnrollment(tx, { tenantId: T, studentId: kid, batchId: batch.id, startDate: "2026-09-01", feePlanId: plan.id })).id;
+      });
+      const inv = await bill(kid, 500, "2026-09-10", lb);
+      upiInvoice = await bill(kid2, 500, "2026-09-10", lb);
+      await line(inv.id, kid, 500, enrollment);
+      await line(upiInvoice.id, kid2, 500);
+      P.cash = await at(kid, 500);
+      P.upi = await at(kid2, 700, { method: "upi", reference: "UPI 4471" }); // the invoice and ₹200 advance
+      const [h3, h4, h5] = [await family(), await family(), await family()];
+      P.byDesk2 = await at(h3, 300, {}, desk2);
+      P.cancelled = await at(h3, 99);
+      await cancel(P.cancelled.id, desk);
+      await bill(h4, 300, "2026-09-10", lb);
+      P.part = await at(h4, 300);
+      await refund(P.part.id, 100);
+      await bill(h5, 200, "2026-09-10", lb);
+      P.full = await at(h5, 200);
+      await refund(P.full.id, 200);
+      P.late = await at(h3, 150, {}, desk, late);
+      P.old = await at(h3, 120, {}, desk, old);
+      for (let i = 0; i < 5; i++) P.lastSmall = await at(h3, 10 + i);
+    });
+
+    it("a payment at 23:50 in India is that day's, in Today and in This week", async () => {
+      expect(P.late.recordedOn).toBe("2026-09-14");
+      expect(ids(await list({ period: "today" }, owner, new Date("2026-09-14T18:25:00Z")))).toContain(P.late.id);
+      expect(ids(await list({ period: "today" }, owner, new Date("2026-09-15T04:00:00Z")))).not.toContain(P.late.id);
+      expect(ids(await list({ period: "week" }, owner, new Date("2026-09-15T04:00:00Z")))).toContain(P.late.id);
+    });
+
+    it("filters by method, collector, program and status", async () => {
+      expect(ids(await list({ period: "today", method: "upi" }))).toEqual([P.upi.id]);
+      expect(ids(await list({ period: "today", collectorId: desk2.staffId }))).toEqual([P.byDesk2.id]);
+      expect(ids(await list({ period: "today", programId: karate }))).toEqual([P.cash.id]);
+      expect(ids(await list({ period: "today", status: "cancelled" }))).toEqual([P.cancelled.id]);
+      expect(ids(await list({ period: "all", from: "2026-09-14", to: "2026-09-14" }))).toEqual([P.late.id]);
+    });
+
+    it("finds by receipt number, payer, student or reference", async () => {
+      for (const q of [P.upi.receiptNumber, "UPI 4471", name(kid2), "Mother"]) expect(ids(await list({ period: "today", q })), q).toContain(P.upi.id);
+      expect(ids(await list({ q: name(kid) }))).toEqual([P.cash.id]);
+      expect(ids(await list({ q: "no such payment" }))).toEqual([]);
+    });
+
+    it("towards and advance add up to each amount, with the students and programs behind them", async () => {
+      const all = (await every()).rows;
+      expect(all).toHaveLength(13); // not just the first page
+      for (const r of all) expect(r.towards.reduce((n, t) => n + t.amountPaise, 0n) + r.advancePaise, r.receiptNumber).toBe(r.amountPaise);
+      const [upi, cash] = [all.find((r) => r.id === P.upi.id), all.find((r) => r.id === P.cash.id)];
+      expect([upi?.towards.map((t) => [t.number, t.amountPaise]), upi?.advancePaise, upi?.students, upi?.programs]).toEqual([[[upiInvoice.number, rupees(500)]], rupees(200), [name(kid2)], []]);
+      expect([cash?.advancePaise, cash?.students, cash?.programs]).toEqual([0n, [name(kid)], ["List Karate"]]);
+    });
+
+    it("shows Received, Part refunded, Refunded or Cancelled, and the status filter agrees with it", async () => {
+      const { rows, matched } = await every({ period: "today" });
+      const display = Object.fromEntries(rows.map((r) => [r.id, r.display]));
+      expect([display[P.cash.id], display[P.part.id], display[P.full.id], display[P.cancelled.id]]).toEqual(["received", "part_refunded", "refunded", "cancelled"]);
+      expect(rows.find((r) => r.id === P.part.id)?.refundedPaise).toBe(rupees(100));
+      let seen = 0;
+      for (const status of PAYMENT_DISPLAYS) {
+        const l = await list({ period: "today", status });
+        expect(l.rows.length, status).toBeGreaterThan(0);
+        expect(l.rows.every((r) => r.display === status), status).toBe(true);
+        seen += l.matched;
+      }
+      expect(seen).toBe(matched);
+    });
+
+    it("counts every period under the other filters, whichever tab is open", async () => {
+      expect((await list({ period: "week" })).counts).toEqual({ today: 11, week: 11, month: 12, all: 13 });
+      const upi = await list({ period: "month", method: "upi" });
+      expect([upi.counts, upi.matched]).toEqual([{ today: 1, week: 1, month: 1, all: 1 }, 1]);
+      expect(ids(await list({ period: "today", from: "2026-09-14", to: "2026-09-14" }))).toEqual([]); // the dates narrow the tab
+    });
+
+    it("sorts newest, oldest or biggest first, ten to a page, and a page past the end shows the last", async () => {
+      expect([(await list({ sort: "newest" })).rows[0]?.id, (await list({ sort: "oldest" })).rows[0]?.id, (await list({ sort: "amount" })).rows[0]?.id]).toEqual([P.lastSmall.id, P.old.id, P.upi.id]);
+      const [first, second, past] = [await list({ page: 1 }), await list({ page: 2 }), await list({ page: 99 })];
+      expect([first.rows.length, second.rows.length, first.matched, first.pageSize]).toEqual([10, 3, 13, 10]);
+      expect([past.page, ids(past)]).toEqual([2, ids(second)]);
+      expect(new Set([...ids(first), ...ids(second)]).size).toBe(13);
+    });
+
+    it("the day's cash sheet sits with Today or a one-day range, and not with a longer one", async () => {
+      expect((await list({ period: "today" })).sheets?.map((s) => [s.branch.id, s.day, s.total.count])).toEqual([[lb, "2026-09-24", 10]]);
+      expect((await list({ period: "all", from: "2026-09-14", to: "2026-09-14" })).sheets?.map((s) => [s.day, s.total.count])).toEqual([["2026-09-14", 1]]);
+      expect([(await list({ period: "week" })).sheets, (await list({ period: "all" })).sheets]).toEqual([null, null]);
+    });
+
+    it("Front Desk sees only their own receipts today, whatever the address asks", async () => {
+      const l = await list({ period: "all", collectorId: desk2.staffId, status: "cancelled", method: "upi", q: "nothing" }, desk);
+      expect(l.own).toBe(true);
+      expect(l.rows.length).toBeGreaterThan(0);
+      expect(l.rows.every((r) => r.receivedBy === desk.staffId && r.recordedOn === "2026-09-24")).toBe(true);
+      expect(l.rows.some((r) => r.display !== "cancelled")).toBe(true);
+      expect([l.sheets, l.options]).toEqual([null, { collectors: [], programs: [] }]);
+      expect((await list({}, owner)).own).toBe(false);
+    });
+
+    it("lists the collectors and programs to filter by", async () => {
+      const { options } = await list();
+      expect(options.collectors.map((c) => c.id).sort()).toEqual([desk.staffId, desk2.staffId].sort());
+      expect(options.programs.map((p) => p.id)).toContain(karate);
+    });
+  });
+
   describe("an invoice's money history", () => {
     const money = (id: string, as: ScopedCtx = owner) => withTenant(T, (tx) => invoiceMoney(tx, as, id));
 
@@ -1524,6 +1661,23 @@ describe("payments", () => {
 });
 
 // ---- collection by calendar month: the dashboard's revenue chart
+
+describe("the collections address", () => {
+  const ID = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
+
+  it("starts on Today, newest first, page 1, and drops what is not valid", () => {
+    expect(parseCollectionQuery({})).toEqual({ period: "today", sort: "newest", page: 1 });
+    expect(parseCollectionQuery({ period: "year", method: "gold", status: "lost", from: "2026-02-30", to: "soon", collector: "nope", program: "nope", sort: "random", page: "0" })).toEqual({ period: "today", sort: "newest", page: 1 });
+  });
+
+  it("reads every filter and writes them back; the defaults stay out", () => {
+    const q = parseCollectionQuery({ period: "month", q: " Riya ", method: "upi", status: "part_refunded", from: "2026-09-01", to: "2026-09-20", collector: ID, program: ID, sort: "amount", page: "2" });
+    expect(q).toEqual({ period: "month", q: "Riya", method: "upi", status: "part_refunded", from: "2026-09-01", to: "2026-09-20", collectorId: ID, programId: ID, sort: "amount", page: 2 });
+    const { page, ...applied } = q;
+    expect(parseCollectionQuery(Object.fromEntries(collectionParams(applied, page)))).toEqual(q);
+    expect(collectionParams({ period: "today", sort: "newest" }, 1).toString()).toBe("");
+  });
+});
 
 describe("collection by month", () => {
   const M = { tenant: "", branch: "", other: "", owner: "" };

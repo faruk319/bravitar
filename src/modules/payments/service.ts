@@ -3,10 +3,12 @@ import { allows, assertCan, ForbiddenError } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate, periodLabel, todayIn } from "@/lib/dates";
+import { addDays, isIsoDate, type PeriodRange, periodLabel, periodRange, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
+import { queryReader, type SearchParams } from "@/lib/url-query";
+import { listPrograms } from "@/modules/batches/repo";
 import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Actor } from "@/modules/fees/invoicing";
 import { getInvoice, type LineRow, linesOf, lockInvoicing, payerNames } from "@/modules/fees/repo";
@@ -23,6 +25,7 @@ import { getBranch, getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom, type Share } from "./allocation";
 import {
   collectedOn,
+  collectorOptions,
   getPayment,
   insertPayment,
   insertRefund,
@@ -42,8 +45,12 @@ import {
   paidByPayment,
   paymentByGatewayId,
   paymentByRequest,
+  paymentList,
   paymentMoney,
+  type PaymentRow,
+  type PaymentSort,
   paymentsOnInvoice,
+  periodCounts,
   type InvoiceReceipt,
   paymentsRecordedOn,
   type ReceiptLine,
@@ -59,6 +66,7 @@ import {
   unusedPaymentsOfPayers,
   updatePayment,
 } from "./repo";
+import { PAYMENT_DISPLAYS, type PaymentDisplay } from "./labels";
 import { PAYMENT_METHODS, type Payment, type PaymentMethod, type Refund } from "./schema";
 
 const actor = (ctx: ScopedCtx): Actor => ({ actorType: "staff", actorId: ctx.staffId, tenantId: ctx.tenantId });
@@ -640,13 +648,90 @@ export async function collectionSheet(tx: Tx, ctx: ScopedCtx, input: { branchId:
   };
 }
 
-// Collections for someone who collects without payments:read: the receipts they recorded today, in their branches.
-export async function myReceiptsToday(tx: Tx, ctx: ScopedCtx, opts: { now?: Date } = {}): Promise<SheetPayment[]> {
-  assertCan(ctx, "fees:collect");
+// ---- the collections list: every payment in one table, with the day's sheet beside it
+
+export const COLLECTION_PERIODS = ["today", "week", "month", "all"] as const;
+export type CollectionPeriod = (typeof COLLECTION_PERIODS)[number];
+const COLLECTION_SORTS = ["newest", "oldest", "amount"] as const;
+
+export type CollectionQuery = {
+  period: CollectionPeriod;
+  from?: string;
+  to?: string;
+  q?: string;
+  method?: PaymentMethod;
+  collectorId?: string;
+  programId?: string;
+  status?: PaymentDisplay;
+  sort: PaymentSort;
+  page: number;
+};
+
+// The address as a query; a value that is not valid is dropped, so a stale link still loads.
+export function parseCollectionQuery(sp: SearchParams): CollectionQuery {
+  const read = queryReader(sp);
+  const out: CollectionQuery = { period: read.oneOf("period", COLLECTION_PERIODS) ?? "today", sort: read.oneOf("sort", COLLECTION_SORTS) ?? "newest", page: read.page() };
+  const [q, method, status] = [read.one("q"), read.oneOf("method", PAYMENT_METHODS), read.oneOf("status", PAYMENT_DISPLAYS)];
+  if (q) out.q = q;
+  if (method) out.method = method;
+  if (status) out.status = status;
+  for (const [k, v] of [["from", read.day("from")], ["to", read.day("to")], ["collectorId", read.id("collector")], ["programId", read.id("program")]] as const) if (v) out[k] = v;
+  return out;
+}
+
+// The inverse of parseCollectionQuery, for links that keep the filters; what is the default stays out.
+export function collectionParams(q: Omit<CollectionQuery, "page">, page?: number): URLSearchParams {
+  const out = new URLSearchParams();
+  if (q.period !== "today") out.set("period", q.period);
+  for (const [k, name] of [["q", "q"], ["method", "method"], ["status", "status"], ["from", "from"], ["to", "to"], ["collectorId", "collector"], ["programId", "program"]] as const) if (q[k]) out.set(name, q[k]);
+  if (q.sort !== "newest") out.set("sort", q.sort);
+  if (page && page > 1) out.set("page", String(page));
+  return out;
+}
+
+const PAGE_SIZE = 10;
+type Option = { id: string; name: string };
+
+export type CollectionList = {
+  today: string;
+  rows: PaymentRow[];
+  matched: number; // under the period and filters asked for
+  page: number;
+  pageSize: number;
+  counts: Record<CollectionPeriod, number>; // per period, under the filters but not the period
+  sheets: CollectionSheet[] | null; // one per branch, when the dates come to one day
+  own: boolean; // collecting without payments:read: only your receipts, today
+  applied: Omit<CollectionQuery, "page">;
+  options: { collectors: Option[]; programs: Option[] };
+};
+
+const latest = (...days: (string | null | undefined)[]) => days.filter((d): d is string => Boolean(d)).sort().at(-1);
+const earliest = (...days: (string | null | undefined)[]) => days.filter((d): d is string => Boolean(d)).sort().at(0);
+
+// Weeks and months are the academy's days. `unpaged` returns every row that matches, for the CSV.
+export async function collectionList(tx: Tx, ctx: ScopedCtx, q: CollectionQuery, opts: { now?: Date; unpaged?: boolean } = {}): Promise<CollectionList> {
+  const own = !allows(ctx, "payments:read");
+  if (own) assertCan(ctx, "fees:collect");
   const { today } = await clock(tx, opts.now);
-  const branchIds = ctx.branchIds.length ? ctx.branchIds : (await listBranches(tx)).map((b) => b.id);
-  const rows = (await Promise.all(branchIds.map((b) => paymentsRecordedOn(tx, b, today, ctx.staffId)))).flat();
-  return rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
+  const { page: asked, ...wanted } = q;
+  // Collecting without payments:read shows your receipts of today, whatever the address asks.
+  const applied: Omit<CollectionQuery, "page"> = own ? { period: "today", collectorId: ctx.staffId, sort: wanted.sort } : wanted;
+  const { period, sort, ...filters } = applied;
+  const ranges: Record<CollectionPeriod, PeriodRange> = { today: periodRange("today", today), week: periodRange("week", today), month: periodRange("month", today), all: periodRange("all", today) };
+  const counts = await periodCounts(tx, { ...filters, branchIds: ctx.branchIds }, ranges);
+  const matched = counts[period];
+  const page = opts.unpaged ? 1 : Math.min(asked, Math.max(1, Math.ceil(matched / PAGE_SIZE))); // a page past the end shows the last
+  // The tab and the dates both narrow the list.
+  const [from, to] = [latest(ranges[period].from, filters.from), earliest(ranges[period].to, filters.to)];
+  const rows = await paymentList(tx, { ...filters, from, to, branchIds: ctx.branchIds }, { sort, ...(opts.unpaged ? {} : { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }) });
+  const day = from && from === to ? from : null;
+  const none: Option[] = [];
+  const [sheets, collectors, programs] = await Promise.all([
+    !own && day ? Promise.all((await listBranches(tx)).filter((b) => inScope(ctx, b.id)).map((b) => collectionSheet(tx, ctx, { branchId: b.id, day }, opts))) : null,
+    own ? none : collectorOptions(tx, ctx.branchIds),
+    own ? none : listPrograms(tx).then((all) => all.map((p) => ({ id: p.id, name: p.name }))),
+  ]);
+  return { today, rows, matched, page, pageSize: PAGE_SIZE, counts, sheets, own, applied, options: { collectors, programs } };
 }
 
 // For the dashboard: what came in today in the viewer's branches.

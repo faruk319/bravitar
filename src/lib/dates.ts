@@ -61,6 +61,14 @@ export function startOfWeek(iso: string): string {
   return addDays(iso, wd === 0 ? -6 : 1 - wd);
 }
 
+export type PeriodRange = { from: string | null; to: string | null };
+
+// A period as academy days, ending today; weeks start Monday, and `all` has no bounds.
+export function periodRange(period: "today" | "week" | "month" | "all", today: string): PeriodRange {
+  if (period === "all") return { from: null, to: null };
+  return { from: period === "today" ? today : period === "week" ? startOfWeek(today) : `${today.slice(0, 7)}-01`, to: today };
+}
+
 export function isTimeZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });

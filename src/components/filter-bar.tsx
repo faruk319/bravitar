@@ -41,6 +41,20 @@ function DateField({ name, label, url, send }: { name: string; label: string; ur
   );
 }
 
+// The address with its query, or the bare path when none is left. Not url-query's: that reads with zod, which stays out of the client bundle.
+const at = (path: string, p: URLSearchParams) => (p.toString() ? `${path}?${p.toString()}` : path);
+
+// The address after the bar changes some params: an empty one is dropped, and the list goes back to page 1.
+export function nextHref(path: string, current: string, next: Record<string, string>): string {
+  const p = new URLSearchParams(current);
+  for (const [k, v] of Object.entries(next)) {
+    if (v) p.set(k, v);
+    else p.delete(k);
+  }
+  p.delete("page");
+  return at(path, p);
+}
+
 type Props = {
   path: string;
   search: { placeholder: string };
@@ -61,15 +75,7 @@ export function FilterBar({ path, search, selects, dates, sorts }: Props) {
     setShown(get("q"));
     setTyped(get("q"));
   }
-  const push = (next: Record<string, string>) => {
-    const p = new URLSearchParams(params.toString());
-    for (const [k, v] of Object.entries(next)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    p.delete("page");
-    router.replace(`${path}?${p.toString()}`);
-  };
+  const push = (next: Record<string, string>) => router.replace(nextHref(path, params.toString(), next));
   const pick = (name: string, label: string, all: string, opts: Option[]) => (
     <select key={name} aria-label={label} value={get(name)} onChange={(e) => push({ [name]: e.target.value })} className={select}>
       <option value="">{all}</option>
@@ -84,7 +90,7 @@ export function FilterBar({ path, search, selects, dates, sorts }: Props) {
   const own = ["q", ...selects.map((s) => s.name), ...dates.map((d) => d.name)];
   const rest = new URLSearchParams(params.toString());
   for (const k of [...own, "page"]) rest.delete(k);
-  const clear = rest.size ? `${path}?${rest.toString()}` : path;
+  const clear = at(path, rest);
   const searchBox = (
     <div className={cn("relative min-w-0", sorts && "flex-1")}>
       <Search className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />

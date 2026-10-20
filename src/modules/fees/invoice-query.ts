@@ -1,5 +1,4 @@
-import { z } from "zod";
-import { isIsoDate } from "@/lib/dates";
+import { queryReader, type SearchParams } from "@/lib/url-query";
 import { DISPLAY_STATUSES, type DisplayStatus } from "./billing";
 
 // The invoice list's query, as it travels in the URL.
@@ -22,29 +21,16 @@ export type InvoiceQuery = {
   page: number;
 };
 
-// A value that is not valid is dropped, so a stale link still loads.
-export function parseInvoiceQuery(sp: Record<string, string | string[] | undefined>): InvoiceQuery {
-  const one = (k: string): string | undefined => {
-    const v = sp[k];
-    return typeof v === "string" && v.trim() ? v.trim() : undefined;
-  };
-  const id = (k: string) => {
-    const v = one(k);
-    return v && z.uuid().safeParse(v).success ? v : undefined;
-  };
-  const day = (k: string) => {
-    const v = one(k);
-    return v && isIsoDate(v) ? v : undefined;
-  };
-  const [status, sort] = [one("status"), one("sort")];
+export function parseInvoiceQuery(sp: SearchParams): InvoiceQuery {
+  const read = queryReader(sp);
   const out: InvoiceQuery = {
-    status: status && ([...DISPLAY_STATUSES, "all", "open"] as readonly string[]).includes(status) ? (status as InvoiceStatusFilter) : "all",
-    sort: sort && (INVOICE_SORTS as readonly string[]).includes(sort) ? (sort as InvoiceSort) : "newest",
-    page: Math.max(1, Math.floor(Number(one("page"))) || 1),
+    status: read.oneOf("status", [...DISPLAY_STATUSES, "all", "open"] as const) ?? "all",
+    sort: read.oneOf("sort", INVOICE_SORTS) ?? "newest",
+    page: read.page(),
   };
-  const q = one("q");
+  const q = read.one("q");
   if (q) out.q = q;
-  for (const [k, v] of [["programId", id("program")], ["batchId", id("batch")], ["issuedFrom", day("issuedFrom")], ["issuedTo", day("issuedTo")], ["dueFrom", day("dueFrom")], ["dueTo", day("dueTo")]] as const) if (v) out[k] = v;
+  for (const [k, v] of [["programId", read.id("program")], ["batchId", read.id("batch")], ["issuedFrom", read.day("issuedFrom")], ["issuedTo", read.day("issuedTo")], ["dueFrom", read.day("dueFrom")], ["dueTo", read.day("dueTo")]] as const) if (v) out[k] = v;
   return out;
 }
 

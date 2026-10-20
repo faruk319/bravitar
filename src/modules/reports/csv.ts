@@ -2,7 +2,8 @@ import { rupeesText } from "@/lib/money/format";
 import type { MarkCounts } from "@/modules/attendance/repo";
 import { LOST_REASON_LABELS, SOURCE_LABELS } from "@/modules/enquiries/lists";
 import type { EnquiryReport } from "@/modules/enquiries/service";
-import { METHOD_LABEL } from "@/modules/payments/labels";
+import { DISPLAY_LABEL, METHOD_LABEL } from "@/modules/payments/labels";
+import type { PaymentRow } from "@/modules/payments/repo";
 import type { PaymentMethod } from "@/modules/payments/schema";
 import { LEFT_REASON_LABELS } from "@/modules/students/schema";
 import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, type CollectionRegister, type DuesReport } from "./service";
@@ -21,6 +22,28 @@ export function collectionRows(r: CollectionRegister): string[][] {
     ...totals("By day", r.byDay),
     ...totals("By method", r.byMethod, (k) => METHOD_LABEL[k as PaymentMethod]),
     ...totals("By staff", r.byCollector),
+  ];
+}
+
+// The collections table as rows: the header, then one row a payment, whatever page it was on.
+export function collectionsRows(rows: PaymentRow[]): string[][] {
+  return [
+    ["Recorded on", "Receipt", "Students", "Payer", "Programs", "Towards", "Advance", "Amount", "Refunded", "Method", "Reference", "Collected by", "Status"],
+    ...rows.map((p) => [
+      p.recordedOn,
+      p.receiptNumber,
+      p.students.join(", "),
+      p.billToName,
+      p.programs.join(", "),
+      p.towards.map((t) => t.number ?? "Draft").join(", "),
+      rupeesText(p.advancePaise),
+      rupeesText(p.amountPaise),
+      rupeesText(p.refundedPaise),
+      METHOD_LABEL[p.method],
+      p.reference ?? "",
+      p.collectorName ?? "Online",
+      p.display === "cancelled" ? `Cancelled: ${p.cancelReason ?? ""}` : DISPLAY_LABEL[p.display],
+    ]),
   ];
 }
 

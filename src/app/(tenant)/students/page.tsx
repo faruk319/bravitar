@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PagingFooter } from "@/components/paging-footer";
 import { Gate } from "@/components/shell/gate";
 import { StatCard } from "@/components/stat-card";
 import { StudentSearchBar } from "@/components/students/search-bar";
@@ -15,6 +16,7 @@ import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
+import { withQuery } from "@/lib/url-query";
 import { listParams, parseListQuery, studentCounts, studentList } from "@/modules/students/service";
 import { studentTrends } from "@/modules/students/trends";
 
@@ -29,8 +31,7 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
   const canImport = canCreate && can(ctx, "students", "students:import");
   const monthStart = `${todayIn(session.tenant.timezone).slice(0, 7)}-01`;
   const list = data?.list;
-  const pageHref = (p: number) => `/students?${listParams(list?.applied ?? {}, p)}`;
-  const first = list ? (list.page - 1) * list.pageSize + 1 : 0;
+  const pageHref = (p: number) => withQuery("/students", listParams(list?.applied ?? {}, p));
   const counts = data?.counts;
 
   return (
@@ -80,23 +81,7 @@ export default async function StudentsPage({ searchParams }: PageProps<"/student
             ) : (
               <>
                 <StudentTable rows={list.rows} shows={list.shows} />
-                <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3 text-caption text-muted-foreground md:px-5">
-                  <span className="tabular-nums">
-                    {first}–{first + list.rows.length - 1} of {list.matched}
-                  </span>
-                  <span className="flex gap-2">
-                    {list.page > 1 ? (
-                      <Button variant="outline" size="sm" nativeButton={false} render={<Link href={pageHref(list.page - 1)} />}>
-                        Previous
-                      </Button>
-                    ) : null}
-                    {first + list.rows.length - 1 < list.matched ? (
-                      <Button variant="outline" size="sm" nativeButton={false} render={<Link href={pageHref(list.page + 1)} />}>
-                        Next
-                      </Button>
-                    ) : null}
-                  </span>
-                </div>
+                <PagingFooter page={list.page} pageSize={list.pageSize} shown={list.rows.length} matched={list.matched} href={pageHref} />
               </>
             )}
           </Card>

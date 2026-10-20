@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, formatDate, isIsoDate, monthsLaterOn, periodLabel, startOfWeek, todayIn, weekdayOf } from "./dates";
+import { addDays, formatDate, isIsoDate, monthsLaterOn, periodLabel, periodRange, startOfWeek, todayIn, weekdayOf } from "./dates";
 
 describe("calendar dates", () => {
   it("knows what day it is in the tenant's timezone, not the server's", () => {
@@ -60,5 +60,15 @@ describe("periodLabel", () => {
   it("has no label without a start", () => {
     expect(periodLabel(null, null)).toBeNull();
     expect(periodLabel(null, "2026-10-31")).toBeNull();
+  });
+});
+
+describe("periodRange", () => {
+  it("weeks start Monday; each period ends today; all has no bounds", () => {
+    expect(periodRange("today", "2026-09-24")).toEqual({ from: "2026-09-24", to: "2026-09-24" });
+    expect(periodRange("week", "2026-09-24")).toEqual({ from: "2026-09-21", to: "2026-09-24" }); // Thursday
+    expect(periodRange("week", "2026-09-27")).toEqual({ from: "2026-09-21", to: "2026-09-27" }); // Sunday
+    expect(periodRange("month", "2026-09-24")).toEqual({ from: "2026-09-01", to: "2026-09-24" });
+    expect(periodRange("all", "2026-09-24")).toEqual({ from: null, to: null });
   });
 });

@@ -2,11 +2,12 @@ import { z } from "zod";
 import { type AccessContext, allows, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
-import { addDays, isIsoDate, todayIn } from "@/lib/dates";
+import { addDays, todayIn } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { phoneSchema } from "@/lib/phone";
 import { isMinor } from "@/lib/students/age";
+import { queryReader, type SearchParams } from "@/lib/url-query";
 import { attendanceTallies } from "@/modules/attendance/repo";
 import { attendancePercent } from "@/modules/attendance/percent";
 import { coachOptions, listBatchRows, listPrograms } from "@/modules/batches/repo";
@@ -302,28 +303,16 @@ const ATTENDANCE_DAYS = 30;
 
 export type ListQuery = { q?: string; status?: StudentStatus; programId?: string; batchId?: string; coachId?: string; fee?: FeeState; joinedFrom?: string; joinedTo?: string; page: number };
 
-// URL params to a query; a value that is not valid is dropped, so a stale link still loads.
-export function parseListQuery(sp: Record<string, string | string[] | undefined>): ListQuery {
-  const one = (k: string): string | undefined => {
-    const v = sp[k];
-    return typeof v === "string" && v ? v : undefined;
-  };
-  const id = (k: string) => {
-    const v = one(k);
-    return v && z.uuid().safeParse(v).success ? v : undefined;
-  };
-  const day = (k: string) => {
-    const v = one(k);
-    return v && isIsoDate(v) ? v : undefined;
-  };
-  const status = one("status");
-  const fee = one("fee");
-  const out: ListQuery = { page: Math.max(1, Math.floor(Number(one("page"))) || 1) };
-  const q = one("q");
+// URL params to a query.
+export function parseListQuery(sp: SearchParams): ListQuery {
+  const read = queryReader(sp);
+  const out: ListQuery = { page: read.page() };
+  const q = read.one("q");
   if (q) out.q = q;
-  if (status && (STUDENT_STATUSES as readonly string[]).includes(status)) out.status = status as StudentStatus;
-  if (fee && (FEE_STATES as readonly string[]).includes(fee)) out.fee = fee as FeeState;
-  for (const [k, v] of [["programId", id("program")], ["batchId", id("batch")], ["coachId", id("coach")], ["joinedFrom", day("joinedFrom")], ["joinedTo", day("joinedTo")]] as const) if (v) out[k] = v;
+  const [status, fee] = [read.oneOf("status", STUDENT_STATUSES), read.oneOf("fee", FEE_STATES)];
+  if (status) out.status = status;
+  if (fee) out.fee = fee;
+  for (const [k, v] of [["programId", read.id("program")], ["batchId", read.id("batch")], ["coachId", read.id("coach")], ["joinedFrom", read.day("joinedFrom")], ["joinedTo", read.day("joinedTo")]] as const) if (v) out[k] = v;
   return out;
 }
 

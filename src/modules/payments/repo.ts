@@ -1,13 +1,17 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, or, type SQL, sql } from "drizzle-orm";
+import type { PeriodRange } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
-import type { Paise } from "@/lib/money/paise";
-import { linesOf, payerIs } from "@/modules/fees/repo";
-import { type Invoice, invoices } from "@/modules/fees/schema";
+import { type Paise, sum } from "@/lib/money/paise";
+import { batches } from "@/modules/batches/schema";
+import { enrollments } from "@/modules/enrollments/schema";
+import { likeOf, linesOf, payerIs, programsOf } from "@/modules/fees/repo";
+import { type Invoice, invoiceLines, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
 import { guardians, studentGuardians, students } from "@/modules/students/schema";
+import { type PaymentDisplay, paymentDisplay } from "./labels";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, type PaymentMethod, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
 // Every money move for a payer takes turns: recording, cancelling, refunding,
@@ -198,23 +202,25 @@ export type SheetPayment = Pick<Payment, "id" | "receiptNumber" | "amountPaise" 
   collectorName: string | null;
 };
 
+const sheetColumns = {
+  id: payments.id,
+  receiptNumber: payments.receiptNumber,
+  amountPaise: payments.amountPaise,
+  method: payments.method,
+  reference: payments.reference,
+  receivedOn: payments.receivedOn,
+  recordedOn: payments.recordedOn,
+  status: payments.status,
+  cancelReason: payments.cancelReason,
+  receivedBy: payments.receivedBy,
+  createdAt: payments.createdAt,
+  billToName: payments.billToName,
+  collectorName: staffUsers.fullName,
+};
+
 const recorded = (tx: Tx, where: SQL | undefined) =>
   tx
-    .select({
-      id: payments.id,
-      receiptNumber: payments.receiptNumber,
-      amountPaise: payments.amountPaise,
-      method: payments.method,
-      reference: payments.reference,
-      receivedOn: payments.receivedOn,
-      recordedOn: payments.recordedOn,
-      status: payments.status,
-      cancelReason: payments.cancelReason,
-      receivedBy: payments.receivedBy,
-      createdAt: payments.createdAt,
-      billToName: payments.billToName,
-      collectorName: staffUsers.fullName,
-    })
+    .select(sheetColumns)
     .from(payments)
     .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
     .where(where)
@@ -228,6 +234,126 @@ export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string, 
 // The collection register: every day in [from, to] in the viewer's branches.
 export async function paymentsRecordedBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<SheetPayment[]> {
   return recorded(tx, and(paymentScope(branchIds), gte(payments.recordedOn, from), lte(payments.recordedOn, to)));
+}
+
+// ---- the collections list (docs/superpowers/specs/2026-10-18-finance-module-design.md "Collections")
+
+export type PaymentSort = "newest" | "oldest" | "amount";
+
+// branchIds empty = all branches; from and to are the days recorded, both included.
+export type PaymentFilter = {
+  branchIds: string[];
+  from?: string | undefined;
+  to?: string | undefined;
+  q?: string | undefined;
+  method?: PaymentMethod | undefined;
+  collectorId?: string | undefined;
+  programId?: string | undefined;
+  status?: PaymentDisplay | undefined;
+};
+
+export type PaymentRow = SheetPayment & {
+  students: string[];
+  programs: string[];
+  towards: { invoiceId: string; number: string | null; amountPaise: Paise }[]; // what it paid when recorded
+  advancePaise: Paise; // the part that paid no invoice
+  refundedPaise: Paise;
+  display: PaymentDisplay;
+};
+
+const refundedSql = sql`coalesce((SELECT sum(r.amount_paise) FROM app.refunds r WHERE r.payment_id = ${payments.id}), 0)`;
+
+// paymentDisplay() as SQL, for the status filter; a test keeps the two agreeing.
+const displaySql = sql<PaymentDisplay>`CASE
+  WHEN ${payments.status} = 'cancelled' THEN 'cancelled'
+  WHEN ${payments.status} = 'refunded' OR (${refundedSql} > 0 AND ${refundedSql} >= ${payments.amountPaise}) THEN 'refunded'
+  WHEN ${refundedSql} > 0 THEN 'part_refunded'
+  ELSE 'received' END`;
+
+function paymentWhere(tx: Tx, f: PaymentFilter): SQL | undefined {
+  const where = [paymentScope(f.branchIds)];
+  if (f.from) where.push(gte(payments.recordedOn, f.from));
+  if (f.to) where.push(lte(payments.recordedOn, f.to));
+  if (f.method) where.push(eq(payments.method, f.method));
+  if (f.collectorId) where.push(eq(payments.receivedBy, f.collectorId));
+  if (f.status) where.push(sql`${displaySql} = ${f.status}`);
+  // Who and what a payment was for: the lines of the invoices it paid when it was recorded.
+  const lines = () => tx.select({ one: sql`1` }).from(paymentAllocations).innerJoin(invoiceLines, eq(invoiceLines.invoiceId, paymentAllocations.invoiceId));
+  const received = and(eq(paymentAllocations.paymentId, payments.id), eq(paymentAllocations.kind, "receipt"));
+  if (f.programId) where.push(exists(lines().innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId)).innerJoin(batches, eq(batches.id, enrollments.batchId)).where(and(received, eq(batches.programId, f.programId)))));
+  const q = f.q?.trim();
+  if (q) {
+    const pattern = likeOf(q);
+    const student = exists(lines().innerJoin(students, eq(students.id, invoiceLines.studentId)).where(and(received, ilike(students.fullName, pattern))));
+    where.push(or(ilike(payments.receiptNumber, pattern), ilike(payments.billToName, pattern), ilike(payments.reference, pattern), student));
+  }
+  return and(...where);
+}
+
+const withinRange = (r: PeriodRange): SQL => and(r.from ? gte(payments.recordedOn, r.from) : undefined, r.to ? lte(payments.recordedOn, r.to) : undefined) ?? sql`true`;
+
+// How many payments each period holds under these filters, in one pass; the period tab itself is not a filter.
+export async function periodCounts<K extends string>(tx: Tx, f: PaymentFilter, ranges: Record<K, PeriodRange>): Promise<Record<K, number>> {
+  const keys = Object.keys(ranges) as K[];
+  const [r] = await tx
+    .select(Object.fromEntries(keys.map((k) => [k, sql<number>`count(*) FILTER (WHERE ${withinRange(ranges[k])})::int`])))
+    .from(payments)
+    .where(paymentWhere(tx, f));
+  return Object.fromEntries(keys.map((k) => [k, r?.[k] ?? 0])) as Record<K, number>;
+}
+
+const ORDER: Record<PaymentSort, SQL[]> = {
+  newest: [desc(payments.recordedOn), desc(payments.createdAt), desc(payments.id)],
+  oldest: [asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id)],
+  amount: [desc(payments.amountPaise), desc(payments.recordedOn), desc(payments.id)],
+};
+
+const DETAIL_CHUNK = 1000; // payments whose invoices are looked up together, so an export stays under the query's parameter limit
+
+// A page of payments, or all of them with no limit, each with what it paid and for whom.
+export async function paymentList(tx: Tx, f: PaymentFilter, opts: { sort: PaymentSort; limit?: number; offset?: number }): Promise<PaymentRow[]> {
+  const query = tx
+    .select({ ...sheetColumns, refunded: sql<string>`${refundedSql}::text` })
+    .from(payments)
+    .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
+    .where(paymentWhere(tx, f))
+    .orderBy(...ORDER[opts.sort])
+    .$dynamic();
+  const found = await (opts.limit ? query.limit(opts.limit).offset(opts.offset ?? 0) : query);
+  const out: PaymentRow[] = [];
+  for (let i = 0; i < found.length; i += DETAIL_CHUNK) out.push(...(await withDetail(tx, found.slice(i, i + DETAIL_CHUNK))));
+  return out;
+}
+
+async function withDetail(tx: Tx, found: (SheetPayment & { refunded: string })[]): Promise<PaymentRow[]> {
+  const paid = await tx
+    .select({ paymentId: paymentAllocations.paymentId, invoiceId: paymentAllocations.invoiceId, number: invoices.number, amount: sql<string>`sum(${paymentAllocations.amountPaise})::text` })
+    .from(paymentAllocations)
+    .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
+    .where(and(inArray(paymentAllocations.paymentId, found.map((p) => p.id)), eq(paymentAllocations.kind, "receipt")))
+    .groupBy(paymentAllocations.paymentId, paymentAllocations.invoiceId, invoices.number, invoices.dueDate)
+    .orderBy(asc(invoices.dueDate), asc(sql`length(${invoices.number})`), asc(invoices.number));
+  const invoiceIds = [...new Set(paid.map((x) => x.invoiceId))];
+  const [lines, programNames] = await Promise.all([linesOf(tx, invoiceIds), programsOf(tx, invoiceIds)]);
+  const studentNames = new Map<string, string[]>();
+  for (const l of lines) if (l.studentName) studentNames.set(l.invoiceId, [...(studentNames.get(l.invoiceId) ?? []), l.studentName]);
+  return found.map(({ refunded, ...p }) => {
+    const mine = paid.filter((x) => x.paymentId === p.id);
+    const towards = mine.map((x) => ({ invoiceId: x.invoiceId, number: x.number, amountPaise: BigInt(x.amount) }));
+    const names = (of: Map<string, string[]>) => [...new Set(mine.flatMap((x) => of.get(x.invoiceId) ?? []))].sort((a, b) => a.localeCompare(b));
+    const refundedPaise = BigInt(refunded);
+    return { ...p, students: names(studentNames), programs: names(programNames), towards, advancePaise: p.amountPaise - sum(towards.map((t) => t.amountPaise)), refundedPaise, display: paymentDisplay(p, refundedPaise) };
+  });
+}
+
+// Who recorded payments in these branches, for the Collected by filter.
+export async function collectorOptions(tx: Tx, branchIds: string[]): Promise<{ id: string; name: string }[]> {
+  return tx
+    .selectDistinct({ id: staffUsers.id, name: staffUsers.fullName })
+    .from(payments)
+    .innerJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
+    .where(paymentScope(branchIds))
+    .orderBy(asc(staffUsers.fullName), asc(staffUsers.id));
 }
 
 export type SheetRefund = Pick<Refund, "id" | "paymentId" | "amountPaise" | "method" | "reason" | "refundedAt"> & { receiptNumber: string; billToName: string };

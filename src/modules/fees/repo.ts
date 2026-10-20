@@ -335,7 +335,7 @@ const displaySql = (today: string): SQL<DisplayStatus> => sql<DisplayStatus>`CAS
 export type InvoiceFilter = Partial<Pick<InvoiceQuery, "status" | "q" | "programId" | "batchId" | "issuedFrom" | "issuedTo" | "dueFrom" | "dueTo">> & { today: string; studentId?: string };
 
 // % _ and \ in what was typed are characters, not wildcards.
-const likeOf = (typed: string) => `%${typed.replace(/[\\%_]/g, "\\$&")}%`;
+export const likeOf = (typed: string) => `%${typed.replace(/[\\%_]/g, "\\$&")}%`;
 
 function filterWhere(tx: Tx, branchIds: string[], f: InvoiceFilter): SQL | undefined {
   const where = [invoiceScope(branchIds)];
@@ -384,7 +384,7 @@ const ORDER: Record<InvoiceSort, SQL[]> = {
 };
 
 // Program names by invoice, first by name.
-async function programsOf(tx: Tx, invoiceIds: string[]): Promise<Map<string, string[]>> {
+export async function programsOf(tx: Tx, invoiceIds: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (!invoiceIds.length) return out;
   const rows = await tx

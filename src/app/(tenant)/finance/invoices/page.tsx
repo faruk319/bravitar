@@ -10,6 +10,7 @@ import { STATUS_WORD } from "@/components/fees/invoice-status";
 import { InvoiceTable } from "@/components/fees/invoice-table";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
+import { PagingFooter } from "@/components/paging-footer";
 import { SegmentedTabs } from "@/components/segmented-tabs";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
+import { withQuery } from "@/lib/url-query";
 import { DISPLAY_STATUSES } from "@/modules/fees/billing";
 import { type InvoiceStatusFilter, invoiceParams, parseInvoiceQuery } from "@/modules/fees/invoice-query";
 import { type CreateScreen, createScreen, type EditSeed, editScreen, invoiceList } from "@/modules/fees/service";
@@ -66,10 +68,8 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
     throw e;
   });
   const { applied, counts, drafts } = list;
-  const href = (params: URLSearchParams) => (params.size ? `${PATH}?${params.toString()}` : PATH);
+  const href = (params: URLSearchParams) => withQuery(PATH, params);
   const closeHref = href(invoiceParams(applied, list.page)); // the page without the sheet
-  const first = (list.page - 1) * list.pageSize + 1;
-  const last = first + list.rows.length - 1;
   const filtered = Boolean(applied.q || applied.programId || applied.batchId || applied.issuedFrom || applied.issuedTo || applied.dueFrom || applied.dueTo);
   const showDrafts = drafts.count > 0 && (applied.status === "all" || applied.status === "draft");
   const [emptyTitle, emptyHint] = filtered ? ["No invoice matches", "Change the filters or clear them."] : EMPTY[applied.status];
@@ -139,23 +139,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
         ) : (
           <>
             <InvoiceTable rows={list.rows} />
-            <div className="flex items-center justify-between gap-3 border-t border-neutral-100 px-4 py-3 text-caption text-muted-foreground md:px-5">
-              <span className="tabular-nums">
-                {first}–{last} of {list.matched}
-              </span>
-              <span className="flex gap-2">
-                {list.page > 1 ? (
-                  <Button variant="outline" size="sm" nativeButton={false} render={<Link href={href(invoiceParams(applied, list.page - 1))} />}>
-                    Previous
-                  </Button>
-                ) : null}
-                {last < list.matched ? (
-                  <Button variant="outline" size="sm" nativeButton={false} render={<Link href={href(invoiceParams(applied, list.page + 1))} />}>
-                    Next
-                  </Button>
-                ) : null}
-              </span>
-            </div>
+            <PagingFooter page={list.page} pageSize={list.pageSize} shown={list.rows.length} matched={list.matched} href={(p) => href(invoiceParams(applied, p))} />
           </>
         )}
       </Card>

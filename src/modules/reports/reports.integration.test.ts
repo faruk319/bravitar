@@ -1,5 +1,6 @@
 import { and, asc, eq, lt } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { SESSION_COOKIE } from "@/lib/auth/cookie";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { sql as runtimeSql } from "@/lib/db/client";
@@ -10,24 +11,29 @@ import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { saveAttendance } from "@/modules/attendance/service";
+import { login, setPassword } from "@/modules/auth/service";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { cancelPayment, collectionSheet, recordPayment } from "@/modules/payments/service";
+import { cancelPayment, collectionList, collectionSheet, recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
 import { createGuardian, guardiansOfMembers, upsertFamilyLink } from "@/modules/students/repo";
 import { guardians } from "@/modules/students/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
-import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
+import { addRole, createStaffMember, loadAccessContext, setRolePermissions } from "@/modules/staff/service";
 import { billableFamily } from "@/lib/db/isolation/family";
 import { createStudent, setStudentStatus } from "@/modules/students/service";
 import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendanceRows, collectionRows, enquiryRows } from "./csv";
+import { csvRoute } from "./routes";
 import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collectionRegister, outstandingDues } from "./service";
+
+// The branch switcher's cookie, which a route reads outside a request: none is set.
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 
 // docs/03 §11: the collection register (a day's total equals its sheet), dues
 // aged by days past the due date, attendance, admissions and dropouts; the
@@ -267,5 +273,48 @@ describe("enquiry funnel CSV", () => {
     const rows = enquiryRows({ from: "2026-09-01", to: "2026-09-25", funnel: { received: 4, contacted: 3, trialBooked: 2, trialDone: 1, won: 1, lost: 1 }, sources: [{ source: "walk_in", received: 4, won: 1 }], lost: [{ reason: "fees", count: 1 }] });
     expect(rows.find((r) => r[0] === "Contacted")).toEqual(["Contacted", "3", "75"]);
     expect(rows.find((r) => r[0] === "Walk-in")).toEqual(["Walk-in", "4", "1", "25"]);
+  });
+});
+
+describe("CSV downloads", () => {
+  const PASSWORD = "Correct-Horse-9";
+  const cookie: Record<string, string> = {};
+  const csvAs = (as: string, path: string) => csvRoute(new Request(`http://reports-${stamp}.localhost:3000${path}`, { headers: { cookie: cookie[as] ?? "" } }));
+  const table = async (path: string) => parseCsv(await (await csvAs("owner", path)).text());
+
+  beforeAll(async () => {
+    // A role that may read reports but not download them.
+    const viewer = await withTenant(T, async (tx) => {
+      const role = await addRole(tx, owner, { name: "Report viewer" });
+      await setRolePermissions(tx, owner, role.id, ["reports:view"]);
+      return role;
+    });
+    const member = await withTenant(T, (tx) => createStaffMember(tx, owner, { email: `viewer-${stamp}@example.test`, fullName: "Viewer", roleId: viewer.id }));
+    for (const [key, staffId, email] of [["owner", owner.staffId, `reports-owner-${stamp}@example.test`], ["viewer", member.id, `viewer-${stamp}@example.test`]] as const) {
+      await withTenant(T, (tx) => setPassword(tx, owner, staffId, PASSWORD));
+      cookie[key] = `${SESSION_COOKIE}=${(await login({ slug: `reports-${stamp}`, email, password: PASSWORD })).token}`;
+    }
+  });
+
+  it("the collections CSV holds exactly the filtered rows", async () => {
+    const kid = (await family("CSV family")).studentId;
+    await pay(kid, 300, "upi");
+    await pay(kid, 200, "cash");
+    const count = async (q: { method?: "upi" }) => (await withTenant(T, (tx) => collectionList(tx, owner, { period: "today", sort: "newest", page: 1, ...q }))).matched;
+    const [upi, everything] = [await count({ method: "upi" }), await count({})];
+    expect(upi).toBeGreaterThan(0);
+    expect(everything).toBeGreaterThan(upi);
+    const rows = await table("/api/reports/collections?period=today&method=upi");
+    expect(rows.length).toBe(1 + upi); // the header, then a row each
+    expect(rows[0]?.slice(0, 3)).toEqual(["Recorded on", "Receipt", "Students"]);
+    expect(rows.slice(1).every((r) => r[9] === "UPI")).toBe(true);
+    expect((await table("/api/reports/collections?period=today")).length).toBe(1 + everything);
+  });
+
+  it("every CSV needs reports:export, not just reports:view", async () => {
+    for (const name of ["collections", "collection", "dues", "admissions", "attendance", "at-risk", "enquiries"]) {
+      expect((await csvAs("owner", `/api/reports/${name}`)).status, name).toBe(200);
+      expect((await csvAs("viewer", `/api/reports/${name}`)).status, name).toBe(403);
+    }
   });
 });

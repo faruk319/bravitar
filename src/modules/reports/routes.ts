@@ -3,13 +3,19 @@ import { selectedBranchIds } from "@/lib/auth/server";
 import { toCsv } from "@/lib/csv";
 import type { Tx } from "@/lib/db/client";
 import { NotFoundError } from "@/lib/errors";
-import { admissionsRows, atRiskRows, attendanceRows, collectionRows, duesRows, enquiryRows } from "./csv";
+import { collectionList, parseCollectionQuery } from "@/modules/payments/service";
+import { admissionsRows, atRiskRows, attendanceRows, collectionRows, collectionsRows, duesRows, enquiryRows } from "./csv";
 import { admissionsReport, atRisk, attendanceReport, collectionRegister, enquiryFunnel, outstandingDues, type Range, thisMonth } from "./service";
 
 type Csv = { rows: string[][]; stamp: string };
 const span = (r: Range) => `${r.from}-to-${r.to}`;
 
-const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range) => Promise<Csv>> = {
+// A report takes the dates and the rest of the query; the collections table is filtered by the query alone.
+const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range, params: URLSearchParams) => Promise<Csv>> = {
+  collections: async (tx, ctx, _range, params) => {
+    const list = await collectionList(tx, ctx, parseCollectionQuery(Object.fromEntries(params)), { unpaged: true });
+    return { rows: collectionsRows(list.rows), stamp: list.today };
+  },
   collection: async (tx, ctx, range) => ({ rows: collectionRows(await collectionRegister(tx, ctx, range)), stamp: span(range) }),
   dues: async (tx, ctx) => {
     const r = await outstandingDues(tx, ctx);
@@ -26,14 +32,14 @@ const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range) => Promise<Csv>
 
 // GET /api/reports/<name>?from=&to= : the report as a CSV download, UTF-8 with
 // a BOM so Devanagari names open in Excel; text Excel would run is defused.
-export const csvRoute = withStaffRequest("reports:view", async (r) => {
+export const csvRoute = withStaffRequest("reports:export", async (r) => {
   const name = pathSegment(r.req, 2);
   const build = Object.hasOwn(CSV, name) ? CSV[name] : undefined;
   if (!build) throw new NotFoundError("Report");
   const q = new URL(r.req.url).searchParams;
   const range = { ...(await thisMonth(r.tx)), ...(q.get("from") ? { from: q.get("from") ?? "" } : {}), ...(q.get("to") ? { to: q.get("to") ?? "" } : {}) };
   // The branch switcher's choice, as on the report's page.
-  const { rows, stamp } = await build(r.tx, { ...scopedCtx(r.session, r.req), branchIds: await selectedBranchIds(r.session) }, range);
+  const { rows, stamp } = await build(r.tx, { ...scopedCtx(r.session, r.req), branchIds: await selectedBranchIds(r.session) }, range, q);
   return new Response(toCsv(rows, { formulaSafe: true }), {
     headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}-${stamp}.csv"`, "cache-control": "no-store" },
   });
