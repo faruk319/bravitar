@@ -11,11 +11,11 @@ import { formatPaise } from "@/lib/money/format";
 import { parseRupees } from "@/lib/money/paise";
 import { send } from "@/lib/send";
 
-// The browser prints the receipt, or saves it as a PDF; the shell hides itself.
-export function PrintReceipt() {
+// The browser prints the page, or saves it as a PDF; the shell hides itself.
+export function PrintButton({ label }: { label: string }) {
   return (
     <Button variant="outline" onClick={() => window.print()}>
-      <Printer aria-hidden /> Print
+      <Printer aria-hidden /> {label}
     </Button>
   );
 }

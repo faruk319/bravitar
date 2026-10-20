@@ -17,7 +17,7 @@ const when = new Date("2026-10-01T00:00:00Z");
 const inv = (id: string, billToName: string, totalPaise: bigint, over: Partial<InvoiceRow> = {}): InvoiceRow => ({
   id, tenantId: "t", branchId: "b", studentId: "s", payerGuardianId: null, payerMemberId: null, billToName, number: `INV-${id}`, fy: "2026-27",
   periodStart: "2026-10-01", periodEnd: "2026-10-31", issueDate: "2026-10-01", dueDate: "2026-10-08", subtotalPaise: totalPaise, discountPaise: 0n, taxPaise: 0n,
-  totalPaise, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, students: [], display: "due", programs: [], installment: null, ...over,
+  totalPaise, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, createdBy: null, issuedBy: null, students: [], display: "due", programs: [], installment: null, ...over,
 });
 const paidInv = (id: string, billToName: string, totalPaise: bigint, over: Partial<InvoiceRow> = {}) => inv(id, billToName, totalPaise, { paidPaise: totalPaise, status: "paid", display: "paid", ...over });
 const render = (fees: Omit<Fees, "discounts">, nextDue: string | null = null) => renderToStaticMarkup(createElement(FeesCard, { fees: { ...fees, discounts: [] }, nextDue, plans: ["Karate Monthly"] }));

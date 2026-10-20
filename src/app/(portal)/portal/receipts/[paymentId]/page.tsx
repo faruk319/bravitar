@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PrintReceipt } from "@/components/payments/payment-actions";
+import { PrintButton } from "@/components/payments/payment-actions";
 import { ReceiptCard } from "@/components/payments/receipt-card";
 import { requireGuardianPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
@@ -24,7 +24,7 @@ export default async function PortalReceipt({ params }: PageProps<"/portal/recei
           </Link>
           <h1 className="mt-1 text-display tabular-nums">{r.payment.receiptNumber}</h1>
         </div>
-        <PrintReceipt />
+        <PrintButton label="Print" />
       </div>
       <ReceiptCard r={r} />
     </div>

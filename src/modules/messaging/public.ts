@@ -1,7 +1,7 @@
 import type { Tx } from "@/lib/db/client";
 import { withTenant } from "@/lib/db/with-tenant";
 import { getInvoice } from "@/modules/fees/repo";
-import { type InvoiceDetail, invoiceView } from "@/modules/fees/service";
+import { type InvoiceView, invoiceView } from "@/modules/fees/service";
 import { razorpayConnected } from "@/modules/integrations/service";
 import { linkForInvoice } from "@/modules/payments/links";
 import { getPayment } from "@/modules/payments/repo";
@@ -24,7 +24,7 @@ export async function sharedReceipt(token: string, hostSlug: string | undefined)
   });
 }
 
-export type SharedInvoice = InvoiceDetail & { payOnline: boolean };
+export type SharedInvoice = InvoiceView & { payOnline: boolean };
 
 export async function sharedInvoice(token: string, hostSlug: string | undefined): Promise<SharedInvoice | undefined> {
   return open(token, hostSlug, "invoice", async (s, tx) => {

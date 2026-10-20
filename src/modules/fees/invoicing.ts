@@ -207,6 +207,7 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
         studentId: head.studentId,
         issueDate: head.issueDate,
         dueDate: due,
+        createdBy: actor.actorType === "staff" ? (actor.actorId ?? null) : null,
       }));
     await insertLines(
       tx,

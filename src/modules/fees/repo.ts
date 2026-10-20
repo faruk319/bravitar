@@ -379,6 +379,32 @@ async function programsOf(tx: Tx, invoiceIds: string[]): Promise<Map<string, str
   return out;
 }
 
+export type InvoiceProgram = { enrollmentId: string; programName: string; batchName: string; planName: string | null };
+
+// The placements an invoice bills, once each, with the fee plan on their lines.
+export async function programsOnInvoice(tx: Tx, invoiceId: string): Promise<InvoiceProgram[]> {
+  const rows = await tx
+    .selectDistinct({ enrollmentId: enrollments.id, programName: programs.name, batchName: batches.name, planName: feePlans.name })
+    .from(invoiceLines)
+    .innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId))
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .innerJoin(programs, eq(programs.id, batches.programId))
+    .leftJoin(feePlans, eq(feePlans.id, invoiceLines.feePlanId))
+    .where(eq(invoiceLines.invoiceId, invoiceId))
+    .orderBy(asc(programs.name), asc(batches.name), asc(feePlans.name), asc(enrollments.id));
+  // Lines on two plans list the placement once, under the first plan by name.
+  const once = new Map<string, InvoiceProgram>();
+  for (const r of rows) if (!once.has(r.enrollmentId)) once.set(r.enrollmentId, r);
+  return [...once.values()];
+}
+
+// Names of staff by id; removed staff keep theirs.
+export async function staffNames(tx: Tx, ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const rows = await tx.select({ id: staffUsers.id, name: staffUsers.fullName }).from(staffUsers).where(inArray(staffUsers.id, ids));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
 // "2 of 4" for the installment invoices among these lines: the position from the key, the size from every key of that series.
 async function installmentsOf(tx: Tx, lines: LineRow[]): Promise<Map<string, { n: number; of: number }>> {
   const mine = new Map<string, NonNullable<ReturnType<typeof installmentOf>>>();

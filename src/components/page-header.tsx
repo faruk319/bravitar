@@ -15,7 +15,7 @@ export function PageHeader({ title, entity, quiet, actions, children }: { title:
         <h1 className={quiet ? "sr-only" : "text-display"}>{text}</h1>
         {children}
       </div>
-      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap gap-2 print:hidden">{actions}</div> : null}
     </div>
   );
 }

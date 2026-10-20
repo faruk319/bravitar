@@ -25,6 +25,7 @@ import {
   getInvoice,
   getPlan,
   getStudentDiscount,
+  type InvoiceProgram,
   insertDiscount,
   insertPlan,
   insertStudentDiscount,
@@ -42,6 +43,8 @@ import {
   nextDueDate,
   openInstallments,
   type PlanRow,
+  programsOnInvoice,
+  staffNames,
   studentsOnPlan,
   updateDiscount,
   updateInvoice,
@@ -274,7 +277,7 @@ async function requireInvoice(tx: Tx, ctx: ScopedCtx, id: string): Promise<Invoi
   return inv;
 }
 
-export type InvoiceDetail = {
+export type InvoiceView = {
   invoice: Invoice;
   display: DisplayStatus;
   overdue: boolean;
@@ -283,13 +286,20 @@ export type InvoiceDetail = {
   academy: { name: string; gstin: string | null; branch: string; address: string | null };
 };
 
+// Staff also see which placements it bills and who made it; the family's link does not.
+export type InvoiceDetail = InvoiceView & { programs: InvoiceProgram[]; createdByName: string | null; issuedByName: string | null };
+
 export async function invoiceDetail(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
   assertCan(ctx, "invoices:read");
-  return invoiceView(tx, await requireInvoice(tx, ctx, id), opts);
+  const invoice = await requireInvoice(tx, ctx, id);
+  const people = [invoice.createdBy, invoice.issuedBy].flatMap((staffId) => (staffId ? [staffId] : []));
+  const [view, programs, names] = await Promise.all([invoiceView(tx, invoice, opts), programsOnInvoice(tx, id), staffNames(tx, people)]);
+  const nameOf = (staffId: string | null) => (staffId ? (names.get(staffId) ?? null) : null);
+  return { ...view, programs, createdByName: nameOf(invoice.createdBy), issuedByName: nameOf(invoice.issuedBy) };
 }
 
 // What staff and the family's private link both show; callers check access.
-export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
+export async function invoiceView(tx: Tx, invoice: Invoice, opts: { now?: Date } = {}): Promise<InvoiceView> {
   const id = invoice.id;
   const [lines, tenant, branch] = await Promise.all([linesOf(tx, [id]), getOwnTenant(tx), getBranch(tx, invoice.branchId)]);
   const display = displayStatus(invoice, todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now));
@@ -340,7 +350,7 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
     if (!billToName) continue;
     const number = await allocateNumber(tx, ctx.tenantId, "invoice", fy);
     // Nothing to pay (a full waiver) is paid on issue.
-    const inv = await updateInvoice(tx, d.id, { billToName, number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: now });
+    const inv = await updateInvoice(tx, d.id, { billToName, number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: now, issuedBy: ctx.staffId });
     await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise), billToName } });
     issued.push(inv);
   }

@@ -29,6 +29,8 @@ import {
   memberHeader,
   memberIdsWithSiblings,
   lockPayment,
+  type MoneyRow,
+  moneyOnInvoice,
   moveMoney,
   openInvoices,
   openInvoicesOfMembers,
@@ -633,11 +635,11 @@ export async function collectedToday(tx: Tx, ctx: ScopedCtx, opts: { now?: Date 
   return collectedOn(tx, ctx.branchIds, today);
 }
 
-// The receipts that paid an invoice, for the invoice page.
-export async function invoiceReceipts(tx: Tx, ctx: ScopedCtx, invoiceId: string): Promise<InvoiceReceipt[]> {
+// Every rupee that moved on an invoice, for its page.
+export async function invoiceMoney(tx: Tx, ctx: ScopedCtx, invoiceId: string): Promise<MoneyRow[]> {
   assertCan(ctx, "invoices:read");
   if (!(await getInvoice(tx, ctx.branchIds, invoiceId))) throw new NotFoundError("Invoice");
-  return receiptsOnInvoice(tx, invoiceId);
+  return moneyOnInvoice(tx, invoiceId);
 }
 
 export type InvoiceReceiptRow = InvoiceReceipt & { invoiceId: string };

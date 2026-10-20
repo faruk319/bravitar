@@ -8,7 +8,7 @@ import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
 import { guardians, studentGuardians, students } from "@/modules/students/schema";
-import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
+import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, type PaymentMethod, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
 // Every money move for a payer takes turns: recording, cancelling, refunding,
 // using the advance and releasing a voided invoice. A payment only ever pays
@@ -293,6 +293,33 @@ export async function receiptsOnInvoice(tx: Tx, invoiceId: string): Promise<Invo
     .having(sql`${net} > 0`)
     .orderBy(asc(payments.receivedOn), asc(payments.id));
   return rows.map((r) => ({ ...r, net: BigInt(r.net) }));
+}
+
+export type MoneyRow = { kind: AllocationKind; amountPaise: Paise; at: Date; paymentId: string; receiptNumber: string; receivedOn: string; method: PaymentMethod; reason: string | null };
+
+// Every rupee that moved on an invoice, oldest first, each with the receipt it came out of.
+// Taken-back rows are negative; the reason is the refund's, or the invoice's cancel reason on money released by cancelling it.
+export async function moneyOnInvoice(tx: Tx, invoiceId: string): Promise<MoneyRow[]> {
+  const rows = await tx
+    .select({
+      kind: paymentAllocations.kind,
+      amountPaise: paymentAllocations.amountPaise,
+      at: paymentAllocations.createdAt,
+      paymentId: payments.id,
+      receiptNumber: payments.receiptNumber,
+      receivedOn: payments.receivedOn,
+      method: payments.method,
+      refundReason: refunds.reason,
+      voidReason: invoices.voidReason,
+    })
+    .from(paymentAllocations)
+    .innerJoin(payments, eq(payments.id, paymentAllocations.paymentId))
+    .innerJoin(invoices, eq(invoices.id, paymentAllocations.invoiceId))
+    .leftJoin(refunds, eq(refunds.id, paymentAllocations.refundId))
+    .where(eq(paymentAllocations.invoiceId, invoiceId))
+    // One transaction stamps its rows alike: the older payment first, as the advance is used.
+    .orderBy(asc(paymentAllocations.createdAt), asc(payments.recordedOn), asc(payments.createdAt), asc(paymentAllocations.id));
+  return rows.map(({ refundReason, voidReason, ...r }) => ({ ...r, reason: r.kind === "refund" ? refundReason : r.kind === "void" ? voidReason : null }));
 }
 
 // ---- Razorpay payment links (docs/03 §9, agreed 2026-09-25)

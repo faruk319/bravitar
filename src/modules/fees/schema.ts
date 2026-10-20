@@ -80,6 +80,8 @@ export const invoices = app.table("invoices", {
   voidReason: text("void_reason"),
   issuedAt: timestamp("issued_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: uuid("created_by").references(() => staffUsers.id), // migration 0041; null: the nightly run
+  issuedBy: uuid("issued_by").references(() => staffUsers.id),
 });
 
 export const LINE_KINDS = ["tuition", "admission", "exam", "late_fee", "item", "other"] as const;

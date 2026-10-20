@@ -3,7 +3,7 @@ import { Money } from "@/components/money";
 import { Composer } from "@/components/messaging/composer";
 import { PageHeader } from "@/components/page-header";
 import { METHOD_LABEL } from "@/modules/payments/labels";
-import { CancelPayment, PrintReceipt, RefundPayment } from "@/components/payments/payment-actions";
+import { CancelPayment, PrintButton, RefundPayment } from "@/components/payments/payment-actions";
 import { ReceiptCard } from "@/components/payments/receipt-card";
 import { Gate } from "@/components/shell/gate";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -46,7 +46,7 @@ export default async function PaymentPage({ params }: PageProps<"/finance/collec
           entity
           actions={
             <>
-              <PrintReceipt />
+              <PrintButton label="Print / Save PDF" />
               {allows(ctx, "messages:send") && !cancelled ? <Composer request={{ key: "receipt", paymentId: p.id }} label="Send receipt" /> : null}
               {canRefund ? <RefundPayment id={p.id} left={String(state.refundablePaise)} invoices={state.onInvoices.map((i) => ({ id: i.invoiceId, label: `${i.number ?? "Invoice"} · ${formatPaise(i.net)}` }))} /> : null}
               {canCancel ? <CancelPayment id={p.id} receiptNumber={p.receiptNumber} /> : null}

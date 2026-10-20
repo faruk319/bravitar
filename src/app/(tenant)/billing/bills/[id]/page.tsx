@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { BillStatus } from "@/components/bill-status";
 import { METHOD_LABEL } from "@/components/billing-text";
 import { PageHeader } from "@/components/page-header";
-import { PrintReceipt } from "@/components/payments/payment-actions";
+import { PrintButton } from "@/components/payments/payment-actions";
 import { Gate } from "@/components/shell/gate";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
@@ -41,7 +41,7 @@ export default async function BillPage({ params }: PageProps<"/billing/bills/[id
   return (
     <>
       <div className="print:hidden">
-        <PageHeader title={b.number} entity actions={<PrintReceipt />} />
+        <PageHeader title={b.number} entity actions={<PrintButton label="Print" />} />
       </div>
       <Card className="mx-auto max-w-xl">
         <div className="flex flex-wrap items-start justify-between gap-3">

@@ -16,6 +16,7 @@ import { enroll, leaveEnrollment, pauseEnrollment, setEnrollmentPlan, transferEn
 import { allocateNumber } from "@/modules/numbering/repo";
 import { familyAccount, recordPayment } from "@/modules/payments/service";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
+import { staffUsers } from "@/modules/staff/schema";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createGuardian, insertStudent } from "@/modules/students/repo";
 import { addFamilyMember } from "@/modules/students/family";
@@ -30,7 +31,7 @@ import type { Enrollment } from "@/modules/enrollments/schema";
 import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
-import { type Invoice, invoices } from "./schema";
+import { type Invoice, invoiceLines, invoices } from "./schema";
 import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -850,6 +851,17 @@ describe("the invoice list", () => {
     await expect(list({}, teacher)).rejects.toMatchObject({ status: 403 });
   });
 
+  it("the detail names each program, batch and fee plan an invoice bills, once each; a hand-made invoice has none", async () => {
+    const detail = (id: string) => withTenant(T, (tx) => invoiceDetail(tx, owner, id, { now: NOW }));
+    const d = await detail(both.id);
+    expect(d.programs.map((p) => [p.programName, p.batchName, p.planName])).toEqual([
+      ["Dance", "Dance A", "Dance Monthly"],
+      ["Karate", "Karate A", "Karate Monthly"],
+    ]);
+    expect(d.programs.map((p) => p.enrollmentId).sort()).toEqual([...new Set((await linesOn(both.id)).map((l) => l.enrollmentId ?? ""))].sort());
+    expect(await detail(overdue.id)).toMatchObject({ programs: [], createdByName: null, issuedByName: null });
+  });
+
   it("an invoice and a student's fees carry the same status as the list", async () => {
     const detail = (id: string, now: Date = NOW) => withTenant(T, (tx) => invoiceDetail(tx, owner, id, { now }));
     expect(await detail(overdue.id)).toMatchObject({ display: "overdue", overdue: true });
@@ -862,5 +874,64 @@ describe("the invoice list", () => {
     expect(fees.invoices.map((i) => i.display)).toEqual(["due", "due", "due"]);
     const mine = await withTenant(T, (tx) => studentFees(tx, owner, dance.studentId, { now: NOW }));
     expect(mine.invoices.map((i) => [i.id, i.display, i.programs])).toEqual([[dance.id, "part_paid", ["Dance"]]]);
+  });
+});
+
+describe("who created and issued an invoice", () => {
+  const phoneNo = () => `+9197${String(40_000_000 + ++phone)}`;
+  const kid = (fullName: string) => withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: `Mother ${fullName}`, phone: phoneNo(), relation: "mother" }, consents: { dataProcessing: true } }));
+  const invoiceOf = async (studentId: string): Promise<Invoice> => {
+    const [inv] = await invoicesOf([studentId]);
+    if (!inv) throw new Error("expected an invoice");
+    return inv;
+  };
+  const detail = (id: string) => withTenant(T, (tx) => invoiceDetail(tx, owner, id, { now: at(M1) }));
+  let night: Invoice;
+  let byHand: Invoice;
+
+  beforeAll(async () => {
+    const [nightly, manual] = [await kid("Night Kid"), await kid("Now Kid")];
+    await gen(M1, [await join(nightly.student.id, "Karate A", M0)]); // the nightly run has no staff member
+    await join(manual.student.id, "Karate A", M1); // joins today: tuition and admission on one invoice
+    await withTenant(T, (tx) => generateNow(tx, owner, { now: at(M1) }));
+    night = await invoiceOf(nightly.student.id);
+    byHand = await invoiceOf(manual.student.id);
+  });
+
+  it("the nightly run creates with nobody; Generate now creates with the staff member", () => {
+    expect(night).toMatchObject({ createdBy: null, issuedBy: null });
+    expect(byHand).toMatchObject({ createdBy: owner.staffId, issuedBy: null });
+  });
+
+  it("issuing records who issued it and leaves who created it", async () => {
+    const [a, b] = await withTenant(T, (tx) => issueInvoices(tx, owner, [night.id, byHand.id], { now: at(M1) }));
+    expect([a, b].map((i) => [i?.createdBy, i?.issuedBy])).toEqual([
+      [null, owner.staffId],
+      [owner.staffId, owner.staffId],
+    ]);
+    expect(await invoiceOf(night.studentId)).toMatchObject({ createdBy: null, issuedBy: owner.staffId });
+  });
+
+  it("the detail names both, and the program once though two lines bill it", async () => {
+    const d = await detail(byHand.id);
+    expect((await linesOn(byHand.id)).map((l) => l.kind).sort()).toEqual(["admission", "tuition"]);
+    expect(d).toMatchObject({ createdByName: "Owner", issuedByName: "Owner", programs: [{ programName: "Karate", batchName: "Karate A", planName: "Karate Monthly" }] });
+    expect(d.programs).toHaveLength(1);
+    expect(await detail(night.id)).toMatchObject({ createdByName: null, issuedByName: "Owner" });
+  });
+
+  it("lines on two fee plans for one placement list it once, under the first plan by name", async () => {
+    const [admission] = (await linesOn(byHand.id)).filter((l) => l.kind === "admission");
+    const swap = (feePlanId: string) => withTenant(T, (tx) => tx.update(invoiceLines).set({ feePlanId }).where(eq(invoiceLines.id, admission?.id ?? "")));
+    await swap(plan.advanced ?? "");
+    expect((await detail(byHand.id)).programs.map((p) => [p.batchName, p.planName])).toEqual([["Karate A", "Karate Advanced"]]);
+    await swap(plan.karate ?? ""); // as it was
+  });
+
+  it("a staff member who is later removed keeps their name on what they made", async () => {
+    const gone = await withTenant(T, async (tx) => createStaffMember(tx, owner, { email: `gone-${stamp}@example.test`, fullName: "Gone Staff", roleId: (await listRoles(tx)).find((r) => r.name === "Front Desk")?.id ?? "" }));
+    await withTenant(T, (tx) => tx.update(invoices).set({ createdBy: gone.id }).where(eq(invoices.id, night.id)));
+    await withTenant(T, (tx) => tx.update(staffUsers).set({ deletedAt: new Date() }).where(eq(staffUsers.id, gone.id)));
+    expect((await detail(night.id)).createdByName).toBe("Gone Staff");
   });
 });

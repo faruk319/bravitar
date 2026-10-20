@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { PrintReceipt } from "@/components/payments/payment-actions";
+import { PrintButton } from "@/components/payments/payment-actions";
 import { ReceiptCard } from "@/components/payments/receipt-card";
 import { slugFromHost } from "@/modules/auth/routes";
 import { sharedReceipt } from "@/modules/messaging/public";
@@ -18,7 +18,7 @@ export default async function SharedReceiptPage({ params }: PageProps<"/r/[token
     <main className="mx-auto w-full max-w-xl p-4 print:p-0">
       <ReceiptCard r={r} />
       <div className="mt-4 flex justify-center print:hidden">
-        <PrintReceipt />
+        <PrintButton label="Print" />
       </div>
     </main>
   );

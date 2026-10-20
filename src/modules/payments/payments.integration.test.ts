@@ -36,7 +36,7 @@ import {
   collectTarget,
   collectionSheet,
   familyAccount,
-  invoiceReceipts,
+  invoiceMoney,
   myReceiptsToday,
   type PaymentInput,
   receipt,
@@ -1296,14 +1296,88 @@ describe("payments", () => {
     });
   });
 
-  it("an invoice lists the receipts that paid it", async () => {
-    const h = await family();
-    const inv = await bill(h, 1500);
-    const [a, b] = [await pay(h, 800), await pay(h, 700)];
-    expect((await withTenant(T, (tx) => invoiceReceipts(tx, owner, inv.id))).map((r) => [r.receiptNumber, r.net])).toEqual([
-      [a.receiptNumber, rupees(800)],
-      [b.receiptNumber, rupees(700)],
-    ]);
+  describe("an invoice's money history", () => {
+    const money = (id: string, as: ScopedCtx = owner) => withTenant(T, (tx) => invoiceMoney(tx, as, id));
+
+    it("lists the receipts that paid it, oldest first, with how each was paid", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      const [a, b] = [await pay(h, 800), await pay(h, 700, { method: "upi" })];
+      expect((await money(inv.id)).map((r) => [r.kind, r.receiptNumber, r.amountPaise, r.method, r.receivedOn])).toEqual([
+        ["receipt", a.receiptNumber, rupees(800), "cash", "2026-09-24"],
+        ["receipt", b.receiptNumber, rupees(700), "upi", "2026-09-24"],
+      ]);
+    });
+
+    it("shows money paid online like a desk receipt, with method Online", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      const { payment } = await withTenant(T, (tx) => recordGatewayPayment(tx, { invoiceId: inv.id, gatewayPaymentId: `pay_money_${stamp}`, amountPaise: rupees(1500), capturedAt: NOW }, { now: NOW }));
+      expect(await money(inv.id)).toMatchObject([{ kind: "receipt", amountPaise: rupees(1500), paymentId: payment.id, receiptNumber: payment.receiptNumber, method: "online" }]);
+    });
+
+    it("shows advance with the receipt it came from, and that receipt's own date and method", async () => {
+      const h = await family();
+      const p = await pay(h, 2000, { method: "upi", receivedOn: "2026-09-20" }); // against nothing: it waits as advance
+      const next = await draftBill(h, 1500, "2026-10-10");
+      await withTenant(T, (tx) => issueInvoices(tx, owner, [next.id], { now: NOW }));
+      expect(await money(next.id)).toMatchObject([{ kind: "advance", amountPaise: rupees(1500), paymentId: p.id, receiptNumber: p.receiptNumber, receivedOn: "2026-09-20", method: "upi", reason: null }]);
+    });
+
+    it("a refund is its own negative row with the reason, and the paid receipt stays above it", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      const p = await pay(h, 1500);
+      await refund(p.id, 500, { reason: "Missed classes", invoiceId: inv.id });
+      const rows = await money(inv.id);
+      expect(rows.map((r) => [r.kind, r.amountPaise, r.reason])).toEqual([
+        ["receipt", rupees(1500), null],
+        ["refund", -rupees(500), "Missed classes"],
+      ]);
+      expect(rows.at(-1)).toMatchObject({ paymentId: p.id, receiptNumber: p.receiptNumber });
+    });
+
+    it("money released by cancelling the invoice is a negative row with the cancel reason", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      await pay(h, 800);
+      await withTenant(T, (tx) => voidInvoice(tx, owner, inv.id, { reason: "Wrong fee plan" }));
+      expect((await money(inv.id)).map((r) => [r.kind, r.amountPaise, r.reason])).toEqual([
+        ["receipt", rupees(800), null],
+        ["void", -rupees(800), "Wrong fee plan"],
+      ]);
+    });
+
+    it("a cancelled payment takes its money off as its own row", async () => {
+      const h = await family();
+      const inv = await bill(h, 800);
+      const p = await pay(h, 800);
+      await cancel(p.id, desk);
+      expect((await money(inv.id)).map((r) => [r.kind, r.amountPaise, r.reason])).toEqual([
+        ["receipt", rupees(800), null],
+        ["cancel", -rupees(800), null],
+      ]);
+    });
+
+    it("every row adds up to what the invoice has paid", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      const p = await pay(h, 1000);
+      await pay(h, 300);
+      await refund(p.id, 200, { invoiceId: inv.id });
+      const rows = await money(inv.id);
+      expect(rows).toHaveLength(3);
+      expect(rows.reduce((total, r) => total + r.amountPaise, 0n)).toBe(rupees(1100));
+      expect(await state(inv.id)).toEqual(["part_paid", rupees(1100)]);
+    });
+
+    it("needs invoices:read and an invoice in the viewer's branches", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      await expect(money(inv.id, teacher)).rejects.toMatchObject({ status: 403 });
+      await expect(money(inv.id, { ...owner, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
+      expect(await money(inv.id, desk)).toEqual([]);
+    });
   });
 
   describe("routes", () => {

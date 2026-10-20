@@ -14,7 +14,7 @@ const when = new Date("2026-10-01T00:00:00Z");
 const inv = (id: string, over: Partial<InvoiceRow> = {}): InvoiceRow => ({
   id, tenantId: "t", branchId: "b", studentId: "s", payerGuardianId: null, payerMemberId: null, billToName: "Mother Mehta", number: `INV-${id}`, fy: "2026-27",
   periodStart: "2026-10-01", periodEnd: "2026-10-31", issueDate: "2026-10-01", dueDate: "2026-10-08", subtotalPaise: 150000n, discountPaise: 0n, taxPaise: 0n,
-  totalPaise: 150000n, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, students: ["Riya Mehta"], display: "due", programs: ["Karate"], installment: null, ...over,
+  totalPaise: 150000n, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, createdBy: null, issuedBy: null, students: ["Riya Mehta"], display: "due", programs: ["Karate"], installment: null, ...over,
 });
 // The table (md and up) and the cards (below md) are two renderings of the same rows.
 const render = (rows: InvoiceRow[]) => renderToStaticMarkup(createElement(InvoiceTable, { rows }));
