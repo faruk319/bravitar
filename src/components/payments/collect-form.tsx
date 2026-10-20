@@ -34,7 +34,7 @@ type Purpose = "fees" | "advance";
 
 const PER: Record<string, string> = { monthly: "a month", quarterly: "every 3 months", half_yearly: "every 6 months", yearly: "a year" };
 const asInput = (paise: Paise) => (paise === 0n ? "" : formatPaise(paise).slice(1));
-const payerIds = (p: Payer) => (p.kind === "guardian" ? { payerGuardianId: p.guardianId } : { payerMemberId: p.memberId });
+export const payerIds = (p: Payer) => (p.kind === "guardian" ? { payerGuardianId: p.guardianId } : { payerMemberId: p.memberId });
 // The drawer's URL on top of the page's own params.
 const drawerHref = (closeHref: string, extra = "") => `${closeHref}${closeHref.includes("?") ? "&" : "?"}collect=1${extra}`;
 
@@ -63,8 +63,8 @@ function preview(amount: Paise, rows: DueRow[], custom: Record<string, string> |
   }
 }
 
-// A right-hand panel from md up, the full height on phones. Closing drops the collect params from the URL.
-function Frame({ closeHref, children }: { closeHref: string; children: ReactNode }) {
+// A right-hand panel from md up, the full height on phones. Closing goes back to closeHref, the page without the sheet's params.
+export function Frame({ title, closeHref, children }: { title: string; closeHref: string; children: ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(true);
   return (
@@ -77,7 +77,7 @@ function Frame({ closeHref, children }: { closeHref: string; children: ReactNode
       }}
     >
       <SheetContent side="auto" className="data-[side=bottom]:h-dvh data-[side=bottom]:max-h-dvh data-[side=bottom]:rounded-none">
-        <SheetTitle className="text-heading">Collect payment</SheetTitle>
+        <SheetTitle className="text-heading">{title}</SheetTitle>
         {children}
       </SheetContent>
     </Sheet>
@@ -87,7 +87,7 @@ function Frame({ closeHref, children }: { closeHref: string; children: ReactNode
 // The drawer before a member is chosen.
 export function CollectSearch({ closeHref }: { closeHref: string }) {
   return (
-    <Frame closeHref={closeHref}>
+    <Frame title="Collect payment" closeHref={closeHref}>
       <MemberSearch hrefFor={(id) => drawerHref(closeHref, `&student=${id}`)} />
     </Frame>
   );
@@ -102,7 +102,7 @@ export function CollectDrawer({ screen, preselect, closeHref }: { screen: Collec
   const [choosing, setChoosing] = useState(false);
   const payer = screen.payers.find((p) => p.key === payerKey);
   return (
-    <Frame closeHref={closeHref}>
+    <Frame title="Collect payment" closeHref={closeHref}>
       <p className="-mt-2 text-caption text-muted-foreground">
         <span className="text-body text-neutral-900">{screen.memberName}</span> {screen.memberCode}
         {branches.length > 1 ? ` · ${screen.branchName}` : ""} ·{" "}

@@ -2,20 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
-import { MemberSearch } from "@/components/payments/collect-form";
+import { Frame, MemberSearch, payerIds } from "@/components/payments/collect-form";
 import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { addDays } from "@/lib/dates";
 import { formatPaise } from "@/lib/money/format";
 import { type Paise, parseRupees, percent, sum } from "@/lib/money/paise";
 import { request } from "@/lib/send";
 import { cn } from "@/lib/utils";
 import type { CreateScreen, EditSeed } from "@/modules/fees/service";
-import type { Payer } from "@/modules/students/payer";
 
 const KINDS = [
   ["admission", "Admission"],
@@ -30,7 +28,6 @@ const select = "h-12 w-full min-w-0 rounded-lg border border-input bg-background
 const blank = (id: number): Line => ({ id, kind: "other", description: "", amount: "", enrollmentId: "", tax: "" });
 const asInput = (paise: Paise) => (paise === 0n ? "" : formatPaise(paise).slice(1));
 const asKind = (kind: string): Kind => KINDS.find(([value]) => value === kind)?.[0] ?? "other";
-const payerIds = (p: Payer) => (p.kind === "guardian" ? { payerGuardianId: p.guardianId } : { payerMemberId: p.memberId });
 // The sheet's URL on top of the page's own params.
 const sheetHref = (closeHref: string, extra = "") => `${closeHref}${closeHref.includes("?") ? "&" : "?"}create=1${extra}`;
 
@@ -39,27 +36,6 @@ function rateBp(text: string): number | undefined {
   const t = text.trim();
   if (!t) return 0;
   return /^\d{1,3}(\.\d{1,2})?$/.test(t) && Number(t) <= 100 ? Math.round(Number(t) * 100) : undefined;
-}
-
-// A right-hand panel from md up, the full height on phones. Closing goes back to the page.
-function Frame({ title, closeHref, children }: { title: string; closeHref: string; children: ReactNode }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(true);
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(o) => {
-        if (o) return;
-        setOpen(false);
-        router.replace(closeHref, { scroll: false });
-      }}
-    >
-      <SheetContent side="auto" className="data-[side=bottom]:h-dvh data-[side=bottom]:max-h-dvh data-[side=bottom]:rounded-none">
-        <SheetTitle className="text-heading">{title}</SheetTitle>
-        {children}
-      </SheetContent>
-    </Sheet>
-  );
 }
 
 // The sheet before a student is chosen.
