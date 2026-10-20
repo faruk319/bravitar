@@ -1,6 +1,6 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
-import { createDiscount, createPlan, editPlan, endDiscount, generateNow, giveDiscount, issueInvoices, saveFeeSettings, setDiscountActive, setPlanActive, voidInvoice } from "./service";
+import { createDiscount, createInvoice, createPlan, editDraft, editPlan, endDiscount, generateNow, giveDiscount, issueInvoices, saveFeeSettings, setDiscountActive, setPlanActive, voidInvoice } from "./service";
 
 const ctxOf = (r: StaffRequest) => scopedCtx(r.session, r.req);
 
@@ -34,17 +34,19 @@ export const endDiscountRoute = withStaffRequest("invoices:manage", async (r) =>
 });
 
 export const invoicesRoute = withStaffRequest("invoices:manage", async (r) => {
-  const { action, ids } = await readJson<{ action?: string; ids: Parameters<typeof issueInvoices>[2] }>(r.req);
+  const { action, ids, ...body } = await readJson<{ action?: string; ids: Parameters<typeof issueInvoices>[2] } & Parameters<typeof createInvoice>[2]>(r.req);
   if (action === "generate") return json(await generateNow(r.tx, ctxOf(r)));
   if (action === "issue") return json({ issued: (await issueInvoices(r.tx, ctxOf(r), ids)).length });
+  if (action === "create") return json(await createInvoice(r.tx, ctxOf(r), body), { status: 201 });
   throw new BadRequestError("Unknown action");
 });
 
 export const invoiceActionRoute = withStaffRequest("invoices:manage", async (r) => {
-  const { action, ...body } = await readJson<{ action?: string } & Parameters<typeof voidInvoice>[3]>(r.req);
+  const { action, ...body } = await readJson<{ action?: string } & Parameters<typeof voidInvoice>[3] & Parameters<typeof editDraft>[3]>(r.req);
   const id = pathSegment(r.req, 2);
   if (action === "issue") return json({ issued: (await issueInvoices(r.tx, ctxOf(r), [id])).length });
   if (action === "void") return json(await voidInvoice(r.tx, ctxOf(r), id, body));
+  if (action === "edit") return json(await editDraft(r.tx, ctxOf(r), id, body));
   throw new BadRequestError("Unknown action");
 });
 

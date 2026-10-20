@@ -5,19 +5,24 @@ import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
-import { type Paise, sum } from "@/lib/money/paise";
+import { type Paise, roundHalfUp, sum } from "@/lib/money/paise";
 import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
+import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
+import { payerInScope } from "@/modules/payments/repo";
 import { applyAdvance } from "@/modules/payments/service";
 import { staffNames } from "@/modules/staff/repo";
-import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
+import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/payer";
+import { RELATION_LABELS } from "@/modules/students/relations";
+import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
-import { type DisplayStatus, displayStatus } from "./billing";
+import { type DisplayStatus, displayStatus, lineAmounts } from "./billing";
 import type { InvoiceQuery } from "./invoice-query";
-import { type GenerateResult, generateInvoices, voidAndRebill } from "./invoicing";
+import { type Actor, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
 import {
+  admissionBilled,
   discountsOf,
   draftIds,
   draftSummary,
@@ -28,6 +33,8 @@ import {
   getStudentDiscount,
   type InvoiceProgram,
   insertDiscount,
+  insertInvoice,
+  insertLines,
   insertPlan,
   insertStudentDiscount,
   invoiceCounts,
@@ -45,6 +52,7 @@ import {
   openInstallments,
   type PlanRow,
   programsOnInvoice,
+  replaceLines,
   studentsOnPlan,
   updateDiscount,
   updateInvoice,
@@ -60,6 +68,8 @@ const paise = z
   .string()
   .regex(/^\d{1,13}$/, "Enter an amount")
   .transform((s) => BigInt(s));
+
+const isUuid = (v: string) => z.uuid().safeParse(v).success;
 
 async function timeZone(tx: Tx): Promise<string> {
   return (await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata";
@@ -289,6 +299,9 @@ export type InvoiceView = {
 // Staff also see which placements it bills and who made it; the family's link does not.
 export type InvoiceDetail = InvoiceView & { programs: InvoiceProgram[]; createdByName: string | null; issuedByName: string | null };
 
+// A charge added by hand has no billing key on any line; only a draft of that kind can be edited.
+export const handmade = (lines: Pick<LineRow, "billingKey">[]) => lines.length > 0 && lines.every((l) => l.billingKey === null);
+
 export async function invoiceDetail(tx: Tx, ctx: ScopedCtx, id: string, opts: { now?: Date } = {}): Promise<InvoiceDetail> {
   assertCan(ctx, "invoices:read");
   const invoice = await requireInvoice(tx, ctx, id);
@@ -337,27 +350,199 @@ export async function issueInvoices(tx: Tx, ctx: ScopedCtx, input: z.input<typeo
   assertCan(ctx, "invoices:manage");
   const ids = issueSchema.parse(input);
   await lockInvoicing(tx, ctx.tenantId);
-  const now = opts.now ?? new Date();
-  const today = todayIn(await timeZone(tx), now);
-  const fy = await currentFy(tx, now);
   const drafts = await lockDrafts(tx, ctx.branchIds, ids === "all" ? await draftIds(tx, ctx.branchIds) : ids);
   if (!drafts.length) throw new ConflictError("Nothing to issue");
+  return issueDrafts(tx, actor(ctx), drafts, { now: opts.now ?? new Date() });
+}
+
+// The issue loop, for callers that hold lockInvoicing and the drafts. Unless told otherwise, a payer's
+// advance then pays what was just issued to that payer, oldest first (docs/03 §9).
+export async function issueDrafts(tx: Tx, by: Actor, drafts: Invoice[], opts: { now: Date; applyAdvance?: boolean }): Promise<Invoice[]> {
+  const today = todayIn(await timeZone(tx), opts.now);
+  const fy = await currentFy(tx, opts.now);
   const issued: Invoice[] = [];
   const names = await payerNames(tx, drafts.flatMap((d) => payerIfValid(d)));
   for (const d of drafts) {
     // The bill-to name is frozen here (the payer's name today, else the one the draft carries); a draft with no name stays a draft.
     const billToName = currentPayerName(names, d) ?? d.billToName;
     if (!billToName) continue;
-    const number = await allocateNumber(tx, ctx.tenantId, "invoice", fy);
+    const number = await allocateNumber(tx, by.tenantId, "invoice", fy);
     // Nothing to pay (a full waiver) is paid on issue.
-    const inv = await updateInvoice(tx, d.id, { billToName, number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: now, issuedBy: ctx.staffId });
-    await writeAudit(tx, { ...actor(ctx), action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise), billToName } });
+    const inv = await updateInvoice(tx, d.id, { billToName, number, fy, status: d.totalPaise === 0n ? "paid" : "issued", issueDate: today, dueDate: d.dueDate > today ? d.dueDate : today, issuedAt: opts.now, issuedBy: by.actorType === "staff" ? (by.actorId ?? null) : null });
+    await writeAudit(tx, { ...by, action: "invoice.issue", entityType: "invoice", entityId: d.id, after: { number, totalPaise: String(inv.totalPaise), billToName } });
     issued.push(inv);
   }
-  // A payer's advance pays what was just issued to that payer, oldest first (docs/03 §9).
-  const payers = new Map(issued.flatMap((i) => payerIfValid(i).map((p) => [`${payerKey(p)}|${i.branchId}`, { payer: p, branchId: i.branchId }] as const)));
-  for (const x of payers.values()) await applyAdvance(tx, actor(ctx), x.payer, x.branchId);
+  if (opts.applyAdvance ?? true) {
+    const payers = new Map(issued.flatMap((i) => payerIfValid(i).map((p) => [`${payerKey(p)}|${i.branchId}`, { payer: p, branchId: i.branchId }] as const)));
+    for (const x of payers.values()) await applyAdvance(tx, by, x.payer, x.branchId);
+  }
   return issued;
+}
+
+// ---- one-off charges (finance spec, "Create invoice")
+
+const manualLine = z.object({
+  kind: z.enum(["admission", "exam", "item", "other"]),
+  description: z.string().trim().min(1, "Say what the charge is for").max(120),
+  amountPaise: paise.refine((p) => p > 0n, "Enter an amount"),
+  enrollmentId: z.uuid().optional(), // the program it belongs to, so reports can attribute it
+  taxRateBp: z.number().int().min(0).max(10_000).optional(),
+});
+export type ManualLine = z.output<typeof manualLine>;
+
+export const manualInvoiceSchema = z.object({
+  studentId: z.uuid(),
+  payerGuardianId: z.uuid().optional(),
+  payerMemberId: z.uuid().optional(),
+  dueDate: isoDate.optional(),
+  lines: z.array(manualLine).min(1, "Add a charge").max(20),
+  issue: z.boolean().default(false),
+});
+const editSchema = manualInvoiceSchema.omit({ issue: true });
+
+const payerColumns = (p: Payer) => ({ payerGuardianId: p.kind === "guardian" ? p.guardianId : null, payerMemberId: p.kind === "member" ? p.memberId : null });
+
+// No billing key: the nightly run neither bills these again nor adds to their invoice. Tax only with a GSTIN.
+function chargeRows(tenantId: string, invoiceId: string, studentId: string, lines: ManualLine[], gst: boolean) {
+  return lines.map((l) => {
+    const a = lineAmounts(l.amountPaise, 1, [], gst ? (l.taxRateBp ?? 0) : 0);
+    return { tenantId, invoiceId, studentId, enrollmentId: l.enrollmentId ?? null, kind: l.kind, description: l.description, unitPaise: l.amountPaise, discountPaise: a.discount, taxPaise: a.tax, amountPaise: a.net, billingKey: null };
+  });
+}
+
+const auditLines = (lines: { kind: string; description: string; amountPaise: Paise }[]) => lines.map((l) => ({ kind: l.kind, description: l.description, amountPaise: String(l.amountPaise) }));
+
+// The payer asked for (it must be one of the student's), else the one the lines' programs agree on, else the student's default.
+async function payerOfCharge(tx: Tx, data: Pick<z.output<typeof manualInvoiceSchema>, "studentId" | "payerGuardianId" | "payerMemberId" | "lines">): Promise<Payer> {
+  if (data.payerGuardianId && data.payerMemberId) throw new BadRequestError("Pick one payer");
+  const named = new Map<string, Payer>();
+  for (const id of new Set(data.lines.flatMap((l) => (l.enrollmentId ? [l.enrollmentId] : [])))) {
+    const p = await defaultPayerFor(tx, data.studentId, id);
+    named.set(payerKey(p), p);
+  }
+  const asked: Payer | undefined = data.payerGuardianId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId ? { kind: "member", memberId: data.payerMemberId } : undefined;
+  if (asked) {
+    if (!(await payerInScope(tx, [data.studentId], asked))) throw new BadRequestError("That payer isn't one of this student's payers");
+    return asked;
+  }
+  if (named.size > 1) throw new BadRequestError("These programs have different payers. Pick who pays.");
+  return [...named.values()][0] ?? (await defaultPayerFor(tx, data.studentId));
+}
+
+// A draft of one-off charges for a student, billed to the payer given (the caller has checked the payer).
+export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; branchId: string; payer: Payer; lines: ManualLine[]; dueDate: string }, opts: { now?: Date } = {}): Promise<Invoice> {
+  const [tenant, names] = await Promise.all([getOwnTenant(tx), payerNames(tx, [input.payer])]);
+  const inv = await insertInvoice(tx, {
+    tenantId: by.tenantId,
+    branchId: input.branchId,
+    studentId: input.studentId,
+    ...payerColumns(input.payer),
+    billToName: names.get(payerKey(input.payer)) ?? null,
+    issueDate: todayIn(tenant?.timezone ?? "Asia/Kolkata", opts.now),
+    dueDate: input.dueDate,
+    createdBy: by.actorType === "staff" ? (by.actorId ?? null) : null,
+  });
+  await insertLines(tx, chargeRows(by.tenantId, inv.id, input.studentId, input.lines, Boolean(tenant?.gstin)));
+  const done = await retotal(tx, inv, input.dueDate);
+  await writeAudit(tx, { ...by, action: "invoice.create", entityType: "invoice", entityId: inv.id, after: { studentId: input.studentId, billToName: done.billToName, totalPaise: String(done.totalPaise), lines: auditLines(input.lines) } });
+  return done;
+}
+
+// Saved as a draft, or issued at once (the payer's advance then pays it). Due in a week unless a date is given.
+export async function createInvoice(tx: Tx, ctx: ScopedCtx, input: z.input<typeof manualInvoiceSchema>, opts: { now?: Date } = {}): Promise<Invoice> {
+  assertCan(ctx, "invoices:manage");
+  const data = manualInvoiceSchema.parse(input);
+  const student = await requireStudent(tx, ctx, data.studentId);
+  const payer = await payerOfCharge(tx, data);
+  const now = opts.now ?? new Date();
+  if (data.issue) await lockInvoicing(tx, ctx.tenantId);
+  const draft = await addCharge(tx, actor(ctx), { studentId: student.id, branchId: student.branchId, payer, lines: data.lines, dueDate: data.dueDate ?? addDays(todayIn(await timeZone(tx), now), 7) }, { now });
+  if (!data.issue) return draft;
+  await issueDrafts(tx, actor(ctx), [draft], { now });
+  return requireInvoice(tx, ctx, draft.id);
+}
+
+// A draft added by hand, until it is issued. Generated drafts are fixed by correcting the plan and cancelling with "bill again".
+export async function editDraft(tx: Tx, ctx: ScopedCtx, id: string, input: z.input<typeof editSchema>): Promise<Invoice> {
+  assertCan(ctx, "invoices:manage");
+  const data = editSchema.parse(input);
+  await lockInvoicing(tx, ctx.tenantId);
+  const before = await requireInvoice(tx, ctx, id);
+  if (!(await lockDrafts(tx, ctx.branchIds, [id])).length) throw new ConflictError("Only a draft can be edited");
+  const old = await linesOf(tx, [id]);
+  if (!handmade(old)) throw new ConflictError("Only a charge added by hand can be edited");
+  if (data.studentId !== before.studentId) throw new BadRequestError("A charge stays with its student");
+  const payer = await payerOfCharge(tx, data);
+  const [tenant, names] = await Promise.all([getOwnTenant(tx), payerNames(tx, [payer])]);
+  const moved = await updateInvoice(tx, id, { ...payerColumns(payer), billToName: names.get(payerKey(payer)) ?? null, dueDate: data.dueDate ?? before.dueDate });
+  await replaceLines(tx, id, chargeRows(ctx.tenantId, id, before.studentId, data.lines, Boolean(tenant?.gstin)));
+  const after = await retotal(tx, moved, moved.dueDate);
+  await writeAudit(tx, {
+    ...actor(ctx),
+    action: "invoice.edit",
+    entityType: "invoice",
+    entityId: id,
+    before: { totalPaise: String(before.totalPaise), lines: auditLines(old.map((l) => ({ kind: l.kind, description: l.description, amountPaise: l.unitPaise }))) },
+    after: { billToName: after.billToName, totalPaise: String(after.totalPaise), lines: auditLines(data.lines) },
+  });
+  return after;
+}
+
+// What the create sheet needs about one student: who can be billed, the programs a charge can name, GST on or off,
+// and the programs whose admission fee a plan already billed (program id → invoice number).
+export type CreateScreen = {
+  student: { id: string; name: string; code: string; branchId: string };
+  payers: { key: string; payer: Payer; name: string; relation: string | null }[];
+  defaultPayerKey: string;
+  enrollments: { id: string; programId: string; programName: string; batchName: string; payerKey: string }[]; // payerKey: who pays that placement
+  gst: boolean;
+  admissionBilled: Record<string, string>;
+};
+
+export async function createScreen(tx: Tx, ctx: ScopedCtx, studentId: string): Promise<CreateScreen> {
+  assertCan(ctx, "invoices:manage");
+  if (!isUuid(studentId)) throw new NotFoundError("Student");
+  const s = await requireStudent(tx, ctx, studentId);
+  const [live, placed, lead, fallback, tenant, billed] = await Promise.all([guardiansOfMembers(tx, [s.id]), currentEnrollmentsOf(tx, [s.id]), leadGuardians(tx, [s.id]), defaultPayerFor(tx, s.id), getOwnTenant(tx), admissionBilled(tx, s.id)]);
+  // A placement with both payer columns set is left out, as billing leaves it out.
+  const own = placed.flatMap((p) => {
+    try {
+      return [{ p, payer: planPayer(p.e, lead.get(s.id)) }];
+    } catch {
+      return [];
+    }
+  });
+  const everyone = new Map([fallback, ...live.map((g): Payer => ({ kind: "guardian", guardianId: g.id })), ...own.map((o) => o.payer)].map((p) => [payerKey(p), p] as const));
+  const names = await payerNames(tx, [...everyone.values()]);
+  const relations = new Map(live.map((g) => [g.id, RELATION_LABELS[g.relation]] as const));
+  return {
+    student: { id: s.id, name: s.fullName, code: s.code, branchId: s.branchId },
+    payers: [...everyone].map(([key, payer]) => ({ key, payer, name: names.get(key) ?? "", relation: payer.kind === "guardian" ? (relations.get(payer.guardianId) ?? null) : null })),
+    defaultPayerKey: payerKey(fallback),
+    enrollments: own.map(({ p, payer }) => ({ id: p.e.id, programId: p.programId, programName: p.programName, batchName: p.batchName, payerKey: payerKey(payer) })),
+    gst: Boolean(tenant?.gstin),
+    admissionBilled: Object.fromEntries(billed.map((b) => [b.programId, b.number ?? "a draft invoice"])),
+  };
+}
+
+// A manual draft as the sheet shows it. The tax rate is worked back from the line's tax.
+export type EditSeed = { id: string; payerKey: string; dueDate: string; lines: { kind: string; description: string; amountPaise: string; enrollmentId: string | null; taxRateBp: number }[] };
+
+// The create sheet filled with a draft added by hand; null for any other invoice.
+export async function editScreen(tx: Tx, ctx: ScopedCtx, id: string): Promise<{ screen: CreateScreen; seed: EditSeed } | null> {
+  assertCan(ctx, "invoices:manage");
+  if (!isUuid(id)) throw new NotFoundError("Invoice");
+  const inv = await requireInvoice(tx, ctx, id);
+  const lines = await linesOf(tx, [id]);
+  if (inv.status !== "draft" || !handmade(lines)) return null;
+  const [payer] = payerIfValid(inv);
+  const seed: EditSeed = {
+    id,
+    payerKey: payer ? payerKey(payer) : "",
+    dueDate: inv.dueDate,
+    lines: lines.map((l) => ({ kind: l.kind, description: l.description, amountPaise: String(l.unitPaise), enrollmentId: l.enrollmentId, taxRateBp: l.unitPaise ? Number(roundHalfUp(l.taxPaise * 10_000n, l.unitPaise)) : 0 })),
+  };
+  return { screen: await createScreen(tx, ctx, inv.studentId), seed };
 }
 
 export const voidSchema = z.object({ reason: z.string().trim().min(3, "Add a reason").max(200), rebill: z.boolean().default(false) });

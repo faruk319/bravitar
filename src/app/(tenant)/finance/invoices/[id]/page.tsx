@@ -15,7 +15,7 @@ import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
-import { invoiceDetail } from "@/modules/fees/service";
+import { handmade, invoiceDetail } from "@/modules/fees/service";
 import { invoiceMoney } from "@/modules/payments/service";
 import { razorpayConnected } from "@/modules/integrations/service";
 import { PaymentLink } from "@/components/payments/payment-link";
@@ -53,6 +53,11 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
             ) : null}
             {canCollect && d.online ? <PaymentLink invoiceId={inv.id} /> : null}
             {canRemind ? <Composer request={{ key: d.overdue ? "fee_overdue" : "fee_due", invoiceId: inv.id }} label="Remind" /> : null}
+            {canManage && draft && handmade(d.lines) ? (
+              <Button variant="outline" nativeButton={false} render={<Link href={`/finance/invoices?edit=${inv.id}`} />}>
+                Edit
+              </Button>
+            ) : null}
             {canManage && draft ? <IssueInvoices ids={[inv.id]} count={1} total={formatPaise(inv.totalPaise)} /> : null}
             <PrintButton label="Print / Save PDF" />
             {canManage ? <VoidInvoice id={inv.id} draft={draft} open={openVoid} {...(inv.paidPaise > 0n ? { paid: formatPaise(inv.paidPaise) } : {})} /> : null}

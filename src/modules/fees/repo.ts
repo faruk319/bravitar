@@ -189,9 +189,10 @@ export async function payerNames(tx: Tx, payers: Payer[]): Promise<Map<string, s
   return new Map([...gs.map((g) => [payerKey({ kind: "guardian", guardianId: g.id }), g.name] as const), ...ms.map((m) => [payerKey({ kind: "member", memberId: m.id }), m.name] as const)]);
 }
 
-// The member's open tuition draft for a billing day and payer, locked so issuing can't race an append. Installment drafts stand alone.
+// The member's open tuition draft for a billing day and payer, locked so issuing can't race an append.
+// Installment drafts and charges added by hand (a line with no billing key) stand alone.
 export async function memberDraft(tx: Tx, studentId: string, branchId: string, issueDate: string, payer: Payer): Promise<Invoice | undefined> {
-  const alone = sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND l.billing_key LIKE 'installment|%')`;
+  const alone = sql`EXISTS (SELECT 1 FROM app.invoice_lines l WHERE l.invoice_id = ${invoices.id} AND (l.billing_key LIKE 'installment|%' OR l.billing_key IS NULL))`;
   const [inv] = await tx
     .select()
     .from(invoices)
@@ -203,6 +204,25 @@ export async function memberDraft(tx: Tx, studentId: string, branchId: string, i
 
 export async function insertLines(tx: Tx, rows: Omit<typeof invoiceLines.$inferInsert, "id">[]): Promise<void> {
   if (rows.length) await tx.insert(invoiceLines).values(rows.map((r) => ({ id: uuidv7(), ...r })));
+}
+
+// A draft's lines swapped for new ones; nothing is numbered or paid on a draft yet.
+export async function replaceLines(tx: Tx, invoiceId: string, rows: Omit<typeof invoiceLines.$inferInsert, "id">[]): Promise<void> {
+  await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, invoiceId));
+  await insertLines(tx, rows);
+}
+
+// Programs whose admission fee a plan already billed this student, with the invoice's number (null while it is a draft). Cancelled invoices don't count.
+export async function admissionBilled(tx: Tx, studentId: string): Promise<{ programId: string; number: string | null }[]> {
+  const rows = await tx
+    .select({ key: invoiceLines.billingKey, number: invoices.number })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(and(like(invoiceLines.billingKey, `admission|${studentId}|%`), ne(invoices.status, "void")));
+  return rows.flatMap((r) => {
+    const programId = r.key?.split("|")[2];
+    return programId ? [{ programId, number: r.number }] : [];
+  });
 }
 
 export type LineRow = InvoiceLine & { studentName: string | null };

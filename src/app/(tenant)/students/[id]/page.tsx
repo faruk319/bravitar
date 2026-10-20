@@ -135,6 +135,11 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
                 Collect
               </Button>
             ) : null}
+            {allows(ctx, "invoices:manage") ? (
+              <Button variant="outline" nativeButton={false} render={<Link href={`/finance/invoices?create=1&student=${s.id}`} />}>
+                Create invoice
+              </Button>
+            ) : null}
             <EditStudentSheet student={s} canUpdate={canUpdate} />
           </>
         }

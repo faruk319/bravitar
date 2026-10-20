@@ -32,7 +32,7 @@ import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoiceLines, invoices } from "./schema";
-import { createDiscount, createPlan, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
+import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -933,5 +933,126 @@ describe("who created and issued an invoice", () => {
     await withTenant(T, (tx) => tx.update(invoices).set({ createdBy: gone.id }).where(eq(invoices.id, night.id)));
     await withTenant(T, (tx) => tx.update(staffUsers).set({ deletedAt: new Date() }).where(eq(staffUsers.id, gone.id)));
     expect((await detail(night.id)).createdByName).toBe("Gone Staff");
+  });
+});
+
+describe("a one-off charge added by hand", () => {
+  const phoneNo = () => `+9197${String(50_000_000 + ++phone)}`;
+  const exam = { kind: "exam", description: "Grading exam", amountPaise: "50000" } as const;
+  const student = (fullName: string) => withTenant(T, (tx) => createStudent(tx, owner, { fullName, guardian: { fullName: `Mother ${fullName}`, phone: phoneNo(), relation: "mother" }, consents: { dataProcessing: true } }));
+  const create = (input: Parameters<typeof createInvoice>[2], as: ScopedCtx = owner) => withTenant(T, (tx) => createInvoice(tx, as, input, { now: NOW }));
+  const edit = (id: string, input: Parameters<typeof editDraft>[3], as: ScopedCtx = owner) => withTenant(T, (tx) => editDraft(tx, as, id, input));
+  const setPayer = (enrollmentId: string, guardianId: string) => withTenant(T, (tx) => tx.update(enrollments).set({ payerGuardianId: guardianId, payerMemberId: null }).where(eq(enrollments.id, enrollmentId)));
+  let kid = "";
+  let kidMother = "";
+
+  beforeAll(async () => {
+    const k = await student("Charge Kid");
+    [kid, kidMother] = [k.student.id, k.guardian.id];
+  });
+
+  it("creates a draft from the lines given; the number comes on issue", async () => {
+    const d = await create({ studentId: kid, lines: [exam] });
+    expect(d).toMatchObject({ status: "draft", number: null, totalPaise: 50_000n, createdBy: owner.staffId });
+    expect((await linesOn(d.id)).map((l) => [l.kind, l.description, l.unitPaise, l.billingKey])).toEqual([["exam", "Grading exam", 50_000n, null]]);
+    expect((await create({ studentId: kid, lines: [exam], issue: true })).number).toMatch(/^INV\//);
+  });
+
+  it("create and issue lets the payer's advance pay it", async () => {
+    const rich = await student("Advance Kid");
+    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: rich.student.id, branchId: rich.student.branchId, amountPaise: "100000" }));
+    expect(await create({ studentId: rich.student.id, lines: [exam], issue: true })).toMatchObject({ status: "paid", paidPaise: 50_000n });
+  });
+
+  it("charges tax only with a GSTIN", async () => {
+    const taxed = { ...exam, taxRateBp: 1800 };
+    expect((await create({ studentId: kid, lines: [taxed] })).totalPaise).toBe(50_000n); // no GSTIN yet
+    await withTenant(T, (tx) => saveFeeSettings(tx, owner, { gstin: "27abcde1234f1z5" }));
+    try {
+      const withTax = await create({ studentId: kid, lines: [taxed] });
+      expect(withTax).toMatchObject({ taxPaise: 9_000n, totalPaise: 59_000n });
+      // The sheet works the rate back from the tax, and knows GST is on.
+      const sheet = await withTenant(T, (tx) => editScreen(tx, owner, withTax.id));
+      expect(sheet?.seed.lines.map((l) => l.taxRateBp)).toEqual([1800]);
+      expect(sheet?.screen.gst).toBe(true);
+    } finally {
+      await withTenant(T, (tx) => saveFeeSettings(tx, owner, { gstin: null }));
+    }
+  });
+
+  it("edits a manual draft; refuses a generated draft and an issued invoice", async () => {
+    const manual = await create({ studentId: kid, lines: [exam] });
+    const edited = await edit(manual.id, { studentId: kid, lines: [{ ...exam, amountPaise: "60000" }] });
+    expect(edited).toMatchObject({ id: manual.id, status: "draft", totalPaise: 60_000n });
+    expect(await linesOn(manual.id)).toHaveLength(1); // swapped, not added to
+    expect(await actions(manual.id)).toEqual(["invoice.create", "invoice.edit"]);
+    const sheet = await withTenant(T, (tx) => editScreen(tx, owner, manual.id));
+    expect(sheet?.seed).toMatchObject({ id: manual.id, payerKey: `guardian:${kidMother}`, lines: [{ kind: "exam", description: "Grading exam", amountPaise: "60000", enrollmentId: null, taxRateBp: 0 }] });
+
+    const other = await student("Generated Kid");
+    await gen(M1, [await join(other.student.id, "Karate A", M0)]);
+    const [generatedDraft] = await invoicesOf([other.student.id]);
+    const issued = await create({ studentId: kid, lines: [exam], issue: true });
+    // A generated draft is fixed by its plan; an issued invoice is fixed.
+    await expect(edit(generatedDraft?.id ?? "", { studentId: other.student.id, lines: [exam] })).rejects.toMatchObject({ status: 409 });
+    await expect(edit(issued.id, { studentId: kid, lines: [exam] })).rejects.toMatchObject({ status: 409 });
+    expect(await linesOn(generatedDraft?.id ?? "")).toHaveLength(1);
+    expect(await withTenant(T, (tx) => editScreen(tx, owner, generatedDraft?.id ?? ""))).toBeNull(); // the sheet opens on manual drafts only
+    expect(await withTenant(T, (tx) => editScreen(tx, owner, issued.id))).toBeNull();
+  });
+
+  it("the nightly run never adds charges to a manual draft", async () => {
+    const night = await student("Night Charge Kid");
+    const e = await join(night.student.id, "Karate A", M0);
+    const manual = await create({ studentId: night.student.id, lines: [exam] }); // dated NOW's day, as is the recurring charge
+    // Fails as invoices 0 (the tuition line appended to the manual draft) if the draft were not left alone.
+    expect(await gen(M1, [e])).toEqual({ invoices: 1, lines: 1, skipped: [] });
+    expect((await linesOn(manual.id)).map((l) => [l.kind, l.billingKey])).toEqual([["exam", null]]);
+    expect(await invoicesOf([night.student.id])).toHaveLength(2);
+  });
+
+  it("needs invoices:manage", async () => {
+    await expect(create({ studentId: kid, lines: [exam] }, desk)).rejects.toMatchObject({ status: 403 });
+    await expect(edit(uuidv7(), { studentId: kid, lines: [exam] }, desk)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("the payer must be one of the student's payers", async () => {
+    const strangersMother = (await student("Strangers Kid")).guardian.id;
+    await expect(create({ studentId: kid, payerGuardianId: strangersMother, lines: [exam] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("an exam fee for one enrollment goes to that enrollment's payer; programs that disagree need a choice", async () => {
+    const riya = await student("Riya Split");
+    const father = await withTenant(T, (tx) => addFamilyMember(tx, owner, riya.student.id, { fullName: "Father Riya", phone: phoneNo(), relation: "father" }));
+    const [karate, dance] = [await join(riya.student.id, "Karate A", M0), await join(riya.student.id, "Dance A", M0)];
+    await setPayer(dance, father.id); // the mother pays Karate through the lead-guardian fallback
+    expect((await create({ studentId: riya.student.id, lines: [{ ...exam, enrollmentId: dance }] })).payerGuardianId).toBe(father.id);
+    expect((await create({ studentId: riya.student.id, lines: [{ ...exam, enrollmentId: karate }] })).payerGuardianId).toBe(riya.guardian.id);
+    const both = [{ ...exam, enrollmentId: karate }, { ...exam, enrollmentId: dance }];
+    await expect(create({ studentId: riya.student.id, lines: both })).rejects.toMatchObject({ status: 400 });
+    expect((await create({ studentId: riya.student.id, payerGuardianId: father.id, lines: both })).payerGuardianId).toBe(father.id);
+    // A program of another student can't be named.
+    await expect(create({ studentId: kid, lines: [{ ...exam, enrollmentId: dance }] })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("the sheet lists the payers and programs, and the admission a plan already billed", async () => {
+    const s = await student("Screen Kid");
+    const e = await join(s.student.id, "Karate A", M1); // joins on NOW's day: tuition and admission on one invoice
+    await gen(M1, [e]);
+    const screen = () => withTenant(T, (tx) => createScreen(tx, owner, s.student.id));
+    expect(await screen()).toMatchObject({
+      student: { id: s.student.id, name: "Screen Kid", branchId: s.student.branchId },
+      payers: [{ key: `guardian:${s.guardian.id}`, name: "Mother Screen Kid", relation: "Mother" }],
+      defaultPayerKey: `guardian:${s.guardian.id}`,
+      enrollments: [{ id: e, programId: program.karate, programName: "Karate", batchName: "Karate A", payerKey: `guardian:${s.guardian.id}` }],
+      gst: false,
+      admissionBilled: { [program.karate ?? ""]: "a draft invoice" },
+    });
+    const [draft] = await invoicesOf([s.student.id]);
+    const [issued] = await withTenant(T, (tx) => issueInvoices(tx, owner, [draft?.id ?? ""], { now: NOW }));
+    expect((await screen()).admissionBilled).toEqual({ [program.karate ?? ""]: issued?.number });
+    await withTenant(T, (tx) => voidInvoice(tx, owner, issued?.id ?? "", { reason: "Entered twice" }, { now: NOW }));
+    expect((await screen()).admissionBilled).toEqual({}); // a cancelled invoice bills nothing
+    await expect(withTenant(T, (tx) => createScreen(tx, desk, s.student.id))).rejects.toMatchObject({ status: 403 });
   });
 });

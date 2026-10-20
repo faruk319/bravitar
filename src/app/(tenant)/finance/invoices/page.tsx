@@ -1,7 +1,10 @@
+import { Plus } from "lucide-react";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/filter-bar";
+import { CreateInvoiceSearch, CreateInvoiceSheet } from "@/components/fees/create-invoice";
 import { GenerateNow, IssueInvoices } from "@/components/fees/invoice-actions";
 import { STATUS_WORD } from "@/components/fees/invoice-status";
 import { InvoiceTable } from "@/components/fees/invoice-table";
@@ -14,11 +17,13 @@ import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
+import { todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
+import { NotFoundError } from "@/lib/errors";
 import { formatPaise } from "@/lib/money/format";
 import { DISPLAY_STATUSES } from "@/modules/fees/billing";
 import { type InvoiceStatusFilter, invoiceParams, parseInvoiceQuery } from "@/modules/fees/invoice-query";
-import { invoiceList } from "@/modules/fees/service";
+import { type CreateScreen, createScreen, type EditSeed, editScreen, invoiceList } from "@/modules/fees/service";
 
 const PATH = "/finance/invoices";
 const TABS = ["all", ...DISPLAY_STATUSES] as const;
@@ -40,15 +45,28 @@ const EMPTY: Record<InvoiceStatusFilter, [string, string]> = {
   open: ["Nothing open", "Nothing waiting to be paid."],
 };
 
+// ?create=1[&student=] opens the sheet to add a charge; ?edit=<invoice> opens it on a draft added by hand.
 export default async function InvoicesPage({ searchParams }: PageProps<"/finance/invoices">) {
-  const query = parseInvoiceQuery(await searchParams);
+  const sp = await searchParams;
+  const query = parseInvoiceQuery(sp);
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
-  const list = await withTenant(session.tenant.id, (tx) => invoiceList(tx, ctx, query));
   const canManage = allows(ctx, "invoices:manage");
+  const asked = (k: string) => (typeof sp[k] === "string" ? sp[k] : undefined);
+  const [student, edit] = [asked("student"), asked("edit")];
+  const { list, sheet } = await withTenant(session.tenant.id, async (tx) => {
+    let sheet: { screen: CreateScreen; seed?: EditSeed } | "search" | null = null;
+    if (canManage && edit) sheet = await editScreen(tx, ctx, edit);
+    else if (canManage && asked("create") === "1") sheet = student ? { screen: await createScreen(tx, ctx, student) } : "search";
+    return { list: await invoiceList(tx, ctx, query), sheet };
+  }).catch((e: unknown) => {
+    if (e instanceof NotFoundError) notFound();
+    throw e;
+  });
   const { applied, counts, drafts } = list;
   const href = (params: URLSearchParams) => (params.size ? `${PATH}?${params.toString()}` : PATH);
+  const closeHref = href(invoiceParams(applied, list.page)); // the page without the sheet
   const first = (list.page - 1) * list.pageSize + 1;
   const last = first + list.rows.length - 1;
   const filtered = Boolean(applied.q || applied.programId || applied.batchId || applied.issuedFrom || applied.issuedTo || applied.dueFrom || applied.dueTo);
@@ -57,7 +75,20 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
 
   return (
     <Gate permission="invoices:read">
-      <PageHeader title="Invoices" actions={canManage ? <GenerateNow /> : undefined} />
+      <PageHeader
+        title="Invoices"
+        actions={
+          canManage ? (
+            <>
+              <GenerateNow />
+              <Button nativeButton={false} render={<Link href={`${closeHref}${closeHref.includes("?") ? "&" : "?"}create=1`} scroll={false} />}>
+                <Plus aria-hidden />
+                Create invoice
+              </Button>
+            </>
+          ) : undefined
+        }
+      />
       <SegmentedTabs
         label="Invoices"
         items={TABS.map((status) => ({
@@ -124,6 +155,11 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
           </>
         )}
       </Card>
+      {sheet === "search" ? (
+        <CreateInvoiceSearch closeHref={closeHref} />
+      ) : sheet ? (
+        <CreateInvoiceSheet key={`${sheet.screen.student.id}:${sheet.seed?.id ?? ""}`} screen={sheet.screen} {...(sheet.seed ? { seed: sheet.seed } : {})} today={todayIn(session.tenant.timezone)} closeHref={closeHref} />
+      ) : null}
     </Gate>
   );
 }

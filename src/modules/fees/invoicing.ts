@@ -1,8 +1,9 @@
 import { type AuditEntry, writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
 import { addDays, formatDate, todayIn } from "@/lib/dates";
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import type { Paise } from "@/lib/money/paise";
+import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { releaseInvoice } from "@/modules/payments/service";
 import { type Payer, payerKey, planPayer } from "@/modules/students/payer";
@@ -151,6 +152,14 @@ export function resolvePayers(es: Enrollment[], lead: Map<string, string>): { pa
   return { payers, corrupt };
 }
 
+// Who pays a one-off charge: the enrollment's payer, else the lead guardian, else the member (planPayer).
+export async function defaultPayerFor(tx: Tx, studentId: string, enrollmentId?: string): Promise<Payer> {
+  const [placed, lead] = await Promise.all([enrollmentId ? currentEnrollmentsOf(tx, [studentId]) : [], leadGuardians(tx, [studentId])]);
+  const e = placed.find((p) => p.e.id === enrollmentId)?.e;
+  if (enrollmentId && !e) throw new BadRequestError("Pick one of the student's batches");
+  return planPayer(e ?? { studentId, payerGuardianId: null, payerMemberId: null }, lead.get(studentId));
+}
+
 // Drafts per member, payer, branch and billing day; installments get their own.
 // Re-running bills nothing twice. onlyKeys re-bills exactly those charges.
 export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptions = {}): Promise<GenerateResult> {
@@ -243,12 +252,12 @@ export async function generateInvoices(tx: Tx, actor: Actor, opts: GenerateOptio
   return result;
 }
 
-async function retotal(tx: Tx, inv: Invoice, due: string): Promise<void> {
+export async function retotal(tx: Tx, inv: Invoice, due: string): Promise<Invoice> {
   const lines = await linesOf(tx, [inv.id]);
   const t = invoiceTotals(lines.map((l) => ({ gross: l.unitPaise * BigInt(l.quantity), discount: l.discountPaise, tax: l.taxPaise })));
   const starts = lines.flatMap((l) => (l.periodStart ? [l.periodStart] : [])).sort();
   const ends = lines.flatMap((l) => (l.periodEnd ? [l.periodEnd] : [])).sort();
-  await updateInvoice(tx, inv.id, {
+  return updateInvoice(tx, inv.id, {
     subtotalPaise: t.subtotal,
     discountPaise: t.discount,
     taxPaise: t.tax,
