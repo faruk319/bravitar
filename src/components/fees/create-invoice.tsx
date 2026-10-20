@@ -4,29 +4,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { Avatar } from "@/components/avatar";
-import { Frame, MemberSearch, payerIds } from "@/components/payments/collect-form";
+import { ChargeFields, type ChargeInput, KINDS, type Kind } from "@/components/fees/charge-fields";
+import { Frame, MemberSearch } from "@/components/payments/collect-form";
+import { payerIds } from "@/components/payments/payment-form";
 import { Field } from "@/components/sheet-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { addDays } from "@/lib/dates";
-import { formatPaise } from "@/lib/money/format";
-import { type Paise, parseRupees, percent, sum } from "@/lib/money/paise";
+import { asInput, formatPaise } from "@/lib/money/format";
+import { parseRupees, percent, sum } from "@/lib/money/paise";
 import { request } from "@/lib/send";
 import { cn } from "@/lib/utils";
 import type { CreateScreen, EditSeed } from "@/modules/fees/service";
 
-const KINDS = [
-  ["admission", "Admission"],
-  ["exam", "Exam"],
-  ["item", "Uniform & kit"],
-  ["other", "Other"],
-] as const;
-type Kind = (typeof KINDS)[number][0];
-type Line = { id: number; kind: Kind; description: string; amount: string; enrollmentId: string; tax: string };
+type Line = ChargeInput & { id: number; tax: string };
 
-const select = "h-12 w-full min-w-0 rounded-lg border border-input bg-background px-3 text-base";
 const blank = (id: number): Line => ({ id, kind: "other", description: "", amount: "", enrollmentId: "", tax: "" });
-const asInput = (paise: Paise) => (paise === 0n ? "" : formatPaise(paise).slice(1));
 const asKind = (kind: string): Kind => KINDS.find(([value]) => value === kind)?.[0] ?? "other";
 // The sheet's URL on top of the page's own params.
 const sheetHref = (closeHref: string, extra = "") => `${closeHref}${closeHref.includes("?") ? "&" : "?"}create=1${extra}`;
@@ -175,40 +168,7 @@ export function CreateInvoiceSheet({ screen, seed, today, closeHref }: { screen:
           return (
             <fieldset key={l.id} className="flex flex-col gap-3 rounded-lg border border-neutral-100 p-3">
               <legend className="sr-only">Charge {n + 1}</legend>
-              <div role="group" aria-label="Kind" className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                {KINDS.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={l.kind === value}
-                    onClick={() => set(l.id, { kind: value })}
-                    className={cn("h-12 rounded-full border px-1 text-label", l.kind === value ? "border-accent-600 bg-accent-50 text-accent-600" : "border-neutral-300 text-neutral-700")}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <Field label="What for" id={`charge-what-${l.id}`}>
-                <Input id={`charge-what-${l.id}`} autoComplete="off" maxLength={120} value={l.description} onChange={(e) => set(l.id, { description: e.target.value })} />
-              </Field>
-              <Field label="Amount" id={`charge-amount-${l.id}`}>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-body text-muted-foreground">₹</span>
-                  <Input id={`charge-amount-${l.id}`} inputMode="decimal" autoComplete="off" className="pl-7 text-number tabular-nums" value={l.amount} onChange={(e) => set(l.id, { amount: e.target.value })} />
-                </div>
-              </Field>
-              {screen.enrollments.length ? (
-                <Field label="Program (optional)" id={`charge-program-${l.id}`}>
-                  <select id={`charge-program-${l.id}`} value={l.enrollmentId} onChange={(e) => set(l.id, { enrollmentId: e.target.value })} className={select}>
-                    <option value="">No program</option>
-                    {screen.enrollments.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {e.programName} · {e.batchName}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
+              <ChargeFields id={String(l.id)} value={l} enrollments={screen.enrollments} onChange={(patch) => set(l.id, patch)} />
               {billed ? (
                 <p role="status" className="text-caption text-warning-700">
                   Admission already billed on {billed}

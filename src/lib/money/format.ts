@@ -13,6 +13,11 @@ export function formatPaise(paise: bigint, opts: { showPaise?: boolean } = {}): 
   return `${negative ? "-" : ""}₹${body}`;
 }
 
+// What an amount box starts with: "1,200" for 120000n, blank for nothing.
+export function asInput(paise: bigint): string {
+  return paise === 0n ? "" : formatPaise(paise).slice(1);
+}
+
 // Plain rupees for a spreadsheet: "1234.50", no symbol or separators.
 export function rupeesText(paise: bigint): string {
   const sign = paise < 0n ? "-" : "";

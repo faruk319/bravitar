@@ -9,8 +9,9 @@ import { financialYear } from "@/lib/money/fy";
 import { type Paise, sum } from "@/lib/money/paise";
 import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Actor } from "@/modules/fees/invoicing";
-import { getInvoice, type LineRow, linesOf, payerNames } from "@/modules/fees/repo";
+import { getInvoice, type LineRow, linesOf, lockInvoicing, payerNames } from "@/modules/fees/repo";
 import type { FeePlan, Invoice } from "@/modules/fees/schema";
+import { addCharge, issueDrafts, type ManualLine } from "@/modules/fees/service";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
@@ -18,7 +19,7 @@ import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/pay
 import { RELATION_LABELS } from "@/modules/students/relations";
 import { activeStudentsOf, getStudent, guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { getBranch, getOwnTenant, listBranches } from "@/modules/tenancy/repo";
-import { oldestFirst, picked, refundFrom } from "./allocation";
+import { oldestFirst, picked, refundFrom, type Share } from "./allocation";
 import {
   collectedOn,
   getPayment,
@@ -108,6 +109,10 @@ export const paymentSchema = z.object({
   allocations: z.array(z.object({ invoiceId: z.uuid(), amountPaise: paise })).max(100).optional(),
   payerGuardianId: z.uuid().optional(), // who is paying; left out, it is the payer of the invoices ticked or the only one with dues
   payerMemberId: z.uuid().optional(),
+  // A one-off charge for the member, made here and paid in full by this payment before anything else.
+  charge: z
+    .object({ kind: z.enum(["admission", "exam", "item", "other"]), description: z.string().trim().min(1, "Say what the charge is for").max(120), amountPaise: paise, enrollmentId: z.uuid().optional() })
+    .optional(),
 });
 export type PaymentInput = z.input<typeof paymentSchema>;
 
@@ -141,7 +146,7 @@ export type CollectScreen = {
   payers: PayerOption[];
   defaultPayerKey: string | null; // the payer to pre-select; null means ask who is paying
   gst: boolean;
-  enrollments: { id: string; programId: string; programName: string; batchName: string }[]; // the opened member's, for a charge to name a program
+  enrollments: { id: string; programId: string; programName: string; batchName: string }[]; // the opened member's in this branch, for a charge to name a program
 };
 
 // What an open invoice is for, from its lines: "Swimming Beginner · Oct 2026".
@@ -216,7 +221,7 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, br
     payers,
     defaultPayerKey: likely.length === 1 && only ? payerKey(only) : null,
     gst,
-    enrollments: placed.filter((p) => p.e.studentId === memberId).map((p) => ({ id: p.e.id, programId: p.programId, programName: p.programName, batchName: p.batchName })),
+    enrollments: placed.filter((p) => p.e.studentId === memberId && p.branchId === branchId).map((p) => ({ id: p.e.id, programId: p.programId, programName: p.programName, batchName: p.batchName })),
   };
 }
 
@@ -281,16 +286,28 @@ async function owedBy(tx: Tx, payer: Payer, branchId: string): Promise<Paise> {
   return sum((await openInvoices(tx, payer, branchId)).map((i) => i.totalPaise - i.paidPaise));
 }
 
+// A charge made at the desk, for the opened member and billed to the payer, due today. It is issued with the payer's
+// advance left alone: this payment pays it in full. fees:collect is enough (finance spec, the collect drawer).
+async function deskCharge(tx: Tx, ctx: ScopedCtx, to: { memberId: string; branchId: string; payer: Payer }, charge: ManualLine, at: { now: Date; today: string }): Promise<Share> {
+  if (!(await payerInScope(tx, [to.memberId], to.payer))) throw new BadRequestError("That payer isn't one of this student's payers");
+  const program = charge.enrollmentId;
+  if (program && !(await currentEnrollmentsOf(tx, [to.memberId])).some((p) => p.e.id === program && p.branchId === to.branchId)) throw new BadRequestError("Pick one of this student's programs");
+  const draft = await addCharge(tx, actor(ctx), { studentId: to.memberId, branchId: to.branchId, payer: to.payer, lines: [charge], dueDate: at.today, via: "collect" }, { now: at.now });
+  const [issued] = await issueDrafts(tx, actor(ctx), [draft], { now: at.now, applyAdvance: false });
+  if (!issued) throw new ConflictError("This payer has no name on record");
+  return { invoiceId: issued.id, amountPaise: issued.totalPaise };
+}
+
 // Oldest invoice first unless invoices are picked; what is left is the family's
-// advance in this branch. The receipt number is taken in this transaction, so a
-// failure gives it back.
+// advance in this branch. A charge made here is paid in full before either. The
+// receipt number is taken in this transaction, so a failure gives it back.
 export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput, opts: { now?: Date } = {}): Promise<Payment> {
   assertCan(ctx, "fees:collect");
   const data = paymentSchema.parse(input);
   await requireBranch(tx, ctx, data.branchId);
   const member = await memberHeader(tx, data.memberId);
   if (!member) throw new NotFoundError("Member");
-  const { today, fyStartMonth } = await clock(tx, opts.now);
+  const { now, today, fyStartMonth } = await clock(tx, opts.now);
   const receivedOn = data.receivedOn ?? today;
   checkReceivedOn(receivedOn, today, fyStartMonth);
 
@@ -299,6 +316,8 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const memberIds = await memberIdsWithSiblings(tx, data.memberId);
   const earlier = await paymentByRequest(tx, data.requestId);
   const payer = earlier ? payerOfRow(earlier) : await payerOfPayment(tx, data, memberIds);
+  // Issuing a charge takes the invoicing lock before the payer's, as every issue does; the other order could deadlock.
+  if (data.charge) await lockInvoicing(tx, ctx.tenantId);
   await lockPayer(tx, payer);
   // Checked under the lock, so a double tap waits for the first and returns it.
   const again = await paymentByRequest(tx, data.requestId);
@@ -306,9 +325,13 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
     if (!(await isReplay(tx, again, data, memberIds))) throw new ConflictError("This form was already used for a different payment");
     return again;
   }
+  const { charge } = data;
+  if (charge && data.amountPaise < charge.amountPaise) throw new BadRequestError("A charge added here is paid in full");
   // Only the invoices the screen showed: a shared payer's other family is settled on its own screen.
   const open = (await openInvoices(tx, payer, data.branchId, memberIds)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
-  const split = data.allocations ? picked(data.amountPaise, open, data.allocations) : oldestFirst(data.amountPaise, open);
+  const rest = data.amountPaise - (charge?.amountPaise ?? 0n);
+  const split = data.allocations ? picked(rest, open, data.allocations) : oldestFirst(rest, open);
+  const shares = charge ? [await deskCharge(tx, ctx, { memberId: data.memberId, branchId: data.branchId, payer }, charge, { now, today }), ...split.shares] : split.shares;
   const fy = financialYear(today, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);
   const billToName = (await payerNames(tx, [payer])).get(payerKey(payer));
@@ -320,7 +343,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
     payerGuardianId: payer.kind === "guardian" ? payer.guardianId : null,
     payerMemberId: payer.kind === "member" ? payer.memberId : null,
     billToName,
-    balanceAfterPaise: owedBefore - sum(split.shares.map((s) => s.amountPaise)),
+    balanceAfterPaise: owedBefore - sum(shares.map((s) => s.amountPaise)),
     requestId: data.requestId,
     receiptNumber,
     fy,
@@ -335,7 +358,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
     if (isUniqueViolation(e)) throw new ConflictError("This payment was already recorded");
     throw e;
   });
-  for (const s of split.shares) await moveMoney(tx, { tenantId: ctx.tenantId, paymentId: payment.id, invoiceId: s.invoiceId, kind: "receipt", amountPaise: s.amountPaise, createdBy: ctx.staffId });
+  for (const s of shares) await moveMoney(tx, { tenantId: ctx.tenantId, paymentId: payment.id, invoiceId: s.invoiceId, kind: "receipt", amountPaise: s.amountPaise, createdBy: ctx.staffId });
   await writeAudit(tx, {
     ...actor(ctx),
     action: "payment.create",
@@ -351,11 +374,11 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
       payerGuardianId: payment.payerGuardianId,
       payerMemberId: payment.payerMemberId,
       billToName,
-      invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })),
+      invoices: shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })),
       advancePaise: text(split.advance),
     },
   });
-  await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
+  await afterPayment(tx, payment, shares.map((s) => s.invoiceId), opts);
   return payment;
 }
 

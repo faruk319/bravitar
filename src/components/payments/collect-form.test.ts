@@ -78,6 +78,8 @@ describe("collect drawer: who is paying", () => {
     expect(out).not.toContain("INV/2026-27/0042");
     expect(amountOf(html)).toBe("2,000");
     expect(out).toContain("Record ₹2,000");
+    expect(out).toContain("What is this payment for? Fees due Advance New charge");
+    expect(out).not.toContain("What for"); // the charge's fields come with New charge
   });
 
   it("an invoice opened from its page picks that invoice's payer over the default, with only it ticked", () => {

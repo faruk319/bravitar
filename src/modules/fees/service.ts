@@ -429,8 +429,8 @@ async function payerOfCharge(tx: Tx, data: Pick<z.output<typeof manualInvoiceSch
   return [...named.values()][0] ?? (await defaultPayerFor(tx, data.studentId));
 }
 
-// A draft of one-off charges for a student, billed to the payer given (the caller has checked the payer).
-export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; branchId: string; payer: Payer; lines: ManualLine[]; dueDate: string }, opts: { now?: Date } = {}): Promise<Invoice> {
+// A draft of one-off charges for a student, billed to the payer given (the caller has checked the payer). via: where it was made, for the audit.
+export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; branchId: string; payer: Payer; lines: ManualLine[]; dueDate: string; via?: "collect" }, opts: { now?: Date } = {}): Promise<Invoice> {
   const [tenant, names] = await Promise.all([getOwnTenant(tx), payerNames(tx, [input.payer])]);
   const inv = await insertInvoice(tx, {
     tenantId: by.tenantId,
@@ -444,7 +444,7 @@ export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; b
   });
   await insertLines(tx, chargeRows(by.tenantId, inv.id, input.studentId, input.lines, Boolean(tenant?.gstin)));
   const done = await retotal(tx, inv, input.dueDate);
-  await writeAudit(tx, { ...by, action: "invoice.create", entityType: "invoice", entityId: inv.id, after: { studentId: input.studentId, billToName: done.billToName, totalPaise: String(done.totalPaise), lines: auditLines(input.lines) } });
+  await writeAudit(tx, { ...by, action: "invoice.create", entityType: "invoice", entityId: inv.id, after: { studentId: input.studentId, billToName: done.billToName, totalPaise: String(done.totalPaise), lines: auditLines(input.lines), ...(input.via ? { via: input.via } : {}) } });
   return done;
 }
 

@@ -1,5 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { allows } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
 import { SESSION_COOKIE } from "@/lib/auth/cookie";
@@ -12,7 +13,7 @@ import { login, setPassword } from "@/modules/auth/service";
 import { createProgram, insertBatch } from "@/modules/batches/repo";
 import { insertEnrollment, updateEnrollment } from "@/modules/enrollments/repo";
 import { insertInvoice, insertLines, insertPlan, updateInvoice } from "@/modules/fees/repo";
-import { type Invoice, invoices } from "@/modules/fees/schema";
+import { type Invoice, invoiceLines, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
@@ -851,7 +852,7 @@ describe("payments", () => {
       expect([optionOf(onB, shared)?.relation, optionOf(onB, dadOfB)?.relation]).toEqual(["Grandparent", "Father"]);
     });
 
-    it("shows only this branch's dues, advance and plans", async () => {
+    it("shows only this branch's dues, advance, plans and programs", async () => {
       const kid = await family();
       const mum = payerOfFamily.get(kid) ?? "";
       const sibling = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: other, fullName: `Sibling of ${name(kid)}`, code: `PAY/COL${++families}` }));
@@ -868,6 +869,7 @@ describe("payments", () => {
       };
       expect(await facts(main)).toEqual([[rupees(600)], rupees(800), [name(kid)]]);
       expect(await facts(other)).toEqual([[rupees(700)], rupees(300), [sibling.fullName]]);
+      expect((await screen(kid, desk, other)).enrollments).toEqual([]); // a charge there can't name the child's program here
     });
 
     it("says who and which branch, the days a payment can be dated, and whether the academy charges GST", async () => {
@@ -939,6 +941,73 @@ describe("payments", () => {
       await expect(applyNow(mum, main, { ...desk, branchIds: [other] })).rejects.toMatchObject({ status: 404 });
       await expect(apply({ branchId: main, payerGuardianId: mum, payerMemberId: kid })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
       await expect(apply({ branchId: main })).rejects.toMatchObject({ status: 400, message: "Pick one payer" });
+    });
+
+    describe("a new charge at the desk", () => {
+      const uniform = { kind: "item", description: "Uniform", amountPaise: "120000" } as const;
+      const uniforms = (memberId: string) => withTenant(T, (tx) => tx.select().from(invoiceLines).where(and(eq(invoiceLines.studentId, memberId), eq(invoiceLines.description, "Uniform"))));
+
+      it("a charge added at the desk is issued and paid in full in one step", async () => {
+        const kid = await family();
+        const p = await pay(kid, 1200, { charge: uniform });
+        expect((await receiptOf(p.id)).lines.map((l) => l.items[0]?.description)).toEqual(["Uniform"]);
+        const [line] = await uniforms(kid);
+        expect(await state(line?.invoiceId ?? "")).toEqual(["paid", 120_000n]);
+        expect(await actions(line?.invoiceId ?? "")).toContain("invoice.create");
+        const [created] = await withTenant(T, (tx) => tx.select({ after: auditLog.after }).from(auditLog).where(and(eq(auditLog.entityId, line?.invoiceId ?? ""), eq(auditLog.action, "invoice.create"))));
+        expect(created?.after).toMatchObject({ via: "collect" });
+      });
+
+      it("paying less than the charge is refused and nothing is created", async () => {
+        const kid = await family();
+        await expect(pay(kid, 1000, { charge: uniform })).rejects.toMatchObject({ status: 400, message: "A charge added here is paid in full" });
+        expect(await uniforms(kid)).toEqual([]);
+      });
+
+      it("the same request id twice makes one charge and one payment", async () => {
+        const kid = await family();
+        const input = { requestId: uuidv7(), charge: uniform };
+        const [a, b] = await Promise.all([pay(kid, 1200, input), pay(kid, 1200, input)]);
+        expect(a.id).toBe(b.id);
+        expect((await uniforms(kid)).length).toBe(1);
+      });
+
+      it("above the charge pays the ticked invoices, then advance", async () => {
+        const kid = await family();
+        const open = await bill(kid, 1500);
+        await pay(kid, 3000, { charge: uniform, allocations: [{ invoiceId: open.id, amountPaise: "150000" }] });
+        expect(await state(open.id)).toEqual(["paid", 150_000n]);
+        expect(await advanceOf(kid)).toBe(30_000n);
+      });
+
+      it("a desk charge leaves the payer's advance alone", async () => {
+        const kid = await family();
+        await pay(kid, 500);
+        await pay(kid, 1200, { charge: uniform });
+        expect(await advanceOf(kid)).toBe(50_000n);
+      });
+
+      it("a desk charge needs only fees:collect", async () => {
+        const kid = await family();
+        expect(allows(desk, "invoices:manage")).toBe(false);
+        await expect(pay(kid, 1200, { charge: uniform }, desk)).resolves.toMatchObject({ amountPaise: 120_000n });
+      });
+
+      it("a desk charge names only the student's own program in this branch, and bills only the student's own payer", async () => {
+        const kid = await family();
+        const mum = payerOfFamily.get(kid) ?? "";
+        const own = await enrol(kid, swim.beginnerBatch, swim.beginner);
+        const theirs = await enrol(await family(), swim.beginnerBatch, swim.beginner);
+        const sibling = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: main, fullName: `Sibling of ${name(kid)}`, code: `PAY/CHG${++families}` }));
+        await withTenant(T, (tx) => upsertFamilyLink(tx, { tenantId: T, studentId: sibling.id, guardianId: mum, relation: "mother" }));
+        const siblingsFather = await addFather(sibling.id);
+        for (const extra of [{ charge: { ...uniform, enrollmentId: theirs.id } }, { branchId: other, charge: { ...uniform, enrollmentId: own.id } }]) {
+          await expect(pay(kid, 1200, { payerGuardianId: mum, ...extra })).rejects.toMatchObject({ status: 400, message: "Pick one of this student's programs" });
+        }
+        await expect(pay(kid, 1200, { payerGuardianId: siblingsFather, charge: uniform })).rejects.toMatchObject({ status: 400, message: "That payer isn't one of this student's payers" });
+        await pay(kid, 1200, { payerGuardianId: mum, charge: { ...uniform, enrollmentId: own.id } });
+        expect((await uniforms(kid)).map((l) => l.enrollmentId)).toEqual([own.id]);
+      });
     });
   });
 
