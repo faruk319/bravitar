@@ -11,9 +11,10 @@ import { assertBatchOpen } from "@/modules/billing/access";
 import { onRoster } from "@/modules/enrollments/repo";
 import { trialsForSession } from "@/modules/enquiries/repo";
 import { markTrials } from "@/modules/enquiries/trials";
+import { staffNames } from "@/modules/staff/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getOwnTenant } from "@/modules/tenancy/repo";
-import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, staffNames, studentClasses, studentNames, upsertMarks } from "./repo";
+import { batchClasses, type ClassRow, type ClassScope, classesOn, enrolledBetween, getClass, markSessionHeld, marksFor, type StudentClass, studentClasses, studentNames, upsertMarks } from "./repo";
 import { attendancePercent } from "./percent";
 import { MARKS, type Mark } from "./schema";
 

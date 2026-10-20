@@ -33,6 +33,13 @@ export async function listStaff(tx: Tx): Promise<StaffUser[]> {
   return tx.select().from(staffUsers).where(isNull(staffUsers.deletedAt)).orderBy(staffUsers.fullName);
 }
 
+// Names of staff by id; removed staff keep theirs.
+export async function staffNames(tx: Tx, ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const rows = await tx.select({ id: staffUsers.id, name: staffUsers.fullName }).from(staffUsers).where(inArray(staffUsers.id, ids));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
+
 export async function countActiveOwners(tx: AnyTx, tenantId: string): Promise<number> {
   const [row] = await tx
     .select({ n: count() })

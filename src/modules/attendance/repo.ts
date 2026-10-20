@@ -4,7 +4,6 @@ import { uuidv7 } from "@/lib/ids";
 import { batches, programs } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
 import { type Session, sessions } from "@/modules/sessions/schema";
-import { staffUsers } from "@/modules/staff/schema";
 import { students } from "@/modules/students/schema";
 import { resources } from "@/modules/tenancy/schema";
 import { type AttendanceRow, attendance, type Mark } from "./schema";
@@ -136,12 +135,6 @@ export async function studentNames(tx: Tx, ids: string[]): Promise<Map<string, {
   if (!ids.length) return new Map();
   const rows = await tx.select({ id: students.id, name: students.fullName, code: students.code }).from(students).where(inArray(students.id, ids));
   return new Map(rows.map((r) => [r.id, { name: r.name, code: r.code }]));
-}
-
-export async function staffNames(tx: Tx, ids: string[]): Promise<Map<string, string>> {
-  if (!ids.length) return new Map();
-  const rows = await tx.select({ id: staffUsers.id, name: staffUsers.fullName }).from(staffUsers).where(inArray(staffUsers.id, ids));
-  return new Map(rows.map((r) => [r.id, r.name]));
 }
 
 // ---- reports (docs/03 §11): marks in a date range, by batch and by student

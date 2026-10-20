@@ -10,6 +10,7 @@ import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo"
 import type { Program } from "@/modules/batches/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { applyAdvance } from "@/modules/payments/service";
+import { staffNames } from "@/modules/staff/repo";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
@@ -44,7 +45,6 @@ import {
   openInstallments,
   type PlanRow,
   programsOnInvoice,
-  staffNames,
   studentsOnPlan,
   updateDiscount,
   updateInvoice,
