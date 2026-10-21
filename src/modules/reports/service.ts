@@ -172,7 +172,7 @@ export async function enquiryFunnel(tx: Tx, ctx: ScopedCtx, input: Range): Promi
 // ---- finance overview (Task 16)
 
 export type RevenueRow = { activityKey: string; programId: string | null; programName: string; batchId: string | null; batchName: string | null; billedPaise: Paise; collectedPaise: Paise; outstandingPaise: Paise };
-export type RevenueReport = Range & { rows: RevenueRow[]; advancePaise: Paise; collectedPaise: Paise; refundsPaise: Paise };
+export type RevenueReport = Range & { rows: RevenueRow[]; advancePaise: Paise; collectedPaise: Paise };
 
 export const NOT_LINKED = "Not linked to a program";
 type Linked = { activityKey: string | null; programId: string | null; programName: string | null; batchId: string | null; batchName: string | null };
@@ -194,7 +194,6 @@ export async function revenueReport(tx: Tx, ctx: ScopedCtx, input: Range): Promi
   const none: Linked = { activityKey: null, programId: null, programName: null, batchId: null, batchName: null };
   let advancePaise = 0n;
   let collectedPaise = 0n;
-  let refundsPaise = 0n;
   if (money) {
     const paid = await receiptAllocationsBetween(tx, ctx.branchIds, range.from, range.to);
     const lines = await linesWithProgram(tx, [...new Set(paid.flatMap((p) => p.receipts.map((r) => r.invoiceId)))]);
@@ -211,7 +210,6 @@ export async function revenueReport(tx: Tx, ctx: ScopedCtx, input: Range): Promi
         for (const l of on) rowOf(l).collectedPaise += shares.get(l.lineId) ?? 0n;
       }
     }
-    refundsPaise = await refundedBetween(tx, ctx.branchIds, range.from, range.to);
   }
   if (bills) {
     const issued = await issuedLinesBetween(tx, ctx.branchIds, range.from, range.to);
@@ -224,7 +222,7 @@ export async function revenueReport(tx: Tx, ctx: ScopedCtx, input: Range): Promi
     }
   }
   const sorted = [...rows.values()].sort((a, b) => Number(b.collectedPaise - a.collectedPaise) || Number(b.billedPaise - a.billedPaise) || a.programName.localeCompare(b.programName));
-  return { ...range, rows: sorted, advancePaise, collectedPaise, refundsPaise };
+  return { ...range, rows: sorted, advancePaise, collectedPaise };
 }
 
 export type OwedSummary = Awaited<ReturnType<typeof owedSummary>>;

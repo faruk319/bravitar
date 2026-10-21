@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EnrollmentActions, PlanSelect } from "@/components/enrollments/student-batches";
 import type { DueItem } from "@/components/fees/still-due";
+import { ExtendPack } from "@/components/fees/extend-pack";
 import { InvoiceStatus } from "@/components/fees/invoice-status";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
@@ -151,6 +152,11 @@ export default async function StudentPlanPage({ params }: PageProps<"/finance/st
             <Fact label="Payer">{r.payerName || "—"}</Fact>
             <Fact label="Next bill">{r.packText ?? (r.nextBill ? formatDate(r.nextBill) : "—")}</Fact>
           </dl>
+          {canInvoice && d.pack ? (
+            <div className="mt-3 border-t border-neutral-100 pt-3">
+              <ExtendPack id={d.pack.id} validUntil={d.pack.validUntil} />
+            </div>
+          ) : null}
           {manage ? (
             <div className="mt-3 space-y-3 border-t border-neutral-100 pt-3">
               {o.plans.length ? <PlanSelect enrollmentId={r.enrollmentId} current={{ id: r.planId, name: r.planName }} plans={o.plans} /> : null}

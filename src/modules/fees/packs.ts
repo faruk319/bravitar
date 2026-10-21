@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, ne } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
@@ -116,6 +116,12 @@ export async function packStatus(tx: Tx, enrollmentIds: string[], day: string): 
 export function packText(s: PackStatus): string {
   if (s.left <= 0) return "No sessions left";
   return `${s.low ? "Sessions low · " : ""}${s.left} of ${s.total} left${s.until ? ` · until ${formatDayMonth(s.until)}` : ""}`;
+}
+
+// The pack that runs longest on an enrollment: the one an extension applies to.
+export async function lastPack(tx: Tx, enrollmentId: string): Promise<SessionPack | undefined> {
+  const [p] = await tx.select().from(sessionPacks).where(eq(sessionPacks.enrollmentId, enrollmentId)).orderBy(desc(sessionPacks.validUntil), desc(sessionPacks.createdAt)).limit(1);
+  return p;
 }
 
 export const extendSchema = z.object({

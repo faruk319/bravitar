@@ -21,7 +21,7 @@ import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
 import { queryReader, type SearchParams } from "@/lib/url-query";
-import { packStatus, packText } from "./packs";
+import { lastPack, packStatus, packText } from "./packs";
 import { type Cycle, type DisplayStatus, displayStatus, lineAmounts, nextRecurringBill, spreadOver, upcomingFlags } from "./billing";
 import { type ManualLine, manualLine } from "./charge";
 import type { InvoiceQuery } from "./invoice-query";
@@ -797,6 +797,7 @@ export type StudentPlanDetail = {
   afterDiscountPaise: Paise;
   totals: { billedPaise: Paise; paidPaise: Paise; outstandingPaise: Paise; advancePaise: Paise };
   timeline: TimelineRow[];
+  pack: { id: string; validUntil: string } | null; // the latest session pack, for Extend
 };
 
 // One placement's whole billing story: the discounts running now, each invoice carrying it, what it owes and the payer's advance.
@@ -848,6 +849,7 @@ export async function studentPlanDetail(tx: Tx, ctx: ScopedCtx, enrollmentId: st
     afterDiscountPaise: lineAmounts(base.plan.amountPaise, 1, running.map((g) => ({ name: g.name, reason: g.reason, kind: g.kind, value: g.value })), 0).net,
     totals: { billedPaise, paidPaise, outstandingPaise: billedPaise - paidPaise, advancePaise: advance },
     timeline,
+    pack: row.kind === "package" ? await lastPack(tx, enrollmentId).then((p) => (p ? { id: p.id, validUntil: p.validUntil } : null)) : null,
   };
 }
 

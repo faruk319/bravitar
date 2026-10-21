@@ -10,7 +10,7 @@ import { Gate } from "@/components/shell/gate";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
-import { requireStaffPage } from "@/lib/auth/server";
+import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { formatDate } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ const when = (r: StudentPlanRow) => (r.endDate ? `${formatDate(r.startDate)} –
 export default async function StudentPlansPage({ searchParams }: PageProps<"/finance/student-plans">) {
   const query = parseStudentPlanQuery(await searchParams);
   const session = await requireStaffPage();
-  const ctx = scopedCtx(session);
+  const ctx = { ...scopedCtx(session), branchIds: await selectedBranchIds(session) };
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
   const list = await withTenant(session.tenant.id, (tx) => studentPlanList(tx, ctx, query));
   const { applied, counts } = list;

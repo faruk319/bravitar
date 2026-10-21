@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
-import { requireStaffPage } from "@/lib/auth/server";
+import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { formatDate } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { formatPaise } from "@/lib/money/format";
@@ -88,7 +88,7 @@ export default async function DiscountsPage({ searchParams }: PageProps<"/financ
   const tab = read.oneOf("tab", ["discounts", "given", "advance"] as const) ?? "discounts";
   const [state, q, owes, page] = [read.oneOf("state", ["running", "ended"] as const), read.one("q"), read.one("owes") === "1", read.page()];
   const session = await requireStaffPage();
-  const ctx = scopedCtx(session);
+  const ctx = { ...scopedCtx(session), branchIds: await selectedBranchIds(session) };
   const canRead = allows(ctx, "invoices:read");
   const canManagePlans = allows(ctx, "fee_plans:manage");
   if (!canRead && !canManagePlans) return <Gate permission="invoices:read">{null}</Gate>;

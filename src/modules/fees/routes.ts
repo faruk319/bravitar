@@ -1,5 +1,6 @@
 import { json, pathSegment, readJson, scopedCtx, type StaffRequest, withStaffRequest } from "@/lib/auth/route";
 import { BadRequestError } from "@/lib/errors";
+import { extendPack } from "./packs";
 import { createDiscount, createInvoice, createPlan, editDraft, editPlan, endDiscount, generateNow, giveDiscount, issueInvoices, saveFeeSettings, setDiscountActive, setPlanActive, voidInvoice } from "./service";
 
 const ctxOf = (r: StaffRequest) => scopedCtx(r.session, r.req);
@@ -51,3 +52,6 @@ export const invoiceActionRoute = withStaffRequest("invoices:manage", async (r) 
 });
 
 export const feeSettingsRoute = withStaffRequest("settings:manage", async (r) => json(await saveFeeSettings(r.tx, ctxOf(r), await readJson(r.req))));
+
+// { until, reason }: a later expiry for a session pack.
+export const extendPackRoute = withStaffRequest("invoices:manage", async (r) => json(await extendPack(r.tx, ctxOf(r), pathSegment(r.req, 2), await readJson(r.req))));

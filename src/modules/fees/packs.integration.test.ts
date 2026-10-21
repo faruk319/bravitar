@@ -19,7 +19,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { extendPack, packBalance } from "./packs";
 import { invoices, sessionPacks } from "./schema";
-import { createPlan, studentPlanList } from "./service";
+import { createPlan, studentPlanDetail, studentPlanList } from "./service";
 
 // Finance spec, addendum 2026-10-21: prepaid session packs.
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -163,6 +163,7 @@ describe("extending a pack", () => {
     await sell(kid, enrollment, "2026-10-21");
     const [pack] = await packsOf(enrollment);
     const id = pack?.id ?? "";
+    expect((await withTenant(T, (tx) => studentPlanDetail(tx, owner, enrollment))).pack).toEqual({ id, validUntil: "2026-11-19" });
     const extend = (as: ScopedCtx, input: { until: string; reason: string }) => withTenant(T, (tx) => extendPack(tx, as, id, input));
     await expect(extend(desk, { until: "2026-12-01", reason: "Was ill" })).rejects.toMatchObject({ status: 403 });
     await expect(extend(owner, { until: "2026-11-10", reason: "Was ill" })).rejects.toMatchObject({ status: 400, message: "Pick a later date" });

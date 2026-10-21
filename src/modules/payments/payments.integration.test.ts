@@ -583,6 +583,15 @@ describe("payments", () => {
       expect((await receiptOf(p.id)).balanceAfterPaise).toBe(150_000n);
     });
 
+    it("the payment.create audit carries the balance after as a digit string", async () => {
+      const kid = await family();
+      await bill(kid, 1500);
+      await bill(kid, 1500);
+      const p = await pay(kid, 1500);
+      const [a] = await withTenant(T, (tx) => tx.select({ after: auditLog.after }).from(auditLog).where(and(eq(auditLog.entityId, p.id), eq(auditLog.action, "payment.create"))));
+      expect(a?.after).toMatchObject({ balanceAfterPaise: "150000" });
+    });
+
     it("balance after counts the payer's members who are no longer on the collect screen", async () => {
       const [a, b] = [await family(), await family()];
       const shared = payerOfFamily.get(a) ?? "";
@@ -1565,6 +1574,14 @@ describe("payments", () => {
         ["receipt", a.receiptNumber, rupees(800), "cash", "2026-09-24"],
         ["receipt", b.receiptNumber, rupees(700), "upi", "2026-09-24"],
       ]);
+    });
+
+    it("a refund row shows how the refund went back, not how the payment came in", async () => {
+      const h = await family();
+      const inv = await bill(h, 1500);
+      const p = await pay(h, 1500, { method: "upi" });
+      await withTenant(T, (tx) => refundPayment(tx, owner, p.id, { amountPaise: String(rupees(500)), method: "cash", reason: "Missed a week" }, { now: NOW }));
+      expect((await money(inv.id)).map((r) => [r.kind, r.method])).toEqual([["receipt", "upi"], ["refund", "cash"]]);
     });
 
     it("shows money paid online like a desk receipt, with method Online", async () => {

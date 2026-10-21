@@ -405,6 +405,7 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
       billToName,
       invoices: shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })),
       advancePaise: text(split.advance),
+      balanceAfterPaise: payment.balanceAfterPaise === null ? null : text(payment.balanceAfterPaise),
     },
   });
   await afterPayment(tx, payment, shares.map((s) => s.invoiceId), opts);
@@ -504,7 +505,7 @@ export async function refundPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
 
 // The payer's unused money in a branch pays that payer's open invoices, oldest
 // money to the oldest invoice, never another payer's. Runs when invoices are
-// issued (docs/03 §9).
+// issued or when advance is used (docs/03 §9).
 async function moveAdvance(tx: Tx, by: Actor, payer: Payer, branchId: string): Promise<{ applied: Paise; invoiceIds: string[] }> {
   await lockPayer(tx, payer);
   const [unused, open] = await Promise.all([unusedPayments(tx, payer, branchId), openInvoices(tx, payer, branchId)]);
@@ -862,7 +863,7 @@ export async function recordGatewayPayment(
     action: "payment.create",
     entityType: "payment",
     entityId: payment.id,
-    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", billToName, gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance) },
+    after: { receiptNumber, amountPaise: text(input.amountPaise), method: "online", billToName, gatewayPaymentId: input.gatewayPaymentId, receivedOn, invoices: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: text(s.amountPaise) })), advancePaise: text(split.advance), balanceAfterPaise: payment.balanceAfterPaise === null ? null : text(payment.balanceAfterPaise) },
   });
   await afterPayment(tx, payment, split.shares.map((s) => s.invoiceId), opts);
   return { payment, created: true };

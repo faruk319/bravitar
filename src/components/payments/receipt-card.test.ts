@@ -61,6 +61,12 @@ describe("receipt card", () => {
     expect(text(render(receipt({ balanceAfterPaise: null })))).not.toContain("Balance due");
   });
 
+  it("a cancelled payment shows no balance after", () => {
+    const out = text(render(receipt({ payment: { ...payment, status: "cancelled", cancelReason: "Wrong entry" } })));
+    expect(out).toContain("Cancelled");
+    expect(out).not.toContain("Balance due");
+  });
+
   it("with no student to name there is no For row", () => {
     expect(text(render(receipt({ students: [] })))).not.toMatch(/\bFor\b/);
   });

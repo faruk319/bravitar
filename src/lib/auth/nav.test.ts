@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { moduleFlags } from "./can";
 import { COACH_NAV, coachNavFor, crumbsFor, isParent, NAV_GROUPS, type NavGroup, navFor } from "./nav";
@@ -180,5 +182,12 @@ describe("crumbsFor", () => {
   it("an unknown path gives no crumbs instead of throwing", () => {
     expect(crumbsFor("/nowhere/at/all")).toEqual([]);
     expect(crumbsFor("")).toEqual([]);
+  });
+});
+
+describe("NAV_GROUPS", () => {
+  it("every href has a page under src/app/(tenant)", () => {
+    const missing = hrefs(NAV_GROUPS).filter((h) => !existsSync(join(process.cwd(), "src/app/(tenant)", h, "page.tsx")));
+    expect(missing).toEqual([]);
   });
 });

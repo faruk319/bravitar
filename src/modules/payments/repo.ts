@@ -557,7 +557,7 @@ export async function moneyOnInvoice(tx: Tx, invoiceId: string): Promise<MoneyRo
       paymentId: payments.id,
       receiptNumber: payments.receiptNumber,
       receivedOn: payments.receivedOn,
-      method: payments.method,
+      method: sql<PaymentMethod>`coalesce(${refunds.method}, ${payments.method})`,
       refundReason: refunds.reason,
       voidReason: invoices.voidReason,
     })

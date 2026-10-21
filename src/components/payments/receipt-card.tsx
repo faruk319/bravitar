@@ -82,7 +82,7 @@ export function ReceiptCard({ r, invoiceHref, showNotes }: { r: Receipt; invoice
         ) : null}
       </ul>
 
-      {r.balanceAfterPaise !== null ? (
+      {r.balanceAfterPaise !== null && p.status !== "cancelled" ? (
         <dl className="mt-1 border-t border-neutral-100">
           <Fact label="Balance due after this payment">
             <Money paise={r.balanceAfterPaise} className="text-body font-medium" />

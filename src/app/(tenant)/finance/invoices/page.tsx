@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
-import { requireStaffPage } from "@/lib/auth/server";
+import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { todayIn } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
 import { NotFoundError } from "@/lib/errors";
@@ -53,7 +53,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/finance
   const sp = await searchParams;
   const query = parseInvoiceQuery(sp);
   const session = await requireStaffPage();
-  const ctx = scopedCtx(session);
+  const ctx = { ...scopedCtx(session), branchIds: await selectedBranchIds(session) };
   if (!allows(ctx, "invoices:read")) return <Gate permission="invoices:read">{null}</Gate>;
   const canManage = allows(ctx, "invoices:manage");
   const asked = (k: string) => (typeof sp[k] === "string" ? sp[k] : undefined);
