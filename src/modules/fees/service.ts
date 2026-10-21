@@ -681,6 +681,15 @@ export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuer
   };
 }
 
+// An open invoice's balance is shared over its lines by amount and tax; what an enrollment owes is its lines' shares.
+function balanceShares(lines: OpenLine[]): Map<string, Paise> {
+  const byInvoice = new Map<string, OpenLine[]>();
+  for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
+  const out = new Map<string, Paise>();
+  for (const group of byInvoice.values()) for (const [id, share] of spreadOver(group[0]?.balance ?? 0n, group.map((l) => ({ id: l.lineId, weight: l.weight })))) out.set(id, share);
+  return out;
+}
+
 async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promise<StudentPlanRow[]> {
   const tenant = await getOwnTenant(tx);
   const [enrollmentIds, studentIds] = [base.map((b) => b.e.id), [...new Set(base.map((b) => b.e.studentId))]];
@@ -689,14 +698,9 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
   const payers = new Map(base.map((b) => [b.e.id, safePayer(b.e, lead.get(b.e.studentId))] as const));
   const names = await payerNames(tx, [...payers.values()].flatMap((p) => (p ? [p] : [])));
 
-  // An open invoice's balance is shared over its lines by amount and tax; an enrollment owes its lines' shares.
+  const shares = balanceShares(lines);
   const owed = new Map<string, Paise>();
-  const byInvoice = new Map<string, OpenLine[]>();
-  for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
-  for (const group of byInvoice.values()) {
-    const shares = spreadOver(group[0]?.balance ?? 0n, group.map((l) => ({ id: l.lineId, weight: l.weight })));
-    for (const l of group) if (l.enrollmentId) owed.set(l.enrollmentId, (owed.get(l.enrollmentId) ?? 0n) + (shares.get(l.lineId) ?? 0n));
-  }
+  for (const l of lines) if (l.enrollmentId) owed.set(l.enrollmentId, (owed.get(l.enrollmentId) ?? 0n) + (shares.get(l.lineId) ?? 0n));
 
   return base.map(({ e, plan, studentName, studentCode, programName, batchName }): StudentPlanRow => {
     const payer = payers.get(e.id);
@@ -752,25 +756,28 @@ export async function studentPlanDetail(tx: Tx, ctx: ScopedCtx, enrollmentId: st
   const running = given.filter((g) => g.validFrom <= today && (g.validTo === null || g.validTo >= today));
   const advance = sum((await unusedPayments(tx, planPayer(base.e, lead), base.branchId)).map((u) => u.unused));
 
-  // An invoice's payments are shared over its lines by amount and tax, as in the list.
-  const weight = (l: { amountPaise: Paise; taxPaise: Paise }) => l.amountPaise + l.taxPaise;
-  const byInvoice = new Map<string, typeof billed>();
-  for (const b of billed) byInvoice.set(b.inv.id, [...(byInvoice.get(b.inv.id) ?? []), b]);
+  // Owed is the list's own spread of each open invoice's balance; billed counts every line of this enrollment, so billed - owed is paid.
+  const open = (s: string) => s === "issued" || s === "part_paid";
+  const shares = balanceShares(billed.map((b) => ({ invoiceId: b.inv.id, lineId: b.line.id, enrollmentId: b.line.enrollmentId, weight: b.line.amountPaise + b.line.taxPaise, balance: open(b.inv.status) ? b.inv.totalPaise - b.inv.paidPaise : 0n })));
+  const mine = new Map<string, typeof billed>();
+  for (const b of billed) if (b.line.enrollmentId === enrollmentId) mine.set(b.inv.id, [...(mine.get(b.inv.id) ?? []), b]);
   const timeline: TimelineRow[] = [];
-  for (const b of billed) {
-    if (b.line.enrollmentId !== enrollmentId || b.line.kind !== "tuition") continue;
-    const shares = spreadOver(b.inv.paidPaise, (byInvoice.get(b.inv.id) ?? []).map((x) => ({ id: x.line.id, weight: weight(x.line) })));
+  for (const lines of mine.values()) {
+    const head = lines.find((b) => b.line.kind === "tuition") ?? lines[0];
+    if (!head) continue;
+    const amount = sum(lines.map((b) => b.line.amountPaise + b.line.taxPaise));
+    const owed = sum(lines.map((b) => shares.get(b.line.id) ?? 0n));
     timeline.push({
-      invoiceId: b.inv.id,
-      number: b.inv.number,
-      label: b.installment ? `Installment ${b.installment.n} of ${b.installment.of}` : (periodLabel(b.line.periodStart ?? b.inv.periodStart, b.line.periodEnd ?? b.inv.periodEnd) ?? b.line.description),
-      status: displayStatus(b.inv, today),
-      amountPaise: weight(b.line),
-      paidPaise: shares.get(b.line.id) ?? 0n,
-      dueDate: b.inv.dueDate,
+      invoiceId: head.inv.id,
+      number: head.inv.number,
+      label: head.installment ? `Installment ${head.installment.n} of ${head.installment.of}` : (periodLabel(head.line.periodStart ?? head.inv.periodStart, head.line.periodEnd ?? head.inv.periodEnd) ?? head.line.description),
+      status: displayStatus(head.inv, today),
+      amountPaise: amount,
+      paidPaise: head.inv.status === "draft" ? 0n : amount - owed,
+      dueDate: head.inv.dueDate,
     });
   }
-  // On a term plan only the earliest unpaid installment is due; the rest wait.
+  // On a term plan only the earliest unpaid installment is due; later ones not yet due wait.
   if (row.kind === "term") {
     let first = true;
     for (const t of timeline) {

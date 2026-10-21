@@ -1265,6 +1265,36 @@ describe("a student plan's detail", () => {
     expect(after.timeline.slice(0, 2)).toEqual(before.timeline.slice(0, 2));
   });
 
+  it("one invoice with two enrollments and an admission line: detail totals match the list", async () => {
+    const a = await setup("Detail A", { name: "x", kind: "recurring", billingCycle: "monthly", amountPaise: "200000", admissionFeePaise: "50000" });
+    const b = await setup("Detail B", { name: "x", kind: "recurring", billingCycle: "monthly", amountPaise: "100001" });
+    const kid = (await family("Detail Two")).ids[0] ?? "";
+    const join2 = async (batchId: string) => withTenant(T, async (tx) => (await enroll(tx, owner, { studentId: kid, batchId, startDate: M1 })).id);
+    const [ea, eb] = [await join2(a.batchId), await join2(b.batchId)];
+    await gen(M1, [ea, eb]);
+    const [inv] = await issueAll(kid);
+    await pay(kid, inv?.branchId ?? "", "123457", [{ invoiceId: inv?.id ?? "", amountPaise: "123457" }]);
+    const [da, db] = [await detail(ea), await detail(eb)];
+    const listed = new Map((await withTenant(T, (tx) => studentPlanList(tx, owner, { tab: "active", page: 1, q: "Detail Two" }, { now: NOW }))).rows.map((r) => [r.enrollmentId, r.outstandingPaise]));
+    for (const d of [da, db]) {
+      expect(d.totals.outstandingPaise).toBe(listed.get(d.row.enrollmentId));
+      expect(d.row.outstandingPaise).toBe(d.totals.outstandingPaise);
+      expect(d.totals.billedPaise - d.totals.paidPaise).toBe(d.totals.outstandingPaise);
+    }
+    expect(da.totals.billedPaise).toBe(250_000n); // tuition and admission
+    expect(da.totals.outstandingPaise + db.totals.outstandingPaise).toBe(350_001n - 123_457n);
+  });
+
+  it("a plan in a branch the viewer cannot reach is not found", async () => {
+    const s = await setup("Detail Br", { name: "x", kind: "recurring", billingCycle: "monthly", amountPaise: "100000" });
+    const main = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Detail Main", guardian: { fullName: "Main Mum", phone: `+9197${String(10_000_000 + ++phone)}`, relation: "mother" }, consents: { dataProcessing: true } }))).student;
+    const second = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Detail branch" }))).id;
+    const away = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: second, fullName: "Detail Away", code: `DAW/${stamp}` }));
+    const e = (await withTenant(T, (tx) => tx.insert(enrollments).values({ tenantId: T, studentId: away.id, batchId: s.batchId, startDate: M0, feePlanId: s.planId }).returning({ id: enrollments.id })))[0]?.id ?? "";
+    await expect(withTenant(T, (tx) => studentPlanDetail(tx, { ...owner, branchIds: [main.branchId] }, e, { now: NOW }))).rejects.toMatchObject({ status: 404 });
+    expect((await detail(e)).row.enrollmentId).toBe(e);
+  });
+
   it("needs invoices:read; unknown plans are not found", async () => {
     await expect(detail(monthly.e).then(() => withTenant(T, (tx) => studentPlanDetail(tx, teacher, monthly.e)))).rejects.toMatchObject({ status: 403 });
     await expect(detail(uuidv7())).rejects.toMatchObject({ status: 404 });
