@@ -38,8 +38,8 @@ const SORTS = [
 ];
 // Shown when a tab holds nothing and no filter is on.
 const EMPTY: Record<InvoiceStatusFilter, [string, string]> = {
-  all: ["No invoices yet", "New charges land here after the nightly run."],
-  draft: ["No drafts", "New charges land here after the nightly run."],
+  all: ["No invoices yet", "New charges show here after the nightly run."],
+  draft: ["No drafts", "Charges added by hand wait here until sent."],
   due: ["Nothing due", "Nothing waiting to be paid."],
   part_paid: ["No part payments", "Invoices with some money paid show here."],
   overdue: ["Nothing overdue", "Nothing past its due date."],

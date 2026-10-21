@@ -22,8 +22,8 @@ import { updateEnrollment } from "@/modules/enrollments/repo";
 import { enroll } from "@/modules/enrollments/service";
 import { generateInvoices } from "@/modules/fees/invoicing";
 import { type Invoice, invoices } from "@/modules/fees/schema";
-import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput } from "@/modules/fees/service";
-import { recordPayment } from "@/modules/payments/service";
+import { createDiscount, createPlan, giveDiscount, issueInvoices, type PlanInput, saveFeeSettings } from "@/modules/fees/service";
+import { recordPayment, refundPayment } from "@/modules/payments/service";
 import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { createEnquiry, logActivity, markLost } from "@/modules/enquiries/service";
 import { bookTrial, trialChoices } from "@/modules/enquiries/trials";
@@ -41,9 +41,9 @@ const DEV_ADMIN = { email: "admin@bravitar.demo", fullName: "Bravitar Admin", pa
 
 // Demo data for local development. Idempotent by natural key (tenant slug):
 // inserts what is missing, never updates what is there.
-const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string; extraModule?: string; alsoCoach?: { name: string; email: string } })[] = [
+const DEMO_TENANTS: (NewTenantInput & { resource: string; coach: { name: string; email: string }; extraBranch?: string; extraModule?: string; alsoCoach?: { name: string; email: string }; autoIssue?: boolean })[] = [
   { name: "Shivaji Karate Academy", slug: "shivaji-karate", verticalPreset: "karate", branchName: "Main Dojo", resource: "Main Hall", owner: { name: "Amit Shinde", email: "owner@shivaji-karate.demo", phone: "9800000001" }, coach: { name: "Ravi Patil", email: "coach@shivaji-karate.demo" } },
-  { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre" },
+  { name: "Bright Future Tuition", slug: "bright-future", verticalPreset: "tuition", branchName: "Main Centre", resource: "Room 1", owner: { name: "Farah Khan", email: "owner@bright-future.demo", phone: "9800000002" }, coach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" }, extraBranch: "Kothrud Centre", autoIssue: true },
   { name: "Madrasa Noor-ul-Islam", slug: "noor-madrasa", verticalPreset: "deeniyat", branchName: "Masjid-e-Noor", resource: "Prayer Hall", owner: { name: "Abdul Rahim Qureshi", email: "owner@noor-madrasa.demo", phone: "9800000003" }, coach: { name: "Hafiz Imran Ansari", email: "teacher@noor-madrasa.demo" }, extraModule: "tuition", alsoCoach: { name: "Sana Shaikh", email: "teacher@bright-future.demo" } },
 ];
 
@@ -91,7 +91,7 @@ function demoStudents(vertical: string): DemoStudent[] {
   ];
 }
 
-type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number | null; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[]; payer?: { student: string; guardian: { fullName: string; phone: string; relation: "father" } } };
+type DemoBatch = { name: string; program: string; plan: string; coach: "owner" | "coach"; inExtraBranch?: boolean; withRoom?: boolean; capacity: number | null; startDate: string; slots: { weekday: number; startTime: string; endTime: string }[]; students: string[]; payer?: { student: string; guardian: { fullName: string; phone: string; relation: "father" } }; sellPack?: string };
 const MEHTA_FATHER = { fullName: "Rohit Mehta", phone: "9876500297", relation: "father" as const };
 const days = (weekdays: number[], startTime: string, endTime: string) => weekdays.map((weekday) => ({ weekday, startTime, endTime }));
 
@@ -143,12 +143,15 @@ function demoBatches(vertical: string, today: string): { programs: string[]; pla
           { label: "1st installment", amountPaise: "600000", dueOffsetDays: 0 },
           { label: "2nd installment", amountPaise: "500000", dueOffsetDays: 90 },
           { label: "3rd installment", amountPaise: "500000", dueOffsetDays: 180 },
+          { label: "4th installment", amountPaise: "400000", dueOffsetDays: 270 },
         ],
       },
+      { name: "Doubt Pack", kind: "package", amountPaise: "300000", sessions: 10, validDays: 60 },
     ],
     batches: [
       { name: "Maths 9 A", program: "Class 9 Maths", plan: "Maths Monthly", coach: "coach", withRoom: true, capacity: 25, startDate: "2026-07-01", slots: [...days([1, 3], "16:00", "17:00"), ...days([6], "10:00", "11:30")], students: ["Aarav Deshmukh", "Zoya Shaikh", "Ishaan Patil", "Rohan Joshi"] },
       { name: "Science 10", program: "Class 10 Science", plan: "Science Term", coach: "coach", inExtraBranch: true, capacity: 20, startDate: "2026-07-01", slots: days([2, 4], "17:00", "18:30"), students: ["Zoya Shaikh", "Meher Kaur"] },
+      { name: "Doubt Clearing", program: "Class 9 Maths", plan: "Doubt Pack", coach: "coach", capacity: 10, startDate: "2026-07-01", slots: days([2, 5], "15:00", "16:00"), students: ["Anaya Deshmukh"], sellPack: "Anaya Deshmukh" },
     ],
   };
 }
@@ -195,11 +198,13 @@ async function seedFees(tx: Tx, ctx: StudentCtx, siblingId: string, timeZone: st
 // the family behind on fees only for the oldest months; this month's came in
 // over the days, two today (cash, UPI in part), the rest still open. Their
 // receipts wait under Messages → To send.
-async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZone: string): Promise<void> {
+async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZone: string, studentIds: Map<string, string>): Promise<void> {
   const today = todayIn(timeZone);
   const thisMonth = `${today.slice(0, 7)}-01`;
   const recent = addMonths(thisMonth, -2);
-  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => !(i.payerGuardianId && behind.has(i.payerGuardianId)) || i.issueDate < recent);
+  // Meher's term plan is paid by hand in seedDeskCases, two installments of four.
+  const meher = studentIds.get("Meher Kaur");
+  const open = (await tx.select().from(invoices).where(inArray(invoices.status, ["issued", "part_paid"])).orderBy(asc(invoices.dueDate), asc(invoices.number))).filter((i) => (!(i.payerGuardianId && behind.has(i.payerGuardianId)) || i.issueDate < recent) && !(meher && i.studentId === meher));
   const pay = (inv: Invoice, on: string, method: "cash" | "upi" | "cheque", half = false) => {
     const balance = inv.totalPaise - inv.paidPaise;
     const amount = String(half ? (split(balance, 2)[0] ?? balance) : balance);
@@ -221,6 +226,34 @@ async function seedPayments(tx: Tx, ctx: StudentCtx, behind: Set<string>, timeZo
   for (const [j, inv] of rest.entries()) {
     const on = addDays(thisMonth, 1 + (j % 5));
     if (j % 2 === 0) await pay(inv, on < today ? on : today, methods[j % 3] ?? "cash");
+  }
+}
+
+// Cases for the Finance pages (Bright Future): a uniform paid at the desk by card and part refunded,
+// a term plan with two of four installments paid, a family part paid past due and holding advance.
+async function seedDeskCases(tx: Tx, ctx: StudentCtx, studentIds: Map<string, string>, timeZone: string): Promise<void> {
+  const today = todayIn(timeZone);
+  const id = (name: string) => studentIds.get(name) ?? "";
+  const [aarav] = await tx.select().from(invoices).where(eq(invoices.studentId, id("Aarav Deshmukh"))).limit(1);
+  const branchId = aarav?.branchId ?? "";
+  const uniform = await recordPayment(tx, ctx, { requestId: uuidv7(), memberId: id("Aarav Deshmukh"), branchId, amountPaise: "85000", method: "card", reference: "Card 4821", charge: { kind: "item", description: "Uniform", amountPaise: "85000" } });
+  await refundPayment(tx, ctx, uniform.id, { amountPaise: "20000", method: "cash", reason: "Wrong size, one item returned" });
+  const meherInvoices = await tx.select().from(invoices).where(eq(invoices.studentId, id("Meher Kaur"))).orderBy(asc(invoices.dueDate));
+  for (const inv of meherInvoices.slice(0, 2)) {
+    const amount = String(inv.totalPaise - inv.paidPaise);
+    const on = addDays(inv.dueDate, -2);
+    await recordPayment(tx, ctx, { requestId: uuidv7(), memberId: inv.studentId ?? "", branchId: inv.branchId, amountPaise: amount, method: "upi", reference: `UPI 3390 ${on.slice(5)}`, allocations: [{ invoiceId: inv.id, amountPaise: amount }] }, on < today ? { now: new Date(`${on}T05:30:00Z`) } : {});
+  }
+  // Ishaan's family: the oldest overdue invoice half paid, the next paid with 500 over, so advance is held while more is owed.
+  const owing = await tx.select().from(invoices).where(and(eq(invoices.studentId, id("Ishaan Patil")), inArray(invoices.status, ["issued", "part_paid"]))).orderBy(asc(invoices.dueDate));
+  const [older, next] = owing.filter((i) => i.dueDate < today);
+  if (older) {
+    const half = String((older.totalPaise - older.paidPaise) / 2n);
+    await recordPayment(tx, ctx, { requestId: uuidv7(), memberId: id("Ishaan Patil"), branchId: older.branchId, amountPaise: half, method: "cash", allocations: [{ invoiceId: older.id, amountPaise: half }] });
+  }
+  if (next) {
+    const balance = next.totalPaise - next.paidPaise;
+    await recordPayment(tx, ctx, { requestId: uuidv7(), memberId: id("Ishaan Patil"), branchId: next.branchId, amountPaise: String(balance + 50000n), method: "upi", reference: "UPI 6612", allocations: [{ invoiceId: next.id, amountPaise: String(balance) }] });
   }
 }
 
@@ -253,7 +286,7 @@ export async function seed(): Promise<SeedResult> {
   console.log(`seed: /platform admin ${DEV_ADMIN.email} / ${DEV_ADMIN.password}, authenticator key ${DEV_ADMIN.secret} (dev only)`);
   const result: SeedResult = { tenantsCreated: [], tenantsPresent: [] };
 
-  for (const { resource, coach, extraBranch, extraModule, alsoCoach, ...input } of DEMO_TENANTS) {
+  for (const { resource, coach, extraBranch, extraModule, alsoCoach, autoIssue, ...input } of DEMO_TENANTS) {
     const existing = await platformRead((tx) => findTenantBySlug(tx, input.slug));
     if (existing) {
       result.tenantsPresent.push(input.slug);
@@ -329,6 +362,8 @@ export async function seed(): Promise<SeedResult> {
         });
         for (const name of b.students) {
           const e = await enroll(tx, sctx, { studentId: studentIds.get(name) ?? "", batchId: batch.id, startDate: joinedOn.get(name) ?? b.startDate });
+          // A session pack sold at the desk before the 30 days of marks begin, so they count against it.
+          if (b.sellPack === name) await recordPayment(tx, sctx, { requestId: uuidv7(), memberId: e.studentId, branchId: batch.branchId, amountPaise: "300000", method: "upi", reference: "UPI 5520", pack: { enrollmentId: e.id } }, { now: new Date(Date.now() - 31 * 86_400_000) });
           if (b.payer?.student !== name) continue;
           // An override: this enrollment is paid by a second guardian, who also gets access to the member.
           const other = await createGuardian(tx, { tenantId: tenant.id, fullName: b.payer.guardian.fullName, phone: b.payer.guardian.phone });
@@ -341,7 +376,9 @@ export async function seed(): Promise<SeedResult> {
       await seedHistory(tx, sctx, oftenAbsent, tenant.timezone);
       for (const h of DEMO_HOLIDAYS) await addHoliday(tx, sctx, h);
       await seedFees(tx, sctx, siblingId, tenant.timezone);
-      await seedPayments(tx, sctx, behind, tenant.timezone);
+      await seedPayments(tx, sctx, behind, tenant.timezone, studentIds);
+      if (input.slug === "bright-future") await seedDeskCases(tx, sctx, studentIds, tenant.timezone);
+      if (autoIssue) await saveFeeSettings(tx, sctx, { invoiceIssue: "auto" });
       await queueReminders(tx); // what the hourly job would queue now
       await seedEnquiries(tx, sctx, programIds.values().next().value ?? "", tenant.timezone);
     });

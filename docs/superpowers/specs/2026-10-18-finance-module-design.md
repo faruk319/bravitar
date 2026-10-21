@@ -1,6 +1,6 @@
 # Finance module — design
 
-Date: 2026-10-18 · Status: **approved by the user 2026-10-18** ("go with your suggestion and make build plan")
+Date: 2026-10-18 · Status: **built** (approved by the user 2026-10-18)
 Builds on: `2026-10-07-finance-module-decisions.md`, `2026-10-07-member-guardian-payer.md`,
 `2026-10-07-reports-analytics-decisions.md` · Measured at `f08bca1`
 

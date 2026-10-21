@@ -162,14 +162,14 @@ Not five items. Not a hamburger. A coach has exactly one job in this app.
 Desktop: 64px icon rail always visible, expands to 260px panel on click, state
 remembered. Phone: the rail becomes a bottom sheet triggered from the header.
 
-Navigation grouped into four sections, in this order. This order is the owner's
+Navigation grouped into four sections (Finance, built 2026-10, replaces the original MONEY group), in this order. This order is the owner's
 actual day.
 
 ```
 DAILY          Dashboard, Today's sessions, Attendance
 PEOPLE         Students, Enquiries, Staff
-MONEY          Invoices, Collect payment, Reports
-SETUP          Programs & batches, Fee plans, Messages, Settings
+FINANCE        Overview · Collections · Invoices · Student plans · Fee plans · Discounts & credits · Reports
+SETUP          Programs & batches, Messages, Settings
 ```
 
 Badge counts on nav items are the cheapest useful feature in the product:

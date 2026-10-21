@@ -500,6 +500,16 @@ invoice creation, bulk invoice generation preview.
 - [ ] A voided invoice keeps its number and never reappears in dues
 - [ ] Proration on mid-cycle join matches the rule the tenant configured
 
+**Agreed 2026-10-18** (Finance module, `docs/superpowers/specs/2026-10-18-finance-module-design.md`)
+
+- The screens are rebuilt, the tested money logic kept: allocation, proration, idempotent billing. All finance screens live under `/finance/*`, with no redirects from the old paths.
+- The student-side subscription is called a **Student plan** (Subscriptions means the academy's own Bravitar plan).
+- **Send invoices** is an academy setting on the fee settings card (`settings:manage`, audited): *after I review* (default) or *automatically*.
+- Automatically: every draft the generator makes (nightly run, Generate now, the redraft after "cancel and bill again" or a student leaving) is issued in the same transaction: number taken, bill-to name frozen, advance applied, reminders as for any issued invoice. A draft with no payer name stays a draft. **Manual drafts are never auto-issued.**
+- Advance keeps paying the next invoice automatically; there is no manual "Apply credit" step. Every screen shows where the money came from.
+- A later unpaid installment of a term plan reads **Upcoming**; a late one shows "Overdue since <date>" under Next bill. Overdue beats Part paid.
+- **Session packs** (fee plan kind `package`: sessions, days valid, price) are never billed by the nightly run. Staff sell one at the desk; it is invoiced, issued and paid in full in one step and starts that day. A session is used when attendance is marked Present or Late; with none left, marking Present or Late is refused. Unused sessions lapse on the expiry date; `invoices:manage` may extend it with a reason (audited). Usage is derived from attendance, never stored.
+
 ---
 
 ## 9. Payments and receipts
@@ -597,6 +607,14 @@ advance), payment list, daily collection sheet, receipt PDF, refund.
 - [ ] Receipt numbers for a tenant across a financial year have no gaps and no
       duplicates, under 50 concurrent inserts
 - [ ] Refunding does not change the original receipt
+
+**Agreed 2026-10-18**
+
+- Collect payment is a drawer on Collections; `/payments/new` is gone. The Payments page is folded into Collections (method is a filter).
+- **Desk charge:** anyone with `fees:collect` may add a one-off charge (uniform, exam, admission, other) while taking a payment, **only when it is paid in full in the same step**; a smaller amount is refused, never left part paid. A charge left owing is made with Create invoice and needs `invoices:manage`. The charge is an invoice without a billing key, so the nightly run neither bills it again nor adds to it. Tax applies only with a GSTIN.
+- **Session pack** is a third purpose in the same drawer, paid in full first like a charge (see §8).
+- The receipt carries a balance snapshot taken when it was recorded; the invoice records who created and who issued it.
+- Front Desk sees only their own receipts for today.
 
 ---
 

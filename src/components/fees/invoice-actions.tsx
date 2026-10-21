@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { request, send } from "@/lib/send";
 
-// Runs tonight's job now for this academy; new charges land in To review.
+// Runs tonight's job now for this academy; new charges land in Draft, or go out at once when invoices are sent automatically.
 export function GenerateNow() {
   const a = useAction();
   const [note, setNote] = useState<string>();
@@ -19,11 +19,12 @@ export function GenerateNow() {
         disabled={a.busy}
         onClick={() =>
           void a.run(async () => {
-            const r = await request<{ invoices: number; lines: number; skipped: unknown[] }>("/api/invoices", "POST", { action: "generate" });
+            const r = await request<{ invoices: number; lines: number; issued: number; skipped: unknown[] }>("/api/invoices", "POST", { action: "generate" });
             if (r.data) {
               const n = r.data.skipped.length;
               const done = r.data.lines ? `${r.data.lines} new ${r.data.lines === 1 ? "charge" : "charges"} on ${r.data.invoices} ${r.data.invoices === 1 ? "invoice" : "invoices"}` : "Nothing new to bill";
-              setNote(n ? `${done}. ${n} ${n === 1 ? "member" : "members"} not billed` : done);
+              const sent = r.data.issued ? `${done}, ${r.data.issued} sent` : done;
+              setNote(n ? `${sent}. ${n} ${n === 1 ? "member" : "members"} not billed` : sent);
             }
             return r.error;
           })

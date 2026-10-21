@@ -332,6 +332,15 @@ unless marked.
       next run, once
 - [x] The academy's credential resolver never falls back to anything but its own row
 
+**Finance module (2026-10-18 to 21)**, in `fees.integration.test.ts`, `packs.integration.test.ts` and `payments.integration.test.ts`
+
+- [x] Sending invoices automatically: review mode leaves drafts; auto mode issues what the run makes, numbers it and applies advance; never a manual draft; the redraft after cancel and bill again is issued; an invoice paid by advance gets no reminder; the setting needs `settings:manage` and is audited
+- [x] Desk charge: issued and paid in full in one step, a smaller amount refused, a repeated request makes one charge, advance left alone, `fees:collect` is enough, only the student's own program and payer
+- [x] Session pack: sold at the desk, invoiced and paid in full; Present or Late uses a session, none left refuses the mark, Absent does not; expiry and extension with a reason; the run skips `package` plans
+- [x] Discounts and credits page: given discounts running and ended, discount lines add up to the invoices' discounts, catalogue access
+- [x] Student plans list and detail: tabs, who pays, next bill, outstanding per plan, branch scope, timeline, only the earliest unpaid installment due and later ones Upcoming, changing the plan leaves earlier rows as billed
+- [x] The collect drawer: its screen and dating rules, and the desk's own receipts
+
 **Later**
 
 - [ ] Late fee applied once, not once per reminder run. Not scheduled: late fees

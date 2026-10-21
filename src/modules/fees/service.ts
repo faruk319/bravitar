@@ -3,7 +3,7 @@ import { allows, assertCan, ForbiddenError } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate, periodLabel, todayIn } from "@/lib/dates";
+import { addDays, formatDate, isIsoDate, periodLabel, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { type Paise, roundHalfUp, sum } from "@/lib/money/paise";
 import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo";
@@ -675,7 +675,7 @@ export type StudentPlanRow = {
   status: Enrollment["status"];
   payerName: string;
   nextBill: string | null;
-  packText: string | null;
+  packText: string | null; // the Next bill slot's own text: a pack's sessions, or "Overdue since" for a late installment
   outstandingPaise: Paise;
 };
 
@@ -762,7 +762,7 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
       status: e.status,
       payerName: (payer && names.get(payerKey(payer))) ?? "",
       nextBill,
-      packText: pack && e.status === "active" ? packText(pack) : null,
+      packText: pack && e.status === "active" ? packText(pack) : nextBill && plan.kind === "term" && nextBill < today ? `Overdue since ${formatDate(nextBill)}` : null,
       outstandingPaise: owed.get(e.id) ?? 0n,
     };
   });

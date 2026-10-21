@@ -4,7 +4,7 @@ import { generateInvoices } from "./invoicing";
 
 export const INVOICES_GENERATE = "invoices.generate";
 
-// Nightly: each academy's charges for the day become drafts to review (docs/03 §8).
+// Nightly: each academy's charges for the day become drafts, or are sent at once in auto mode (docs/03 §8).
 export function runInvoicesGenerate(opts: { now?: Date; tenantIds?: string[] } = {}): Promise<TenantRun> {
   return forEachTenant(
     INVOICES_GENERATE,
