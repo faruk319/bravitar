@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, cycleContaining, DISPLAY_STATUSES, displayStatus, installmentOf, invoiceTotals, lineAmounts, recurringCharges } from "./billing";
+import { addMonths, cycleContaining, DISPLAY_STATUSES, displayStatus, installmentOf, invoiceTotals, lineAmounts, nextRecurringBill, recurringCharges, spreadOver } from "./billing";
 import { INVOICE_STATUSES } from "./schema";
 
 const plan = { cycle: "monthly" as const, billingDay: 1, amount: 80000n, proration: "full" as const };
@@ -113,5 +113,20 @@ describe("installments", () => {
     expect(installmentOf("tuition|e1|2026-10-01")).toBeNull();
     expect(installmentOf("admission|s1|pr1")).toBeNull();
     expect(installmentOf(null)).toBeNull();
+  });
+});
+
+describe("student plans", () => {
+  it("spreads odd paise so the parts add back exactly", () => {
+    expect([...spreadOver(50_001n, [{ id: "a", weight: 33_333n }, { id: "b", weight: 66_667n }]).values()]).toEqual([16_667n, 33_334n]);
+    expect([...spreadOver(100n, [{ id: "a", weight: 0n }]).values()]).toEqual([0n]);
+  });
+
+  it("finds the next bill", () => {
+    const p = { cycle: "monthly", billingDay: 1, amount: 200_000n, proration: "full", anchor: "2026-09-01", start: "2026-09-01", end: null, pausedOn: null, continuing: false } as const;
+    expect(nextRecurringBill(p, "2026-09-24")).toBe("2026-10-01");
+    expect(nextRecurringBill({ ...p, cycle: "quarterly", anchor: "2026-07-01", start: "2026-07-01" }, "2026-09-24")).toBe("2026-10-01");
+    expect(nextRecurringBill({ ...p, pausedOn: "2026-09-20" }, "2026-09-24")).toBeNull();
+    expect(nextRecurringBill({ ...p, end: "2026-09-30" }, "2026-09-24")).toBeNull();
   });
 });

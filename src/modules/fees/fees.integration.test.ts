@@ -34,7 +34,7 @@ import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoiceLines, invoices } from "./schema";
-import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, voidInvoice } from "./service";
+import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, studentPlanList, type StudentPlanQuery, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -1132,5 +1132,74 @@ describe("sending invoices automatically", () => {
     await expect(save({ invoiceIssue: "auto" }, desk)).rejects.toMatchObject({ status: 403 });
     expect(await save({ invoiceIssue: "auto" })).toMatchObject({ invoiceIssue: "auto" });
     expect(await lastAudit("settings.fees")).toMatchObject({ actorId: owner.staffId, before: { invoiceIssue: "review" }, after: { invoiceIssue: "auto" } });
+  });
+});
+
+describe("the student plans list", () => {
+  const plans = (q: Partial<StudentPlanQuery>, as: ScopedCtx = owner) => withTenant(T, (tx) => studentPlanList(tx, as, { tab: "active", page: 1, ...q }, { now: NOW }));
+  const setup = async (name: string, rupees: string) => {
+    const programId = (await withTenant(T, (tx) => addProgram(tx, owner, { name: `${name} ${stamp}` }))).id;
+    const planId = (await withTenant(T, (tx) => createPlan(tx, owner, { name: `${name} plan`, kind: "recurring", billingCycle: "monthly", amountPaise: rupees }))).id;
+    const mk = async (b: string) =>
+      (batch[`${name} ${b}`] = (await withTenant(T, (tx) => createBatch(tx, owner, { name: `${name} ${b}`, programId, slots: [{ weekday: 1, startTime: "17:00", endTime: "18:00" }], startDate: addMonths(M0, -2), defaultFeePlanId: planId }))).id);
+    return { programId, batchA: await mk("A"), batchB: await mk("B") };
+  };
+  const member = async (name: string) => (await family(name)).ids[0] ?? "";
+
+  it("tabs: active, paused, ended; a transferred enrollment is not listed", async () => {
+    const s = await setup("Tabs", "100000");
+    const start = addDays(M0, -5);
+    const enrolled = async (studentId: string, batchId: string) => (await withTenant(T, (tx) => enroll(tx, owner, { studentId, batchId, startDate: start }))).id;
+    await enrolled(await member("Tab Active"), s.batchA);
+    const paused = await enrolled(await member("Tab Paused"), s.batchA);
+    await withTenant(T, (tx) => pauseEnrollment(tx, owner, paused));
+    const left = await enrolled(await member("Tab Left"), s.batchA);
+    await withTenant(T, (tx) => leaveEnrollment(tx, owner, left, { date: addDays(M0, -1) }));
+    const moved = await enrolled(await member("Tab Moved"), s.batchA);
+    await withTenant(T, (tx) => transferEnrollment(tx, owner, moved, { batchId: s.batchB, date: M0 }));
+
+    expect((await plans({ programId: s.programId })).counts).toEqual({ active: 2, paused: 1, ended: 1 });
+    expect((await plans({ programId: s.programId, tab: "ended" })).rows.map((r) => r.enrollmentId)).toEqual([left]);
+    expect((await plans({ programId: s.programId, tab: "paused" })).rows.map((r) => r.enrollmentId)).toEqual([paused]);
+    expect((await plans({ programId: s.programId, q: "Tab Moved" })).rows.map((r) => r.enrollmentId)).not.toContain(moved);
+  });
+
+  it("who pays, the next bill and the fee on each plan", async () => {
+    const s = await setup("Bills", "100000");
+    const f = await family("Bill Kid");
+    const e = await join(f.ids[0] ?? "", `Bills A`, M0);
+    const [row] = (await plans({ programId: s.programId })).rows;
+    expect(row).toMatchObject({ enrollmentId: e, studentName: "Bill Kid", programName: `Bills ${stamp}`, amountPaise: 100000n, payerName: "Parent Bill Kid", nextBill: M2, outstandingPaise: 0n });
+  });
+
+  it("outstanding per plan when one invoice carries two enrollments", async () => {
+    await setup("Out K", "100000");
+    await setup("Out D", "200000");
+    const kid = await member("Two Programs");
+    const [ek, ed] = [await join(kid, "Out K A", M0), await join(kid, "Out D A", M0)];
+    await gen(M1, [ek, ed]);
+    const [inv] = await invoicesOf([kid]);
+    await withTenant(T, (tx) => issueInvoices(tx, owner, [inv?.id ?? ""], { now: at(M1) }));
+    await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: kid, branchId: inv?.branchId ?? "", amountPaise: "150000", allocations: [{ invoiceId: inv?.id ?? "", amountPaise: "150000" }] }));
+    const byPlan = new Map((await plans({ q: "Two Programs" })).rows.map((r) => [r.enrollmentId, r]));
+    expect(byPlan.get(ek)?.outstandingPaise).toBe(50_000n);
+    expect(byPlan.get(ed)?.outstandingPaise).toBe(100_000n);
+  });
+
+  it("a viewer limited to one branch sees only that branch's plans", async () => {
+    const s = await setup("Branch", "100000");
+    const main = (await withTenant(T, (tx) => createStudent(tx, owner, { fullName: "Main Kid", guardian: { fullName: "Main Mum", phone: `+9197${String(10_000_000 + ++phone)}`, relation: "mother" }, consents: { dataProcessing: true } }))).student;
+    const second = (await withTenant(T, (tx) => createBranch(tx, { tenantId: T, name: "Plans branch" }))).id;
+    const away = await withTenant(T, (tx) => insertStudent(tx, { tenantId: T, branchId: second, fullName: "Away Kid", code: `AWAY/${stamp}` }));
+    const mine = await join(main.id, "Branch A", M0);
+    const other = (await withTenant(T, (tx) => tx.insert(enrollments).values({ tenantId: T, studentId: away.id, batchId: s.batchA, startDate: M0, feePlanId: plan.karate ?? "" }).returning({ id: enrollments.id })))[0]?.id ?? "";
+    const seen = (await plans({ programId: s.programId }, { ...owner, branchIds: [main.branchId] })).rows.map((r) => r.enrollmentId);
+    expect(seen).toContain(mine);
+    expect(seen).not.toContain(other);
+    expect((await plans({ programId: s.programId })).rows.map((r) => r.enrollmentId)).toContain(other);
+  });
+
+  it("needs invoices:read", async () => {
+    await expect(plans({}, teacher)).rejects.toMatchObject({ status: 403 });
   });
 });

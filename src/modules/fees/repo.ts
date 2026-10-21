@@ -2,6 +2,7 @@ import { and, asc, desc, eq, exists, gt, gte, ilike, inArray, isNotNull, isNull,
 import { addDays } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
+import type { Paise } from "@/lib/money/paise";
 import { batches, programs } from "@/modules/batches/schema";
 import { type Enrollment, enrollments } from "@/modules/enrollments/schema";
 import { staffUsers } from "@/modules/staff/schema";
@@ -560,4 +561,77 @@ export async function owedSummary(tx: Tx, branchIds: string[], today: string): P
     overduePaise: BigInt(r?.overdue ?? "0"),
     dueTomorrow: r?.dueTomorrow ?? 0,
   };
+}
+
+// ---- student plans
+
+export type StudentPlanTab = "active" | "paused" | "ended";
+const TAB_STATUS: Record<StudentPlanTab, Enrollment["status"]> = { active: "active", paused: "paused", ended: "left" };
+export type StudentPlanFilter = { q?: string | undefined; programId?: string | undefined; batchId?: string | undefined; planId?: string | undefined };
+export type StudentPlanBase = { e: Enrollment; plan: FeePlan; studentName: string; studentCode: string; batchName: string; programName: string };
+
+// Enrollments with a fee plan; a transferred one is not listed, its next enrollment is.
+function planWhere(branchIds: string[], f: StudentPlanFilter): SQL | undefined {
+  const where = [isNotNull(enrollments.feePlanId), isNull(students.deletedAt), branchIds.length ? inArray(students.branchId, branchIds) : undefined, ne(enrollments.status, "transferred")];
+  if (f.programId) where.push(eq(batches.programId, f.programId));
+  if (f.batchId) where.push(eq(batches.id, f.batchId));
+  if (f.planId) where.push(eq(feePlans.id, f.planId));
+  const q = f.q?.trim();
+  if (q) where.push(or(ilike(students.fullName, likeOf(q)), ilike(students.code, likeOf(q))));
+  return and(...where);
+}
+
+const planFrom = (tx: Tx) =>
+  tx.select({ e: enrollments, plan: feePlans, studentName: students.fullName, studentCode: students.code, batchName: batches.name, programName: programs.name })
+    .from(enrollments)
+    .innerJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
+    .innerJoin(students, eq(students.id, enrollments.studentId))
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .innerJoin(programs, eq(programs.id, batches.programId));
+
+export async function studentPlanRows(tx: Tx, branchIds: string[], f: StudentPlanFilter & { tab: StudentPlanTab; limit: number; offset: number }): Promise<StudentPlanBase[]> {
+  return planFrom(tx)
+    .where(and(planWhere(branchIds, f), eq(enrollments.status, TAB_STATUS[f.tab])))
+    .orderBy(asc(students.fullName), asc(enrollments.startDate), asc(enrollments.id))
+    .limit(f.limit)
+    .offset(f.offset);
+}
+
+// What each tab holds under the filters; the tab itself is not one of them.
+export async function studentPlanTabCounts(tx: Tx, branchIds: string[], f: StudentPlanFilter): Promise<Record<StudentPlanTab, number>> {
+  const n = (status: Enrollment["status"]) => sql<number>`count(*) FILTER (WHERE ${enrollments.status} = ${status})::int`;
+  const [r] = await tx
+    .select({ active: n("active"), paused: n("paused"), ended: n("left") })
+    .from(enrollments)
+    .innerJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
+    .innerJoin(students, eq(students.id, enrollments.studentId))
+    .innerJoin(batches, eq(batches.id, enrollments.batchId))
+    .where(planWhere(branchIds, f));
+  return { active: r?.active ?? 0, paused: r?.paused ?? 0, ended: r?.ended ?? 0 };
+}
+
+// The earliest unpaid installment's due date per term enrollment.
+export async function nextInstallmentDue(tx: Tx, enrollmentIds: string[]): Promise<Map<string, string>> {
+  if (!enrollmentIds.length) return new Map();
+  const rows = await tx
+    .select({ enrollmentId: invoiceLines.enrollmentId, due: sql<string>`min(${invoices.dueDate})` })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .innerJoin(feePlans, eq(feePlans.id, invoiceLines.feePlanId))
+    .where(and(inArray(invoiceLines.enrollmentId, enrollmentIds), eq(invoiceLines.kind, "tuition"), eq(feePlans.kind, "term"), inArray(invoices.status, ["draft", "issued", "part_paid"])))
+    .groupBy(invoiceLines.enrollmentId);
+  return new Map(rows.flatMap((r) => (r.enrollmentId ? [[r.enrollmentId, r.due] as const] : [])));
+}
+
+export type OpenLine = { invoiceId: string; lineId: string; enrollmentId: string | null; weight: Paise; balance: Paise };
+
+// Every line of each open invoice that carries one of these enrollments, with the invoice's balance.
+export async function openInvoiceLines(tx: Tx, enrollmentIds: string[]): Promise<OpenLine[]> {
+  if (!enrollmentIds.length) return [];
+  const rows = await tx
+    .select({ invoiceId: invoices.id, lineId: invoiceLines.id, enrollmentId: invoiceLines.enrollmentId, amount: invoiceLines.amountPaise, tax: invoiceLines.taxPaise, total: invoices.totalPaise, paid: invoices.paidPaise })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(and(inArray(invoices.status, ["issued", "part_paid"]), inArray(invoiceLines.invoiceId, tx.select({ id: invoiceLines.invoiceId }).from(invoiceLines).where(inArray(invoiceLines.enrollmentId, enrollmentIds)))));
+  return rows.map((r) => ({ invoiceId: r.invoiceId, lineId: r.lineId, enrollmentId: r.enrollmentId, weight: r.amount + r.tax, balance: r.total - r.paid }));
 }

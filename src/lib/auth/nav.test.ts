@@ -16,7 +16,7 @@ describe("navFor", () => {
     expect(hrefs(groups)).toEqual(hrefs(NAV_GROUPS));
     expect(hrefs(groups)).toEqual([
       "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches",
-      "/finance/collections", "/finance/invoices", "/finance/fee-plans", "/reports",
+      "/finance/collections", "/finance/invoices", "/finance/student-plans", "/finance/fee-plans", "/reports",
       "/staff", "/messages", "/settings", "/billing",
     ]);
   });
@@ -81,7 +81,7 @@ describe("navFor", () => {
 
   it("keeps Finance with only the permitted children when two or more remain", () => {
     const parent = finance(as(["invoices:read", "fees:collect"]));
-    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/finance/collections", "/finance/invoices"]);
+    expect(parent && isParent(parent) ? parent.children.map((c) => c.href) : null).toEqual(["/finance/collections", "/finance/invoices", "/finance/student-plans"]);
   });
 
   it("keeps the Finance parent between Batches and Reports", () => {

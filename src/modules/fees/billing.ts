@@ -1,5 +1,5 @@
 import { addDays } from "@/lib/dates";
-import { type Paise, percent, roundHalfUp, sum } from "@/lib/money/paise";
+import { type Paise, percent, roundHalfUp, split, sum } from "@/lib/money/paise";
 import type { Invoice } from "./schema";
 
 // Pure billing rules (docs/04, docs/03 §8 agreed 2026-09-24). No database here.
@@ -57,6 +57,18 @@ export function recurringCharges(p: RecurringInput, from: string, to: string): C
     if (issueDate >= from) out.push({ period, issueDate, amount, prorated });
   }
   return out;
+}
+
+// The next charge to be billed after today, within a year; null when none is coming.
+export function nextRecurringBill(p: RecurringInput, today: string): string | null {
+  return recurringCharges(p, addDays(today, 1), addMonths(today, 13))[0]?.issueDate ?? null;
+}
+
+// `amount` shared over the parts by weight, always adding back exactly; all-zero weights share nothing.
+export function spreadOver(amount: Paise, parts: { id: string; weight: Paise }[]): Map<string, Paise> {
+  if (parts.every((p) => p.weight === 0n)) return new Map(parts.map((p) => [p.id, 0n]));
+  const shares = split(amount, parts.map((p) => Number(p.weight)));
+  return new Map(parts.map((p, i) => [p.id, shares[i] ?? 0n]));
 }
 
 export type LineDiscount = { name: string; reason: string; kind: "percent" | "amount"; value: number };

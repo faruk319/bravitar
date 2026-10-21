@@ -41,6 +41,7 @@ export const NAV_GROUPS: NavGroup[] = [
           // Front Desk collects without payments:read; the page shows them their own receipts.
           { href: "/finance/collections", label: { text: "Collections" }, icon: "Wallet", permission: ["payments:read", "fees:collect"] },
           { href: "/finance/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
+          { href: "/finance/student-plans", label: { text: "Student plans" }, icon: "Repeat", permission: "invoices:read" },
           { href: "/finance/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
         ],
       },

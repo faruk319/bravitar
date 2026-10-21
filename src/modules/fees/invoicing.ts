@@ -56,7 +56,7 @@ type Charge = {
 
 type Chains = { prev: (id: string) => Link | undefined; root: (e: Enrollment) => { id: string; startDate: string }; firstInProgram: (studentId: string, programId: string) => string | undefined };
 
-function chains(links: Link[]): Chains {
+export function chains(links: Link[]): Chains {
   const prevOf = new Map(links.flatMap((l) => (l.next ? [[l.next, l] as const] : [])));
   const firsts = new Map<string, Link>();
   for (const l of links) {

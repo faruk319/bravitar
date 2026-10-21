@@ -9,6 +9,7 @@ import { type Paise, roundHalfUp, sum } from "@/lib/money/paise";
 import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo";
 import type { Program } from "@/modules/batches/schema";
 import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
+import type { Enrollment } from "@/modules/enrollments/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { payerInScope } from "@/modules/payments/repo";
 import { applyAdvance } from "@/modules/payments/service";
@@ -18,10 +19,11 @@ import { RELATION_LABELS } from "@/modules/students/relations";
 import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
-import { type DisplayStatus, displayStatus, lineAmounts } from "./billing";
+import { queryReader, type SearchParams } from "@/lib/url-query";
+import { type Cycle, type DisplayStatus, displayStatus, lineAmounts, nextRecurringBill, spreadOver } from "./billing";
 import { type ManualLine, manualLine } from "./charge";
 import type { InvoiceQuery } from "./invoice-query";
-import { type Actor, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
+import { type Actor, chains, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
 import {
   admissionBilled,
   discountsOf,
@@ -50,6 +52,13 @@ import {
   payerNames,
   type OpenInstallment,
   nextDueDate,
+  enrollmentLinks,
+  nextInstallmentDue,
+  type OpenLine,
+  openInvoiceLines,
+  type StudentPlanTab,
+  studentPlanRows,
+  studentPlanTabCounts,
   openInstallments,
   type PlanRow,
   programsOnInvoice,
@@ -589,4 +598,132 @@ export async function saveFeeSettings(tx: Tx, ctx: ScopedCtx, input: z.input<typ
   const after = await updateOwnTenant(tx, ctx.tenantId, { ...(data.gstin !== undefined ? { gstin: data.gstin || null } : {}), ...(data.proration ? { proration: data.proration } : {}), ...(data.invoiceIssue ? { invoiceIssue: data.invoiceIssue } : {}) });
   await writeAudit(tx, { ...actor(ctx), action: "settings.fees", entityType: "tenant", entityId: ctx.tenantId, before: { gstin: before?.gstin, proration: before?.proration, invoiceIssue: before?.invoiceIssue }, after: { gstin: after.gstin, proration: after.proration, invoiceIssue: after.invoiceIssue } });
   return { gstin: after.gstin, proration: after.proration, invoiceIssue: after.invoiceIssue };
+}
+
+// ---- student plans
+
+export type StudentPlanQuery = { tab: StudentPlanTab; q?: string; programId?: string; batchId?: string; planId?: string; page: number };
+const PLAN_TABS = ["active", "paused", "ended"] as const;
+
+export function parseStudentPlanQuery(sp: SearchParams): StudentPlanQuery {
+  const read = queryReader(sp);
+  const out: StudentPlanQuery = { tab: read.oneOf("tab", PLAN_TABS) ?? "active", page: read.page() };
+  const q = read.one("q");
+  if (q) out.q = q;
+  for (const [k, v] of [["programId", read.id("program")], ["batchId", read.id("batch")], ["planId", read.id("plan")]] as const) if (v) out[k] = v;
+  return out;
+}
+
+// The inverse of parseStudentPlanQuery, for links that keep the filters; defaults stay out.
+export function studentPlanParams(q: Omit<StudentPlanQuery, "page">, page?: number): URLSearchParams {
+  const out = new URLSearchParams();
+  if (q.tab !== "active") out.set("tab", q.tab);
+  for (const [k, name] of [["q", "q"], ["programId", "program"], ["batchId", "batch"], ["planId", "plan"]] as const) if (q[k]) out.set(name, q[k]);
+  if (page && page > 1) out.set("page", String(page));
+  return out;
+}
+
+export type StudentPlanRow = {
+  enrollmentId: string;
+  studentId: string;
+  studentName: string;
+  studentCode: string;
+  programName: string;
+  batchName: string;
+  planId: string;
+  planName: string;
+  kind: FeePlan["kind"];
+  cycle: FeePlan["billingCycle"];
+  amountPaise: Paise;
+  startDate: string;
+  endDate: string | null;
+  status: Enrollment["status"];
+  payerName: string;
+  nextBill: string | null;
+  outstandingPaise: Paise;
+};
+
+export type StudentPlanList = {
+  today: string;
+  rows: StudentPlanRow[];
+  matched: number;
+  page: number;
+  pageSize: number;
+  counts: Record<StudentPlanTab, number>;
+  applied: Omit<StudentPlanQuery, "page">;
+  options: { programs: { id: string; name: string }[]; batches: { id: string; name: string }[]; plans: { id: string; name: string }[] };
+};
+
+export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuery, opts: { now?: Date } = {}): Promise<StudentPlanList> {
+  assertCan(ctx, "invoices:read");
+  const [tenant, tz] = [await getOwnTenant(tx), await timeZone(tx)];
+  const today = todayIn(tz, opts.now);
+  const { page: asked, ...applied } = q;
+  const [counts, programs, batches, plans] = await Promise.all([studentPlanTabCounts(tx, ctx.branchIds, applied), listPrograms(tx), listBatchRows(tx, ctx.branchIds, { includeEnded: true }), listPlans(tx)]);
+  const matched = counts[q.tab];
+  const page = Math.min(asked, Math.max(1, Math.ceil(matched / PAGE_SIZE)));
+  const base = await studentPlanRows(tx, ctx.branchIds, { ...applied, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const [enrollmentIds, studentIds] = [base.map((b) => b.e.id), [...new Set(base.map((b) => b.e.studentId))]];
+  const [lead, links, termDue, lines] = await Promise.all([leadGuardians(tx, studentIds), enrollmentLinks(tx, studentIds), nextInstallmentDue(tx, enrollmentIds), openInvoiceLines(tx, enrollmentIds)]);
+  const chain = chains(links);
+  const payers = new Map(base.map((b) => [b.e.id, safePayer(b.e, lead.get(b.e.studentId))] as const));
+  const names = await payerNames(tx, [...payers.values()].flatMap((p) => (p ? [p] : [])));
+
+  // An open invoice's balance is shared over its lines by amount and tax; an enrollment owes its lines' shares.
+  const owed = new Map<string, Paise>();
+  const byInvoice = new Map<string, OpenLine[]>();
+  for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
+  for (const group of byInvoice.values()) {
+    const shares = spreadOver(group[0]?.balance ?? 0n, group.map((l) => ({ id: l.lineId, weight: l.weight })));
+    for (const l of group) if (l.enrollmentId) owed.set(l.enrollmentId, (owed.get(l.enrollmentId) ?? 0n) + (shares.get(l.lineId) ?? 0n));
+  }
+
+  const rows = base.map(({ e, plan, studentName, studentCode, programName, batchName }): StudentPlanRow => {
+    const payer = payers.get(e.id);
+    let nextBill: string | null = null;
+    if (e.status === "active" && plan.kind === "recurring") {
+      nextBill = nextRecurringBill(
+        { cycle: plan.billingCycle as Cycle, billingDay: plan.billingDay, amount: plan.amountPaise, proration: tenant?.proration ?? "full", anchor: chain.root(e).startDate, start: e.startDate, end: e.endDate, pausedOn: e.pausedOn, continuing: chain.prev(e.id)?.planKind === "recurring" },
+        today,
+      );
+    } else if (e.status === "active" && plan.kind === "term") nextBill = termDue.get(e.id) ?? null;
+    return {
+      enrollmentId: e.id,
+      studentId: e.studentId,
+      studentName,
+      studentCode,
+      programName,
+      batchName,
+      planId: plan.id,
+      planName: plan.name,
+      kind: plan.kind,
+      cycle: plan.billingCycle,
+      amountPaise: plan.amountPaise,
+      startDate: e.startDate,
+      endDate: e.endDate,
+      status: e.status,
+      payerName: (payer && names.get(payerKey(payer))) ?? "",
+      nextBill,
+      outstandingPaise: owed.get(e.id) ?? 0n,
+    };
+  });
+  return {
+    today,
+    rows,
+    matched,
+    page,
+    pageSize: PAGE_SIZE,
+    counts,
+    applied,
+    options: { programs: programs.map((p) => ({ id: p.id, name: p.name })), batches: batches.map((b) => ({ id: b.id, name: b.name })), plans: plans.map((p) => ({ id: p.id, name: p.name })) },
+  };
+}
+
+// A row with both payer columns set is corrupt (payerOf throws): list it without a payer.
+function safePayer(e: Enrollment, leadGuardianId: string | undefined): Payer | null {
+  try {
+    return planPayer(e, leadGuardianId);
+  } catch {
+    return null;
+  }
 }
