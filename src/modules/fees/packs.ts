@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
@@ -62,7 +62,8 @@ export async function sellPack(tx: Tx, by: Actor, input: { enrollmentId: string;
 export type PackBalance = { left: number; until: string | null };
 
 // Sessions left on `day` for each enrollment that has a pack: Present or Late marks on the enrollment's batch,
-// each used by the oldest pack whose window holds it. until: the end of the pack the next session uses.
+// each used by the oldest pack whose window holds it. A pack counts only while its invoice is paid in full (it is prepaid).
+// until: the end of the pack the next session uses.
 export async function packBalance(tx: Tx, enrollmentIds: string[], day: string): Promise<Map<string, PackBalance>> {
   const out = new Map<string, PackBalance>();
   if (!enrollmentIds.length) return out;
@@ -70,7 +71,7 @@ export async function packBalance(tx: Tx, enrollmentIds: string[], day: string):
     .select({ p: sessionPacks })
     .from(sessionPacks)
     .innerJoin(invoices, eq(invoices.id, sessionPacks.invoiceId))
-    .where(and(inArray(sessionPacks.enrollmentId, enrollmentIds), ne(invoices.status, "void")))
+    .where(and(inArray(sessionPacks.enrollmentId, enrollmentIds), eq(invoices.status, "paid"), gte(invoices.paidPaise, invoices.totalPaise)))
     .orderBy(asc(sessionPacks.validFrom), asc(sessionPacks.createdAt), asc(sessionPacks.id));
   if (!packs.length) return out;
   const marks = await tx

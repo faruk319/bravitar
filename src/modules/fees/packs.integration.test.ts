@@ -11,7 +11,7 @@ import { uuidv7 } from "@/lib/ids";
 import { type Mark, attendance } from "@/modules/attendance/schema";
 import { createProgram, insertBatch } from "@/modules/batches/repo";
 import { insertEnrollment } from "@/modules/enrollments/repo";
-import { recordPayment } from "@/modules/payments/service";
+import { cancelPayment, recordPayment, refundPayment } from "@/modules/payments/service";
 import { sessions } from "@/modules/sessions/schema";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
@@ -137,6 +137,22 @@ describe("sessions left", () => {
     expect(await balance(enrollment, "2026-11-20")).toEqual({ left: 0, until: null });
     const none = await enrolled();
     expect(await balance(none.enrollment, "2026-10-21")).toBeUndefined();
+  });
+});
+
+describe("a pack no longer paid for", () => {
+  it("has no sessions once its payment is cancelled", async () => {
+    const { kid, enrollment } = await enrolled();
+    const p = await sell(kid, enrollment, "2026-10-21");
+    await withTenant(T, (tx) => cancelPayment(tx, desk, p.id, { reason: "Wrong entry" }, { now: at("2026-10-21") }));
+    expect(await balance(enrollment, "2026-10-22")).toBeUndefined();
+  });
+
+  it("has no sessions once its payment is refunded", async () => {
+    const { kid, enrollment } = await enrolled();
+    const p = await sell(kid, enrollment, "2026-10-21");
+    await withTenant(T, (tx) => refundPayment(tx, owner, p.id, { amountPaise: "300000", reason: "Left the academy" }, { now: at("2026-10-22") }));
+    expect(await balance(enrollment, "2026-10-22")).toBeUndefined();
   });
 });
 
