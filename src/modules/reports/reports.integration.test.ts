@@ -420,7 +420,21 @@ describe("finance overview", () => {
       await withTenant(T2, (tx) => refundPayment(tx, boss, p.id, { amountPaise: "50000", reason: "Left early" }, { now: DAY }));
       const r = await withTenant(T2, (tx) => collectionRegister(tx, boss, day));
       expect(r.total.totalPaise).toBe(150_000n);
-      expect(r.refunds).toEqual({ count: 1, totalPaise: 50_000n, byDay: [{ key: "2026-08-10", count: 1, totalPaise: 50_000n }] });
+      expect(r.refunds).toMatchObject({ count: 1, totalPaise: 50_000n, byDay: [{ key: "2026-08-10", count: 1, totalPaise: 50_000n }] });
+    });
+
+    it("refunds are split by the method paid back and by who approved, in the register and its CSV", async () => {
+      const when = new Date("2026-08-11T06:30:00Z");
+      const p = await withTenant(T2, (tx) => recordPayment(tx, boss, { requestId: uuidv7(), memberId: kid.studentId, branchId: main, amountPaise: "40000", method: "upi", reference: "UTR1" }, { now: when }));
+      await withTenant(T2, (tx) => refundPayment(tx, boss, p.id, { amountPaise: "10000", method: "cash", reason: "Wrong amount" }, { now: when }));
+      const r = await withTenant(T2, (tx) => collectionRegister(tx, boss, { from: "2026-08-11", to: "2026-08-11" }));
+      expect(r.refunds.byMethod).toEqual([{ key: "cash", count: 1, totalPaise: 10_000n }]);
+      expect(r.refunds.byCollector).toEqual([{ key: "Owner", count: 1, totalPaise: 10_000n }]);
+      const rows = collectionRows(r);
+      const after = (title: string) => rows.slice(rows.findIndex((x) => x[0] === title));
+      expect(after("By method").some((x) => x[0] === "Refunded Cash" && x[2] === "100.00")).toBe(true);
+      expect(after("By staff").some((x) => x[0] === "Refunded Owner" && x[2] === "100.00")).toBe(true);
+      expect(after("By day").some((x) => x[0] === "Refunded 2026-08-11" && x[2] === "100.00")).toBe(true);
     });
 
     it("the register filters by program", async () => {

@@ -12,7 +12,12 @@ import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, typ
 // Each report as spreadsheet rows; amounts in plain rupees so Excel can add them up.
 
 export function collectionRows(r: CollectionRegister): string[][] {
-  const totals = (title: string, xs: CollectionRegister["byDay"], label: (k: string) => string = (k) => k) => [[title, "Receipts", "Amount"], ...xs.map((t) => [label(t.key), String(t.count), rupeesText(t.totalPaise)]), []];
+  const totals = (title: string, xs: CollectionRegister["byDay"], back: CollectionRegister["byDay"], label: (k: string) => string = (k) => k) => [
+    [title, "Receipts", "Amount"],
+    ...xs.map((t) => [label(t.key), String(t.count), rupeesText(t.totalPaise)]),
+    ...back.map((t) => [`Refunded ${label(t.key)}`, String(t.count), rupeesText(t.totalPaise)]),
+    [],
+  ];
   return [
     ["Collection register", `${r.from} to ${r.to}`],
     [],
@@ -21,9 +26,9 @@ export function collectionRows(r: CollectionRegister): string[][] {
     ["Total", String(r.total.count), "", "", "", rupeesText(r.total.totalPaise), ""],
     ["Refunded", String(r.refunds.count), "", "", "", rupeesText(r.refunds.totalPaise), ""],
     [],
-    ...totals("By day", r.byDay),
-    ...totals("By method", r.byMethod, (k) => METHOD_LABEL[k as PaymentMethod]),
-    ...totals("By staff", r.byCollector),
+    ...totals("By day", r.byDay, r.refunds.byDay),
+    ...totals("By method", r.byMethod, r.refunds.byMethod, (k) => METHOD_LABEL[k as PaymentMethod]),
+    ...totals("By staff", r.byCollector, r.refunds.byCollector),
   ];
 }
 

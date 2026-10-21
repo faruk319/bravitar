@@ -503,16 +503,17 @@ export async function refundedBetween(tx: Tx, branchIds: string[], from: string,
   return BigInt(r?.total ?? "0");
 }
 
-// Refunds made in [from, to], by the day they were made; with a program, only those of its payments.
-export async function refundsByDay(tx: Tx, branchIds: string[], from: string, to: string, programId?: string): Promise<{ day: string; count: number; total: Paise }[]> {
+// Refunds made in [from, to] by day, method and who approved; with a program, only those of its payments.
+export async function refundsGrouped(tx: Tx, branchIds: string[], from: string, to: string, programId?: string): Promise<{ day: string; method: PaymentMethod; approver: string | null; count: number; total: Paise }[]> {
   const rows = await tx
-    .select({ day: refunds.refundedOn, count: sql<number>`count(*)::int`, total: sql<string>`sum(${refunds.amountPaise})::text` })
+    .select({ day: refunds.refundedOn, method: refunds.method, approver: staffUsers.fullName, count: sql<number>`count(*)::int`, total: sql<string>`sum(${refunds.amountPaise})::text` })
     .from(refunds)
     .innerJoin(payments, eq(payments.id, refunds.paymentId))
+    .leftJoin(staffUsers, eq(staffUsers.id, refunds.approvedBy))
     .where(and(gte(refunds.refundedOn, from), lte(refunds.refundedOn, to), paymentScope(branchIds), programId ? paidForProgram(tx, programId) : undefined))
-    .groupBy(refunds.refundedOn)
+    .groupBy(refunds.refundedOn, refunds.method, staffUsers.fullName)
     .orderBy(asc(refunds.refundedOn));
-  return rows.map((r) => ({ day: r.day, count: r.count, total: BigInt(r.total) }));
+  return rows.map((r) => ({ ...r, total: BigInt(r.total) }));
 }
 
 // The revenue chart: one row per calendar month in [from, to], by recorded date.

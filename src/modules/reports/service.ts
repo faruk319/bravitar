@@ -10,7 +10,7 @@ import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
 import { spreadOver } from "@/modules/fees/billing";
 import { draftSummary, duesByPayer, issuedLinesBetween, linesWithProgram, owedSummary, type PayerDues, payersOverdue, statusMix } from "@/modules/fees/repo";
 import { balanceShares } from "@/modules/fees/service";
-import { advanceHolders, collectedByDay, collectedOn, paymentsRecordedBetween, receiptAllocationsBetween, refundedBetween, refundsByDay, type SheetPayment } from "@/modules/payments/repo";
+import { advanceHolders, collectedByDay, collectedOn, paymentsRecordedBetween, receiptAllocationsBetween, refundedBetween, refundsGrouped, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
 import { payerKey } from "@/modules/students/payer";
 import { activeStudentsOf, joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
@@ -40,7 +40,16 @@ function totalsBy(counted: SheetPayment[], key: (p: SheetPayment) => string): To
   return [...out.values()];
 }
 
-export type CollectionRegister = Range & { rows: SheetPayment[]; total: Total; refunds: { count: number; totalPaise: Paise; byDay: Total[] }; byDay: Total[]; byMethod: Total[]; byCollector: Total[] };
+function refundTotals<T extends { count: number; total: Paise }>(rows: T[], key: (r: T) => string): Total[] {
+  const out = new Map<string, Total>();
+  for (const r of rows) {
+    const t = out.get(key(r)) ?? { key: key(r), count: 0, totalPaise: 0n };
+    out.set(key(r), { key: t.key, count: t.count + r.count, totalPaise: t.totalPaise + r.total });
+  }
+  return [...out.values()];
+}
+
+export type CollectionRegister = Range & { rows: SheetPayment[]; total: Total; refunds: { count: number; totalPaise: Paise; byDay: Total[]; byMethod: Total[]; byCollector: Total[] }; byDay: Total[]; byMethod: Total[]; byCollector: Total[] };
 
 // Counted by the day each payment was recorded, as the collection sheet is,
 // so a day's total here equals that day's sheet (docs/03 §11 acceptance).
@@ -49,14 +58,14 @@ export async function collectionRegister(tx: Tx, ctx: ScopedCtx, input: Range & 
   const { programId } = input;
   const range = rangeSchema.parse(input);
   const rows = await paymentsRecordedBetween(tx, ctx.branchIds, range.from, range.to, programId);
-  const refunded = await refundsByDay(tx, ctx.branchIds, range.from, range.to, programId);
+  const refunded = await refundsGrouped(tx, ctx.branchIds, range.from, range.to, programId);
   const counted = rows.filter((p) => COUNTED.has(p.status));
   const by = (key: (p: SheetPayment) => string) => totalsBy(counted, key);
   return {
     ...range,
     rows,
     total: { key: "total", count: counted.length, totalPaise: sum(counted.map((p) => p.amountPaise)) },
-    refunds: { count: refunded.reduce((n, d) => n + d.count, 0), totalPaise: sum(refunded.map((d) => d.total)), byDay: refunded.map((d) => ({ key: d.day, count: d.count, totalPaise: d.total })) },
+    refunds: { count: refunded.reduce((n, d) => n + d.count, 0), totalPaise: sum(refunded.map((d) => d.total)), byDay: refundTotals(refunded, (d) => d.day), byMethod: refundTotals(refunded, (d) => d.method), byCollector: refundTotals(refunded, (d) => d.approver ?? "Online") },
     byDay: by((p) => p.recordedOn),
     byMethod: by((p) => p.method),
     byCollector: by((p) => p.collectorName ?? "Online"),

@@ -17,11 +17,21 @@ import { type CollectionRegister, collectionBuckets, collectionRegister, thisMon
 
 const receipts = (n: number) => `${n} ${n === 1 ? "receipt" : "receipts"}`;
 
-function Totals({ title, rows, of, label = (k) => k }: { title: string; rows: Total[]; of: bigint; label?: (key: string) => string }) {
+function Totals({ title, rows, back, of, label = (k) => k }: { title: string; rows: Total[]; back: Total[]; of: bigint; label?: (key: string) => string }) {
   return (
     <Card>
       <CardHeader title={title} />
       <BarList items={rows.map((t) => ({ key: t.key, label: label(t.key), note: String(t.count), value: formatPaise(t.totalPaise), fraction: of ? Number(t.totalPaise) / Number(of) : 0 }))} />
+      {back.length ? (
+        <ul className="mt-2 border-t border-neutral-100 pt-2 text-caption text-muted-foreground">
+          {back.map((t) => (
+            <li key={t.key} className="flex justify-between">
+              <span>Refunded · {label(t.key)}</span>
+              <span className="tabular-nums">{formatPaise(t.totalPaise)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </Card>
   );
 }
@@ -81,8 +91,8 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
         <Columns label="Collected by day" columns={byDay(r)} />
       </Card>
       <div className="mb-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
-        <Totals title="By method" rows={r.byMethod} of={r.total.totalPaise} label={(k) => METHOD_LABEL[k as PaymentMethod]} />
-        <Totals title="By staff" rows={r.byCollector} of={r.total.totalPaise} />
+        <Totals title="By method" rows={r.byMethod} back={r.refunds.byMethod} of={r.total.totalPaise} label={(k) => METHOD_LABEL[k as PaymentMethod]} />
+        <Totals title="By staff" rows={r.byCollector} back={r.refunds.byCollector} of={r.total.totalPaise} />
       </div>
       <Card className="overflow-x-auto p-0 md:p-0">
         <table className="w-full min-w-[40rem] text-body">
