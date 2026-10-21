@@ -19,7 +19,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { extendPack, packBalance } from "./packs";
 import { invoices, sessionPacks } from "./schema";
-import { createPlan, studentPlanDetail, studentPlanList } from "./service";
+import { createDiscount, createPlan, giveDiscount, studentPlanDetail, studentPlanList } from "./service";
 
 // Finance spec, addendum 2026-10-21: prepaid session packs.
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -154,6 +154,17 @@ describe("a pack no longer paid for", () => {
     const p = await sell(kid, enrollment, "2026-10-21");
     await withTenant(T, (tx) => refundPayment(tx, owner, p.id, { amountPaise: "300000", reason: "Left the academy" }, { now: at("2026-10-22") }));
     expect(await balance(enrollment, "2026-10-22")).toBeUndefined();
+  });
+});
+
+describe("a pack's plan detail", () => {
+  it("shows the full price: no student discount applies to a pack", async () => {
+    const { kid, enrollment } = await enrolled();
+    const sibling = await withTenant(T, (tx) => createDiscount(tx, owner, { name: `Pack sibling ${stamp}`, kind: "percent", value: 10 }));
+    await withTenant(T, (tx) => giveDiscount(tx, owner, kid, { discountId: sibling.id, reason: "Second child", validFrom: "2026-10-01" }));
+    const d = await withTenant(T, (tx) => studentPlanDetail(tx, owner, enrollment, { now: at("2026-10-21") }));
+    expect(d.discounts).toEqual([]);
+    expect(d.afterDiscountPaise).toBe(d.row.amountPaise);
   });
 });
 

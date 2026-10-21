@@ -809,7 +809,8 @@ export async function studentPlanDetail(tx: Tx, ctx: ScopedCtx, enrollmentId: st
   const [row] = await planRowsOf(tx, [base], today);
   const [given, billed, [lead]] = await Promise.all([discountsOf(tx, [base.e.studentId]), billedLinesOf(tx, enrollmentId), [...(await leadGuardians(tx, [base.e.studentId])).values()]]);
   if (!row) throw new NotFoundError("Student plan not found");
-  const running = given.filter((g) => g.validFrom <= today && (g.validTo === null || g.validTo >= today));
+  // Packs are sold at the full price; no student discount applies.
+  const running = row.kind === "package" ? [] : given.filter((g) => g.validFrom <= today && (g.validTo === null || g.validTo >= today));
   const advance = sum((await unusedPayments(tx, planPayer(base.e, lead), base.branchId)).map((u) => u.unused));
 
   // Owed is the list's own spread of each open invoice's balance; billed counts every line of this enrollment, so billed - owed is paid.

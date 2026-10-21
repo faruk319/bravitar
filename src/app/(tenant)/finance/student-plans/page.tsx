@@ -99,7 +99,9 @@ export default async function StudentPlansPage({ searchParams }: PageProps<"/fin
                         <span className="block text-caption text-muted-foreground">{r.batchName}</span>
                       </td>
                       <td className="py-2.5 pr-4">
-                        <span className="block text-body">{r.planName}</span>
+                        <Link href={`${PATH}/${r.enrollmentId}`} className="relative z-10 block text-body text-accent-600 hover:underline">
+                          {r.planName}
+                        </Link>
                         <span className="block text-caption text-muted-foreground">{fee(r)}</span>
                       </td>
                       <td className="py-2.5 pr-4 text-body">{r.payerName || dash}</td>
@@ -121,7 +123,10 @@ export default async function StudentPlansPage({ searchParams }: PageProps<"/fin
                     {r.programName} · {r.batchName}
                   </p>
                   <p className="truncate text-caption text-muted-foreground">
-                    {r.planName} · {fee(r)}
+                    <Link href={`${PATH}/${r.enrollmentId}`} className="relative z-10 text-accent-600 hover:underline">
+                      {r.planName}
+                    </Link>{" "}
+                    · {fee(r)}
                   </p>
                   <p className="truncate text-caption text-muted-foreground">{[r.payerName && `Payer ${r.payerName}`, when(r)].filter(Boolean).join(" · ")}</p>
                   <dl className="mt-1 grid grid-cols-2 gap-2 text-caption">
