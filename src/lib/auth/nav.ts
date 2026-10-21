@@ -38,6 +38,7 @@ export const NAV_GROUPS: NavGroup[] = [
         title: { text: "Finance" },
         icon: "Landmark",
         children: [
+          { href: "/finance", label: { text: "Overview" }, icon: "LayoutGrid", permission: ["invoices:read", "payments:read"] }, // blocks inside follow permissions
           // Front Desk collects without payments:read; the page shows them their own receipts.
           { href: "/finance/collections", label: { text: "Collections" }, icon: "Wallet", permission: ["payments:read", "fees:collect"] },
           { href: "/finance/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },

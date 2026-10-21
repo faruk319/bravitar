@@ -570,26 +570,100 @@ export async function payersOverdue(tx: Tx, branchIds: string[], today: string, 
   });
 }
 
-// What is owed now, how much of it and how many payers are past due, and how many invoices fall due tomorrow.
-export async function owedSummary(tx: Tx, branchIds: string[], today: string): Promise<{ invoices: number; owedPaise: bigint; overduePayers: number; overduePaise: bigint; dueTomorrow: number }> {
+// What is owed now: how much, how many payers are past due, what falls due tomorrow and in the next seven days.
+export async function owedSummary(tx: Tx, branchIds: string[], today: string) {
   const tomorrow = addDays(today, 1);
+  const weekEnd = addDays(today, 6);
+  const balance = sql`${invoices.totalPaise} - ${invoices.paidPaise}`;
+  const soon = sql`${invoices.dueDate} BETWEEN ${today}::date AND ${weekEnd}::date`;
   const [r] = await tx
     .select({
       invoices: sql<number>`count(*)::int`,
-      owed: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}), 0)::text`,
+      owed: sql<string>`coalesce(sum(${balance}), 0)::text`,
       overduePayers: sql<number>`count(DISTINCT coalesce(${invoices.payerGuardianId}, ${invoices.payerMemberId})) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
-      overdue: sql<string>`coalesce(sum(${invoices.totalPaise} - ${invoices.paidPaise}) FILTER (WHERE ${invoices.dueDate} < ${today}), 0)::text`,
+      overdueCount: sql<number>`count(*) FILTER (WHERE ${invoices.dueDate} < ${today})::int`,
+      overdue: sql<string>`coalesce(sum(${balance}) FILTER (WHERE ${invoices.dueDate} < ${today}), 0)::text`,
       dueTomorrow: sql<number>`count(*) FILTER (WHERE ${invoices.dueDate} = ${tomorrow})::int`,
+      dueSoonCount: sql<number>`count(*) FILTER (WHERE ${soon})::int`,
+      dueSoon: sql<string>`coalesce(sum(${balance}) FILTER (WHERE ${soon}), 0)::text`,
+      partPaidCount: sql<number>`count(*) FILTER (WHERE ${invoices.status} = 'part_paid')::int`,
     })
     .from(invoices)
     .where(and(inArray(invoices.status, [...OWED]), invoiceScope(branchIds)));
   return {
     invoices: r?.invoices ?? 0,
-    owedPaise: BigInt(r?.owed ?? "0"),
+    owedPaise: BigInt(r?.owed ?? "0") as Paise,
     overduePayers: r?.overduePayers ?? 0,
-    overduePaise: BigInt(r?.overdue ?? "0"),
+    overdueCount: r?.overdueCount ?? 0,
+    overduePaise: BigInt(r?.overdue ?? "0") as Paise,
     dueTomorrow: r?.dueTomorrow ?? 0,
+    dueSoonCount: r?.dueSoonCount ?? 0,
+    dueSoonPaise: BigInt(r?.dueSoon ?? "0") as Paise,
+    partPaidCount: r?.partPaidCount ?? 0,
   };
+}
+
+// Invoices issued in [from, to] by their total, under the status each shows today.
+export async function statusMix(tx: Tx, branchIds: string[], from: string, to: string, today: string): Promise<Record<"paid" | "part_paid" | "due" | "overdue", Paise>> {
+  const display = displaySql(today);
+  const rows = await tx
+    .select({ display, total: sql<string>`sum(${invoices.totalPaise})::text` })
+    .from(invoices)
+    .where(and(inArray(invoices.status, ["issued", "part_paid", "paid", "overdue"]), gte(invoices.issueDate, from), lte(invoices.issueDate, to), invoiceScope(branchIds)))
+    .groupBy(sql`1`); // by position: the CASE's date is a fresh parameter each time it is written
+  const out = { paid: 0n, part_paid: 0n, due: 0n, overdue: 0n };
+  for (const r of rows) if (r.display in out) out[r.display as keyof typeof out] = BigInt(r.total);
+  return out;
+}
+
+export type ProgramLine = { invoiceId: string; lineId: string; weight: Paise; amountPaise: Paise; activityKey: string | null; programId: string | null; programName: string | null; batchId: string | null; batchName: string | null };
+export type IssuedLine = ProgramLine & { status: Invoice["status"]; balance: Paise };
+
+const programLines = (tx: Tx) =>
+  tx
+    .select({
+      invoiceId: invoiceLines.invoiceId,
+      lineId: invoiceLines.id,
+      amount: invoiceLines.amountPaise,
+      tax: invoiceLines.taxPaise,
+      activityKey: programs.activityKey,
+      programId: programs.id,
+      programName: programs.name,
+      batchId: batches.id,
+      batchName: batches.name,
+      status: invoices.status,
+      total: invoices.totalPaise,
+      paid: invoices.paidPaise,
+    })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .leftJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId))
+    .leftJoin(batches, eq(batches.id, enrollments.batchId))
+    .leftJoin(programs, eq(programs.id, batches.programId));
+
+const asLine = (r: Awaited<ReturnType<ReturnType<typeof programLines>["where"]>>[number]): IssuedLine => ({
+  invoiceId: r.invoiceId,
+  lineId: r.lineId,
+  weight: r.amount + r.tax,
+  amountPaise: r.amount,
+  activityKey: r.activityKey,
+  programId: r.programId,
+  programName: r.programName,
+  batchId: r.batchId,
+  batchName: r.batchName,
+  status: r.status,
+  balance: r.total - r.paid,
+});
+
+// Every line of these invoices, with the program and batch its enrollment is in.
+export async function linesWithProgram(tx: Tx, invoiceIds: string[]): Promise<IssuedLine[]> {
+  if (!invoiceIds.length) return [];
+  return (await programLines(tx).where(inArray(invoiceLines.invoiceId, invoiceIds))).map(asLine);
+}
+
+// Lines of invoices issued in [from, to], drafts and cancelled left out.
+export async function issuedLinesBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<IssuedLine[]> {
+  return (await programLines(tx).where(and(inArray(invoices.status, ["issued", "part_paid", "paid", "overdue"]), gte(invoices.issueDate, from), lte(invoices.issueDate, to), invoiceScope(branchIds)))).map(asLine);
 }
 
 // ---- student plans

@@ -3,16 +3,13 @@
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { formatPaise } from "@/lib/money/format";
 
-type Month = { month: string; totalPaise: bigint };
+type Point = { label: string; totalPaise: bigint };
 type Datum = { tick: string; rupees: number; paise: bigint };
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-// From the YYYY-MM string; no Date, so no timezone shift.
-const tick = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
-
-export function RevenueOverview({ months }: { months: Month[] }) {
+// One bar per month (dashboard) or per day (finance overview); `label` names the chart for screen readers.
+export function RevenueOverview({ bars, label }: { bars: Point[]; label: string }) {
   // bigint becomes number only here, in rupees, for the bar scale; exact paise ride along for the tooltip.
-  const data: Datum[] = months.map((m) => ({ tick: tick(m.month), rupees: Number(m.totalPaise / 100n), paise: m.totalPaise }));
+  const data: Datum[] = bars.map((b) => ({ tick: b.label, rupees: Number(b.totalPaise / 100n), paise: b.totalPaise }));
   // Only the peak month is labelled; the rest show theirs in the tooltip.
   const peak = data.reduce((best, d, i) => (d.rupees > (data[best]?.rupees ?? -1) ? i : best), 0);
   const peakPaise = data[peak]?.paise ?? 0n;
@@ -20,12 +17,12 @@ export function RevenueOverview({ months }: { months: Month[] }) {
     <div>
       {data.length ? (
         <figure
-          aria-label={`Collection by month: ${months.map((m) => `${tick(m.month)} ${formatPaise(m.totalPaise)}`).join(", ")}`}
+          aria-label={`${label}: ${bars.map((b) => `${b.label} ${formatPaise(b.totalPaise)}`).join(", ")}`}
           className="h-44"
         >
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 8 }}>
-              <XAxis dataKey="tick" tickLine={false} axisLine={false} tick={{ fontSize: 13, fill: "var(--color-neutral-500)" }} />
+              <XAxis dataKey="tick" interval="preserveStartEnd" minTickGap={16} tickLine={false} axisLine={false} tick={{ fontSize: 13, fill: "var(--color-neutral-500)" }} />
               <Tooltip
                 cursor={false}
                 isAnimationActive={false}

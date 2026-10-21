@@ -2,17 +2,19 @@ import { z } from "zod";
 import { allows, assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate } from "@/lib/dates";
+import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import { type Paise, sum } from "@/lib/money/paise";
 import { type BatchMarks, type MarkCounts, marksByBatch, marksByStudent, type StudentMarks } from "@/modules/attendance/repo";
 import { attendancePercent } from "@/modules/attendance/service";
 import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
-import { duesByPayer, type PayerDues, payersOverdue } from "@/modules/fees/repo";
-import { paymentsRecordedBetween, type SheetPayment } from "@/modules/payments/repo";
+import { spreadOver } from "@/modules/fees/billing";
+import { draftSummary, duesByPayer, issuedLinesBetween, linesWithProgram, owedSummary, type PayerDues, payersOverdue, statusMix } from "@/modules/fees/repo";
+import { balanceShares } from "@/modules/fees/service";
+import { advanceHolders, collectedByDay, collectedOn, paymentsRecordedBetween, receiptAllocationsBetween, refundedBetween, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
 import { payerKey } from "@/modules/students/payer";
 import { activeStudentsOf, joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
-import { tenantToday } from "@/modules/tenancy/repo";
+import { getOwnTenant, tenantToday } from "@/modules/tenancy/repo";
 
 // docs/03 §11: every report has a date range, is branch-scoped for
 // branch-scoped staff, and exports to CSV (csv.ts).
@@ -28,6 +30,16 @@ export async function thisMonth(tx: Tx): Promise<Range> {
 }
 
 export type Total = { key: string; count: number; totalPaise: Paise };
+function totalsBy(counted: SheetPayment[], key: (p: SheetPayment) => string): Total[] {
+  const out = new Map<string, Total>();
+  for (const p of counted) {
+    const k = key(p);
+    const t = out.get(k) ?? { key: k, count: 0, totalPaise: 0n };
+    out.set(k, { key: k, count: t.count + 1, totalPaise: t.totalPaise + p.amountPaise });
+  }
+  return [...out.values()];
+}
+
 export type CollectionRegister = Range & { rows: SheetPayment[]; total: Total; byDay: Total[]; byMethod: Total[]; byCollector: Total[] };
 
 // Counted by the day each payment was recorded, as the collection sheet is,
@@ -37,15 +49,7 @@ export async function collectionRegister(tx: Tx, ctx: ScopedCtx, input: Range): 
   const range = rangeSchema.parse(input);
   const rows = await paymentsRecordedBetween(tx, ctx.branchIds, range.from, range.to);
   const counted = rows.filter((p) => COUNTED.has(p.status));
-  const by = (key: (p: SheetPayment) => string): Total[] => {
-    const out = new Map<string, Total>();
-    for (const p of counted) {
-      const k = key(p);
-      const t = out.get(k) ?? { key: k, count: 0, totalPaise: 0n };
-      out.set(k, { key: k, count: t.count + 1, totalPaise: t.totalPaise + p.amountPaise });
-    }
-    return [...out.values()];
-  };
+  const by = (key: (p: SheetPayment) => string) => totalsBy(counted, key);
   return {
     ...range,
     rows,
@@ -151,4 +155,109 @@ export async function atRisk(tx: Tx, ctx: ScopedCtx): Promise<AtRisk> {
 export async function enquiryFunnel(tx: Tx, ctx: ScopedCtx, input: Range): Promise<EnquiryReport> {
   assertCan(ctx, "reports:view");
   return enquiryReport(tx, ctx, input);
+}
+
+// ---- finance overview (Task 16)
+
+export type RevenueRow = { activityKey: string; programId: string | null; programName: string; batchId: string | null; batchName: string | null; billedPaise: Paise; collectedPaise: Paise; outstandingPaise: Paise };
+export type RevenueReport = Range & { rows: RevenueRow[]; advancePaise: Paise; collectedPaise: Paise; refundsPaise: Paise };
+
+export const NOT_LINKED = "Not linked to a program";
+type Linked = { activityKey: string | null; programId: string | null; programName: string | null; batchId: string | null; batchName: string | null };
+
+// Collected is each receipt spread over its invoice's lines by amount and tax; what no invoice took is advance.
+// Billed is the lines of invoices issued in the range, after discount and before tax; outstanding is their open balance.
+export async function revenueReport(tx: Tx, ctx: ScopedCtx, input: Range): Promise<RevenueReport> {
+  const money = allows(ctx, "payments:read");
+  const bills = allows(ctx, "invoices:read");
+  if (!money) assertCan(ctx, "invoices:read");
+  const range = rangeSchema.parse(input);
+  const rows = new Map<string, RevenueRow>();
+  const rowOf = (l: Linked): RevenueRow => {
+    const key = l.programId ? `${l.programId}|${l.batchId ?? ""}` : "";
+    const row = rows.get(key) ?? { activityKey: l.activityKey ?? "", programId: l.programId, programName: l.programName ?? NOT_LINKED, batchId: l.batchId, batchName: l.batchName, billedPaise: 0n, collectedPaise: 0n, outstandingPaise: 0n };
+    rows.set(key, row);
+    return row;
+  };
+  const none: Linked = { activityKey: null, programId: null, programName: null, batchId: null, batchName: null };
+  let advancePaise = 0n;
+  let collectedPaise = 0n;
+  let refundsPaise = 0n;
+  if (money) {
+    const paid = await receiptAllocationsBetween(tx, ctx.branchIds, range.from, range.to);
+    const lines = await linesWithProgram(tx, [...new Set(paid.flatMap((p) => p.receipts.map((r) => r.invoiceId)))]);
+    const byInvoice = new Map<string, typeof lines>();
+    for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
+    for (const p of paid) {
+      collectedPaise += p.amountPaise;
+      advancePaise += p.amountPaise - sum(p.receipts.map((r) => r.amountPaise));
+      for (const r of p.receipts) {
+        const on = byInvoice.get(r.invoiceId) ?? [];
+        if (!on.length) rowOf(none).collectedPaise += r.amountPaise;
+        const shares = spreadOver(r.amountPaise, on.map((l) => ({ id: l.lineId, weight: l.weight })));
+        for (const l of on) rowOf(l).collectedPaise += shares.get(l.lineId) ?? 0n;
+      }
+    }
+    refundsPaise = await refundedBetween(tx, ctx.branchIds, range.from, range.to);
+  }
+  if (bills) {
+    const issued = await issuedLinesBetween(tx, ctx.branchIds, range.from, range.to);
+    const open = issued.filter((l) => l.status !== "paid");
+    const shares = balanceShares(open.map((l) => ({ invoiceId: l.invoiceId, lineId: l.lineId, enrollmentId: null, weight: l.weight, balance: l.balance })));
+    for (const l of issued) {
+      const row = rowOf(l);
+      row.billedPaise += l.amountPaise;
+      row.outstandingPaise += shares.get(l.lineId) ?? 0n;
+    }
+  }
+  const sorted = [...rows.values()].sort((a, b) => Number(b.collectedPaise - a.collectedPaise) || Number(b.billedPaise - a.billedPaise) || a.programName.localeCompare(b.programName));
+  return { ...range, rows: sorted, advancePaise, collectedPaise, refundsPaise };
+}
+
+export type OwedSummary = Awaited<ReturnType<typeof owedSummary>>;
+export type StatusMix = Awaited<ReturnType<typeof statusMix>>;
+export type Collected = { count: number; total: Paise };
+export type FinanceOverview = {
+  today: string;
+  days: 7 | 30 | 90;
+  collected?: { today: Collected; yesterday: Collected; month: Collected; refundsToday: Paise; refundsMonth: Paise; trend: { key: string; totalPaise: Paise }[]; byMethod: Total[] };
+  owed?: OwedSummary;
+  advance?: { payers: number; owing: number; paise: Paise };
+  revenue?: RevenueReport;
+  mix?: StatusMix;
+  drafts?: { count: number; total: Paise };
+};
+
+// Each block only with its key, as dashboardData does: money in needs payments:read, money owed invoices:read.
+export async function financeOverview(tx: Tx, ctx: ScopedCtx, opts: { now?: Date; days?: 7 | 30 | 90 } = {}): Promise<FinanceOverview> {
+  const tz = (await getOwnTenant(tx))?.timezone ?? "Asia/Kolkata";
+  const today = todayIn(tz, opts.now ?? new Date());
+  const days = opts.days ?? 30;
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const out: FinanceOverview = { today, days };
+  const b = ctx.branchIds;
+  if (allows(ctx, "payments:read")) {
+    const from = addDays(today, -(days - 1));
+    const [now, yesterday, month, byDay, refundsToday, refundsMonth] = await Promise.all([
+      collectedOn(tx, b, today),
+      collectedOn(tx, b, addDays(today, -1)),
+      paymentsRecordedBetween(tx, b, monthStart, today).then((rows) => rows.filter((p) => COUNTED.has(p.status))),
+      collectedByDay(tx, b, from, today),
+      refundedBetween(tx, b, today, today),
+      refundedBetween(tx, b, monthStart, today),
+    ]);
+    const daily = new Map(byDay.map((d) => [d.day, d.total]));
+    const trend: { key: string; totalPaise: Paise }[] = [];
+    for (let day = from; day <= today; day = addDays(day, 1)) trend.push({ key: day, totalPaise: daily.get(day) ?? 0n });
+    out.collected = { today: now, yesterday, month: { count: month.length, total: sum(month.map((p) => p.amountPaise)) }, refundsToday, refundsMonth, trend, byMethod: totalsBy(month, (p) => p.method) };
+  }
+  if (allows(ctx, "invoices:read")) {
+    const [owed, holders, mix, drafts] = await Promise.all([owedSummary(tx, b, today), advanceHolders(tx, b), statusMix(tx, b, monthStart, today, today), draftSummary(tx, b)]);
+    out.owed = owed;
+    out.advance = { payers: new Set(holders.map((h) => h.payerKey)).size, owing: new Set(holders.filter((h) => h.owesPaise > 0n).map((h) => h.payerKey)).size, paise: sum(holders.map((h) => h.advancePaise)) };
+    out.mix = mix;
+    out.drafts = drafts;
+  }
+  if (allows(ctx, "payments:read") || allows(ctx, "invoices:read")) out.revenue = await revenueReport(tx, ctx, { from: monthStart, to: today });
+  return out;
 }

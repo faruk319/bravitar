@@ -464,6 +464,32 @@ export async function collectedOn(tx: Tx, branchIds: string[], day: string): Pro
   return { count: r?.count ?? 0, total: r?.total ?? 0n };
 }
 
+// Counted payments recorded in [from, to], each with the parts it put on invoices when it was taken.
+export async function receiptAllocationsBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<{ paymentId: string; amountPaise: Paise; receipts: { invoiceId: string; amountPaise: Paise }[] }[]> {
+  const rows = await tx
+    .select({ paymentId: payments.id, amount: payments.amountPaise, invoiceId: paymentAllocations.invoiceId, allocated: paymentAllocations.amountPaise })
+    .from(payments)
+    .leftJoin(paymentAllocations, and(eq(paymentAllocations.paymentId, payments.id), eq(paymentAllocations.kind, "receipt")))
+    .where(and(gte(payments.recordedOn, from), lte(payments.recordedOn, to), inArray(payments.status, ["confirmed", "refunded"]), paymentScope(branchIds)));
+  const out = new Map<string, { paymentId: string; amountPaise: Paise; receipts: { invoiceId: string; amountPaise: Paise }[] }>();
+  for (const r of rows) {
+    const p = out.get(r.paymentId) ?? { paymentId: r.paymentId, amountPaise: r.amount, receipts: [] };
+    if (r.invoiceId && r.allocated !== null) p.receipts.push({ invoiceId: r.invoiceId, amountPaise: r.allocated });
+    out.set(r.paymentId, p);
+  }
+  return [...out.values()];
+}
+
+// Money paid back in [from, to] against these branches' payments (empty = all).
+export async function refundedBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<Paise> {
+  const [r] = await tx
+    .select({ total: sql<string>`coalesce(sum(${refunds.amountPaise}), 0)::text` })
+    .from(refunds)
+    .innerJoin(payments, eq(payments.id, refunds.paymentId))
+    .where(and(gte(refunds.refundedOn, from), lte(refunds.refundedOn, to), paymentScope(branchIds)));
+  return BigInt(r?.total ?? "0");
+}
+
 // The revenue chart: one row per calendar month in [from, to], by recorded date.
 export async function collectedByMonth(tx: Tx, branchIds: string[], from: string, to: string): Promise<{ month: string; count: number; total: Paise }[]> {
   const month = sql<string>`to_char(${payments.recordedOn}, 'YYYY-MM')`;

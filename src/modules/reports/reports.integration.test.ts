@@ -14,7 +14,7 @@ import { saveAttendance } from "@/modules/attendance/service";
 import { login, setPassword } from "@/modules/auth/service";
 import { addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
-import { insertInvoice, updateInvoice } from "@/modules/fees/repo";
+import { insertInvoice, insertLines, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { cancelPayment, collectionList, collectionSheet, recordPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
@@ -30,7 +30,7 @@ import { createBranch, tenantToday } from "@/modules/tenancy/repo";
 import { testAcademy } from "@/lib/db/isolation/academy";
 import { attendanceRows, collectionRows, enquiryRows } from "./csv";
 import { csvRoute } from "./routes";
-import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collectionRegister, outstandingDues } from "./service";
+import { admissionsReport, atRisk, attendanceReport, collectionBuckets, collectionRegister, financeOverview, outstandingDues, revenueReport } from "./service";
 
 // The branch switcher's cookie, which a route reads outside a request: none is set.
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
@@ -316,5 +316,99 @@ describe("CSV downloads", () => {
       expect((await csvAs("owner", `/api/reports/${name}`)).status, name).toBe(200);
       expect((await csvAs("viewer", `/api/reports/${name}`)).status, name).toBe(403);
     }
+  });
+});
+
+// Task 16: its own academy on a fixed day, so the other tests' money stays out.
+describe("finance overview", () => {
+  const NOW = new Date("2026-09-24T06:30:00Z"); // noon in Kolkata
+  let T2 = "";
+  let boss: ScopedCtx;
+  let front: ScopedCtx;
+  let main = "";
+  let second = "";
+  const overview = (as: ScopedCtx = boss, now = NOW) => withTenant(T2, (tx) => financeOverview(tx, as, { now }));
+  const ctxIn = async (staffId: string): Promise<ScopedCtx> => {
+    const [base, branchIds] = await withTenant(T2, async (tx) => [await loadAccessContext(tx, staffId), await staffBranchIds(tx, staffId)] as const);
+    return { ...base, branchIds };
+  };
+  const issue = (tx: Tx, studentId: string, payer: string, totalPaise: bigint, dueDate: string) =>
+    insertInvoice(tx, { tenantId: T2, branchId: main, studentId, payerGuardianId: payer, billToName: "Payer", issueDate: "2026-09-24", dueDate, subtotalPaise: totalPaise, totalPaise }).then(async (inv) =>
+      updateInvoice(tx, inv.id, { number: await allocateNumber(tx, T2, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: NOW }),
+    );
+  const payIn = (memberId: string, paise: bigint, at: string, allocations?: { invoiceId: string; amountPaise: string }[]) =>
+    withTenant(T2, (tx) => recordPayment(tx, boss, { requestId: uuidv7(), memberId, branchId: at, amountPaise: String(paise), method: "cash", ...(allocations ? { allocations } : {}) }, { now: NOW }));
+
+  beforeAll(async () => {
+    const t = await testAcademy({ name: `Overview ${stamp}`, slug: `overview-${stamp}`, owner: { name: "Owner", email: `overview-owner-${stamp}@example.test` } });
+    T2 = t.tenant.id;
+    main = t.branch.id;
+    boss = await ctxIn(t.owner.id);
+    second = (await withTenant(T2, (tx) => createBranch(tx, { tenantId: T2, name: "Second" }))).id;
+    const roles = Object.fromEntries((await withTenant(T2, listRoles)).map((r) => [r.name, r.id]));
+    front = await ctxIn((await withTenant(T2, (tx) => createStaffMember(tx, boss, { email: `overview-desk-${stamp}@example.test`, fullName: "Desk", roleId: roles["Front Desk"] ?? "" }))).id);
+    await withTenant(T2, async (tx) => {
+      const f = await billableFamily(tx, boss, "Due family");
+      await issue(tx, f.studentId, f.guardianId, 100_000n, "2026-09-30"); // today + 6
+      await issue(tx, f.studentId, f.guardianId, 200_000n, "2026-10-01"); // today + 7
+    });
+  });
+
+  it("program rows plus advance equal the collection total to the paisa", async () => {
+    // one invoice for kid: ₹333.33 Karate line + ₹666.67 Dance line; pay ₹500.01 on it, then ₹200 more as advance
+    const made = await withTenant(T2, (tx) => createStudent(tx, boss, { fullName: "Kid Two", branchId: main, guardian: { fullName: "Parent Two", phone: "98755 10001", relation: "mother" }, consents: { dataProcessing: true } }));
+    const enrollIn = async (program: string) => {
+      const p = (await withTenant(T2, (tx) => addProgram(tx, boss, { name: program }))).id;
+      const b = (await withTenant(T2, (tx) => createBatch(tx, boss, { name: `${program} batch`, programId: p, branchId: main, slots: [{ weekday: 1, startTime: "07:00", endTime: "08:00" }], startDate: "2026-09-01" }))).id;
+      return (await withTenant(T2, (tx) => enroll(tx, boss, { studentId: made.student.id, batchId: b, startDate: "2026-09-01" }))).id;
+    };
+    const [karate, dance] = [await enrollIn("Karate"), await enrollIn("Dance")];
+    const inv = await withTenant(T2, async (tx) => {
+      const i = await issue(tx, made.student.id, made.guardian.id, 100_000n, "2026-10-15");
+      const line = (enrollmentId: string, amountPaise: bigint) => ({ tenantId: T2, invoiceId: i.id, enrollmentId, studentId: made.student.id, kind: "tuition" as const, description: "Fee", unitPaise: amountPaise, amountPaise });
+      await insertLines(tx, [line(karate, 33_333n), line(dance, 66_667n)]);
+      return i;
+    });
+    await payIn(made.student.id, 50_001n, main, [{ invoiceId: inv.id, amountPaise: "50001" }]);
+    await payIn(made.student.id, 20_000n, main, []);
+    const r = await withTenant(T2, (tx) => revenueReport(tx, boss, { from: "2026-09-24", to: "2026-09-24" }));
+    expect(r.rows.reduce((n, x) => n + x.collectedPaise, 0n) + r.advancePaise).toBe(r.collectedPaise);
+    expect(r.collectedPaise).toBe(70_001n);
+    expect(r.advancePaise).toBe(20_000n);
+    expect(r.rows.reduce((n, x) => n + x.outstandingPaise, 0n)).toBe(49_999n);
+    expect(r.rows.find((x) => x.programName === "Karate")?.billedPaise).toBe(33_333n);
+  });
+
+  it("due in 7 days counts today through today + 6", async () => {
+    // ₹1,000 due 2026-09-30 (today + 6) and ₹2,000 due 2026-10-01 (today + 7)
+    expect((await overview()).owed).toMatchObject({ dueSoonCount: 1, dueSoonPaise: 100_000n, partPaidCount: 1 });
+  });
+
+  it("a viewer limited to one branch sees only that branch's totals", async () => {
+    // ₹700 collected today in the second branch only
+    await withTenant(T2, (tx) => billableFamily(tx, boss, "Second family")).then((f) => payIn(f.studentId, 70_000n, second));
+    const all = await overview();
+    const mainOnly = await overview({ ...boss, branchIds: [main] });
+    expect((all.collected?.today.total ?? 0n) - (mainOnly.collected?.today.total ?? 0n)).toBe(70_000n);
+  });
+
+  it("today's collection equals the day sheets added up", async () => {
+    const sheets = await Promise.all([main, second].map((b) => withTenant(T2, (tx) => collectionSheet(tx, boss, { branchId: b }, { now: NOW }))));
+    expect((await overview()).collected?.today.total).toBe(sheets.reduce((n, s) => n + s.total.totalPaise, 0n));
+    expect((await overview()).collected?.today.total).toBe(140_001n);
+  });
+
+  it("no trend chip when yesterday had nothing", async () => {
+    expect((await overview()).collected?.yesterday.total).toBe(0n);
+  });
+
+  it("a viewer without payments:read gets no collection block", async () => {
+    const o = await overview(front);
+    expect(o.collected).toBeUndefined();
+    expect(o.owed).toBeDefined();
+  });
+
+  it("fee status of this month's invoices by amount", async () => {
+    expect((await overview()).mix).toEqual({ paid: 0n, part_paid: 100_000n, due: 300_000n, overdue: 0n });
   });
 });

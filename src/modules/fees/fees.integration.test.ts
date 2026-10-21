@@ -487,8 +487,12 @@ describe("the owed summary", () => {
       invoices: 5,
       owedPaise: 365_000n, // 750 + 300 + 100 + 500 + 2,000 rupees
       overduePayers: 1,
+      overdueCount: 1,
       overduePaise: 75_000n, // only the overdue invoice, and only what is left on it
       dueTomorrow: 1,
+      dueSoonCount: 4, // today through today + 6: the overdue one is not "due soon"
+      dueSoonPaise: 290_000n,
+      partPaidCount: 1,
     });
   });
 
@@ -508,7 +512,7 @@ describe("the owed summary", () => {
   });
 
   it("is all zeroes for a branch with nothing owed", async () => {
-    expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overduePayers: 0, overduePaise: 0n, dueTomorrow: 0 });
+    expect(await withTenant(T, (tx) => owedSummary(tx, [empty], today))).toEqual({ invoices: 0, owedPaise: 0n, overduePayers: 0, overdueCount: 0, overduePaise: 0n, dueTomorrow: 0, dueSoonCount: 0, dueSoonPaise: 0n, partPaidCount: 0 });
   });
 });
 

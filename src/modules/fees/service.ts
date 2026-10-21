@@ -701,7 +701,7 @@ export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuer
 }
 
 // An open invoice's balance is shared over its lines by amount and tax; what an enrollment owes is its lines' shares.
-function balanceShares(lines: OpenLine[]): Map<string, Paise> {
+export function balanceShares(lines: OpenLine[]): Map<string, Paise> {
   const byInvoice = new Map<string, OpenLine[]>();
   for (const l of lines) byInvoice.set(l.invoiceId, [...(byInvoice.get(l.invoiceId) ?? []), l]);
   const out = new Map<string, Paise>();

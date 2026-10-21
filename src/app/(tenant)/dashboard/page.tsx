@@ -19,6 +19,9 @@ import { formatCount, formatPaise } from "@/lib/money/format";
 import { dashboardData } from "@/modules/dashboard/service";
 import { AT_RISK } from "@/modules/reports/service";
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// From the YYYY-MM string; no Date, so no timezone shift.
+const monthTick = (m: string) => MONTHS[Number(m.slice(5, 7)) - 1] ?? m;
 const count = (n: number, one: string, many: string) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 // Each section renders only when its slice is in the payload: that is the permission gate.
@@ -94,7 +97,7 @@ export default async function DashboardPage() {
             {money?.byMonth ? (
               <Card>
                 <CardHeader title="Collection" />
-                <RevenueOverview months={money.byMonth} />
+                <RevenueOverview bars={money.byMonth.map((m) => ({ label: monthTick(m.month), totalPaise: m.totalPaise }))} label="Collection by month" />
               </Card>
             ) : null}
             {fees ? (
