@@ -104,7 +104,7 @@ export default async function StudentPlansPage({ searchParams }: PageProps<"/fin
                       </td>
                       <td className="py-2.5 pr-4 text-body">{r.payerName || dash}</td>
                       <td className="py-2.5 pr-4 text-body whitespace-nowrap">{when(r)}</td>
-                      {applied.tab === "active" ? <td className="py-2.5 pr-4 text-body whitespace-nowrap">{r.nextBill ? formatDate(r.nextBill) : dash}</td> : null}
+                      {applied.tab === "active" ? <td className="py-2.5 pr-4 text-body whitespace-nowrap">{r.packText ?? (r.nextBill ? formatDate(r.nextBill) : dash)}</td> : null}
                       <td className="px-5 py-2.5 text-right text-body whitespace-nowrap">{owing(r)}</td>
                     </tr>
                   ))}
@@ -128,7 +128,7 @@ export default async function StudentPlansPage({ searchParams }: PageProps<"/fin
                     {applied.tab === "active" ? (
                       <div>
                         <dt className="text-muted-foreground">Next bill</dt>
-                        <dd className="text-body">{r.nextBill ? formatDate(r.nextBill) : dash}</dd>
+                        <dd className="text-body">{r.packText ?? (r.nextBill ? formatDate(r.nextBill) : dash)}</dd>
                       </div>
                     ) : null}
                     <div>

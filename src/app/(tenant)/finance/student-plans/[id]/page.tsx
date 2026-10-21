@@ -149,7 +149,7 @@ export default async function StudentPlanPage({ params }: PageProps<"/finance/st
             <Fact label="Starts">{formatDate(r.startDate)}</Fact>
             {r.endDate ? <Fact label="Ends">{formatDate(r.endDate)}</Fact> : null}
             <Fact label="Payer">{r.payerName || "—"}</Fact>
-            <Fact label="Next bill">{r.nextBill ? formatDate(r.nextBill) : "—"}</Fact>
+            <Fact label="Next bill">{r.packText ?? (r.nextBill ? formatDate(r.nextBill) : "—")}</Fact>
           </dl>
           {manage ? (
             <div className="mt-3 space-y-3 border-t border-neutral-100 pt-3">

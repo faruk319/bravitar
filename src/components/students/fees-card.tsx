@@ -47,7 +47,7 @@ function PlanItem({ p }: { p: Fees["plans"][number] }) {
         </span>
       </div>
       <p className="text-caption text-muted-foreground">
-        {p.planName} · Next bill {p.nextBill ? formatDate(p.nextBill) : dash} · {p.payerName || dash}
+        {p.planName} · {p.packText ?? `Next bill ${p.nextBill ? formatDate(p.nextBill) : dash}`} · {p.payerName || dash}
       </p>
     </li>
   );

@@ -8,6 +8,7 @@ import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { type DayCell, type MonthTally, type MonthTrend, monthBefore, monthCells, monthTrend, tallyOf } from "@/lib/students/attendance";
 import { getBatch, listHolidays } from "@/modules/batches/repo";
 import { assertBatchOpen } from "@/modules/billing/access";
+import { packStatus } from "@/modules/fees/packs";
 import { onRoster } from "@/modules/enrollments/repo";
 import { trialsForSession } from "@/modules/enquiries/repo";
 import { markTrials } from "@/modules/enquiries/trials";
@@ -59,7 +60,7 @@ export async function todaysClasses(tx: Tx, ctx: ScopedCtx, opts: { now?: Date }
 }
 
 // A trial (docs/03 §4) is on the roster by its trial id, marked like a student.
-export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; mark: Mark | null; note: string | null; markedBy: string | null };
+export type RosterEntry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; sessionsLeft: number | null; sessionsLow: boolean; mark: Mark | null; note: string | null; markedBy: string | null };
 export type Lock = "cancelled" | "future" | "locked";
 export type ClassView = ClassRow & { timeZone: string; entries: RosterEntry[]; lock: Lock | null; canMark: boolean };
 
@@ -79,14 +80,15 @@ async function requireClass(tx: Tx, ctx: ScopedCtx, id: string): Promise<ClassRo
 // Enrolled on the class date, plus anyone already marked (history survives moves).
 async function entriesFor(tx: Tx, c: ClassRow): Promise<RosterEntry[]> {
   const [roster, marks, trials] = await Promise.all([onRoster(tx, [c.session.batchId], c.session.sessionDate), marksFor(tx, [c.session.id]), trialsForSession(tx, c.session.id)]);
-  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, trial: false, mark: null, note: null, markedBy: null }]));
+  const left = await packStatus(tx, roster.map((r) => r.enrollmentId), c.session.sessionDate);
+  const entries = new Map<string, RosterEntry>(roster.map((r) => [r.studentId, { studentId: r.studentId, name: r.name, code: r.code, paused: r.paused, trial: false, sessionsLeft: left.get(r.enrollmentId)?.left ?? null, sessionsLow: left.get(r.enrollmentId)?.low ?? false, mark: null, note: null, markedBy: null }]));
   const extra = await studentNames(tx, marks.filter((m) => !entries.has(m.studentId)).map((m) => m.studentId));
   for (const m of marks) {
-    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, trial: false, mark: null, note: null, markedBy: null };
+    const e = entries.get(m.studentId) ?? { studentId: m.studentId, name: extra.get(m.studentId)?.name ?? "—", code: extra.get(m.studentId)?.code ?? "", paused: false, trial: false, sessionsLeft: null, sessionsLow: false, mark: null, note: null, markedBy: null };
     entries.set(m.studentId, { ...e, mark: m.status, note: m.note, markedBy: m.markedBy });
   }
   // Once they joined and are on this roster as a student, that row is theirs.
-  for (const t of trials) if (!(t.studentId && entries.has(t.studentId))) entries.set(t.id, { studentId: t.id, name: t.name, code: "", paused: false, trial: true, mark: t.mark, note: t.feedback, markedBy: t.markedBy });
+  for (const t of trials) if (!(t.studentId && entries.has(t.studentId))) entries.set(t.id, { studentId: t.id, name: t.name, code: "", paused: false, trial: true, sessionsLeft: null, sessionsLow: false, mark: t.mark, note: t.feedback, markedBy: t.markedBy });
   const order = (e: RosterEntry) => (e.paused ? 2 : e.trial ? 1 : 0);
   return [...entries.values()].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
 }
@@ -130,6 +132,8 @@ export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: 
     const note = m.note === undefined ? e.note : m.note || null;
     if (e.mark !== m.status || e.note !== note) changes.push({ studentId: m.studentId, from: e.mark, to: m.status, note, by: e.markedBy });
   }
+  const counts = (m: Mark | null) => m === "present" || m === "late";
+  for (const ch of changes) if (counts(ch.to) && !counts(ch.from) && (entries.get(ch.studentId)?.sessionsLeft ?? 1) <= 0) throw new BadRequestError("No sessions left — sell a new pack");
   const isTrial = (ch: { studentId: string }) => Boolean(entries.get(ch.studentId)?.trial);
   await upsertMarks(
     tx,

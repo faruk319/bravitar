@@ -12,7 +12,7 @@ import { request } from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 type Mark = "present" | "absent" | "late" | "excused";
-type Entry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; mark: Mark | null; note: string | null };
+type Entry = { studentId: string; name: string; code: string; paused: boolean; trial: boolean; sessionsLeft: number | null; sessionsLow: boolean; mark: Mark | null; note: string | null };
 type Marks = Record<string, { mark: Mark | null; note: string | null }>;
 
 const NEXT: Record<Mark | "none", Mark> = { none: "present", present: "absent", absent: "late", late: "present", excused: "present" };
@@ -136,6 +136,7 @@ export function Roster({ sessionId, entries, canMark, stickyBottom }: { sessionI
                   <span className="block truncate text-body text-neutral-900">
                     {e.name}
                     {e.trial ? <span className="ml-2 rounded-full bg-accent-50 px-2 py-0.5 text-caption text-accent-600">Trial</span> : null}
+                    {e.sessionsLeft === null ? null : <span className={`ml-2 text-caption ${e.sessionsLow ? "text-warning-700" : "text-muted-foreground"}`}>{e.sessionsLeft <= 0 ? "No sessions left" : e.sessionsLow ? `Sessions low · ${e.sessionsLeft} left` : `${e.sessionsLeft} left`}</span>}
                   </span>
                   {m?.note ? <span className="block truncate text-caption text-muted-foreground">{m.note}</span> : null}
                 </span>

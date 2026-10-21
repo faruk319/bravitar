@@ -21,6 +21,7 @@ import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
 import { queryReader, type SearchParams } from "@/lib/url-query";
+import { packStatus, packText } from "./packs";
 import { type Cycle, type DisplayStatus, displayStatus, lineAmounts, nextRecurringBill, spreadOver, upcomingFlags } from "./billing";
 import { type ManualLine, manualLine } from "./charge";
 import type { InvoiceQuery } from "./invoice-query";
@@ -674,6 +675,7 @@ export type StudentPlanRow = {
   status: Enrollment["status"];
   payerName: string;
   nextBill: string | null;
+  packText: string | null;
   outstandingPaise: Paise;
 };
 
@@ -723,6 +725,7 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
   const tenant = await getOwnTenant(tx);
   const [enrollmentIds, studentIds] = [base.map((b) => b.e.id), [...new Set(base.map((b) => b.e.studentId))]];
   const [lead, links, termDue, lines] = await Promise.all([leadGuardians(tx, studentIds), enrollmentLinks(tx, studentIds), nextInstallmentDue(tx, enrollmentIds), openInvoiceLines(tx, enrollmentIds)]);
+  const packs = await packStatus(tx, enrollmentIds, today);
   const chain = chains(links);
   const payers = new Map(base.map((b) => [b.e.id, safePayer(b.e, lead.get(b.e.studentId))] as const));
   const names = await payerNames(tx, [...payers.values()].flatMap((p) => (p ? [p] : [])));
@@ -733,6 +736,7 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
 
   return base.map(({ e, plan, studentName, studentCode, programName, batchName }): StudentPlanRow => {
     const payer = payers.get(e.id);
+    const pack = packs.get(e.id);
     let nextBill: string | null = null;
     if (e.status === "active" && plan.kind === "recurring") {
       nextBill = nextRecurringBill(
@@ -758,12 +762,13 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
       status: e.status,
       payerName: (payer && names.get(payerKey(payer))) ?? "",
       nextBill,
+      packText: pack && e.status === "active" ? packText(pack) : null,
       outstandingPaise: owed.get(e.id) ?? 0n,
     };
   });
 }
 
-export type CardPlan = PlanLine & { nextBill: string | null; payerName: string };
+export type CardPlan = PlanLine & { nextBill: string | null; packText: string | null; payerName: string };
 
 // The student's running plans for the fees card, and the advance each payer holds in their branch.
 export async function studentCardPlans(tx: Tx, ctx: ScopedCtx, studentId: string, today: string): Promise<{ plans: CardPlan[]; advance: { payerName: string; advancePaise: Paise }[] }> {
@@ -781,7 +786,7 @@ export async function studentCardPlans(tx: Tx, ctx: ScopedCtx, studentId: string
     const held = sum((await unusedPayments(tx, payer, branchId)).map((u) => u.unused));
     if (held > 0n) advance.push({ payerName: name, advancePaise: held });
   }
-  return { plans: rows.map(({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, payerName }) => ({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, payerName })), advance };
+  return { plans: rows.map(({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, packText, payerName }) => ({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, packText, payerName })), advance };
 }
 
 export type TimelineRow = { invoiceId: string; number: string | null; label: string; status: DisplayStatus | "upcoming"; amountPaise: Paise; paidPaise: Paise; dueDate: string };

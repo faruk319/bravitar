@@ -9,6 +9,7 @@ import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
 import { uuidv7 } from "@/lib/ids";
 import { type Mark, attendance } from "@/modules/attendance/schema";
+import { classRoster, saveAttendance } from "@/modules/attendance/service";
 import { createProgram, insertBatch } from "@/modules/batches/repo";
 import { insertEnrollment } from "@/modules/enrollments/repo";
 import { cancelPayment, recordPayment, refundPayment } from "@/modules/payments/service";
@@ -18,7 +19,7 @@ import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
 import { createStudent } from "@/modules/students/service";
 import { extendPack, packBalance } from "./packs";
 import { invoices, sessionPacks } from "./schema";
-import { createPlan } from "./service";
+import { createPlan, studentPlanList } from "./service";
 
 // Finance spec, addendum 2026-10-21: prepaid session packs.
 const stamp = Math.random().toString(36).slice(2, 8);
@@ -170,5 +171,67 @@ describe("extending a pack", () => {
     expect(await balance(enrollment, "2026-11-25")).toEqual({ left: 3, until: "2026-12-01" });
     const audits = await withTenant(T, (tx) => tx.select().from(auditLog).where(and(eq(auditLog.entityId, id), eq(auditLog.action, "session_pack.extend"))));
     expect(audits).toHaveLength(1);
+  });
+});
+
+describe("marking against a pack", () => {
+  let classes = 0;
+  async function classOn(day: string): Promise<string> {
+    const id = uuidv7();
+    const starts = new Date(at(day).getTime() + ++classes * 60_000); // each test gets its own class
+    await withTenant(T, (tx) => tx.insert(sessions).values({ id, tenantId: T, branchId: main, batchId: batch, startsAt: starts, endsAt: new Date(starts.getTime() + 3_600_000), sessionDate: day }));
+    return id;
+  }
+  const save = (id: string, kid: string, status: Mark, day: string) => withTenant(T, (tx) => saveAttendance(tx, owner, id, { marks: [{ studentId: kid, status }] }, { now: new Date(at(day).getTime() + 3_600_000) }));
+  const NONE = { status: 400, message: "No sessions left — sell a new pack" };
+
+  it("refuses Present and Late with none left, allows Absent, and the last session can be marked", async () => {
+    const { kid, enrollment } = await enrolled();
+    const none = await classOn("2026-10-21");
+    await expect(save(none, kid, "present", "2026-10-21")).rejects.toMatchObject(NONE);
+    await save(none, kid, "absent", "2026-10-21");
+    await sell(kid, enrollment, "2026-10-21");
+    for (const d of ["2026-10-22", "2026-10-23", "2026-10-24"]) await save(await classOn(d), kid, "present", d);
+    expect((await balance(enrollment, "2026-10-24"))?.left).toBe(0);
+    const extra = await classOn("2026-10-25");
+    await expect(save(extra, kid, "late", "2026-10-25")).rejects.toMatchObject(NONE);
+    await save(extra, kid, "absent", "2026-10-25");
+    await sell(kid, enrollment, "2026-10-25");
+    await save(extra, kid, "late", "2026-10-25");
+    expect((await balance(enrollment, "2026-10-25"))?.left).toBe(2);
+  });
+
+  it("applies when a mark is amended, but not to a mark that already counts", async () => {
+    const { kid, enrollment } = await enrolled();
+    await sell(kid, enrollment, "2026-10-21");
+    const days = ["2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"];
+    const ids = [];
+    for (const d of days) ids.push(await classOn(d));
+    await save(ids[3] ?? "", kid, "absent", days[3] ?? "");
+    for (const [i, d] of days.slice(0, 3).entries()) await save(ids[i] ?? "", kid, "present", d);
+    await expect(save(ids[3] ?? "", kid, "present", days[3] ?? "")).rejects.toMatchObject(NONE);
+    await save(ids[0] ?? "", kid, "late", days[0] ?? ""); // already used
+  });
+
+  it("does not count a cancelled class", async () => {
+    const { kid, enrollment } = await enrolled();
+    await sell(kid, enrollment, "2026-10-21");
+    const id = await classOn("2026-10-22");
+    await save(id, kid, "present", "2026-10-22");
+    await withTenant(T, (tx) => tx.update(sessions).set({ status: "cancelled", cancelReason: "Rain" }).where(eq(sessions.id, id)));
+    expect((await balance(enrollment, "2026-10-22"))?.left).toBe(3);
+  });
+
+  it("shows sessions left on the roster, the student plans and the card, low at 2 or fewer", async () => {
+    const { kid, enrollment } = await enrolled();
+    await sell(kid, enrollment, "2026-10-21");
+    const d1 = "2026-10-22";
+    await save(await classOn(d1), kid, "present", d1);
+    const id = await classOn("2026-10-23");
+    const entry = async () => (await withTenant(T, (tx) => classRoster(tx, owner, id, { now: at("2026-10-23") }))).entries.find((e) => e.studentId === kid);
+    expect(await entry()).toMatchObject({ sessionsLeft: 2, sessionsLow: true });
+    const list = await withTenant(T, (tx) => studentPlanList(tx, owner, { tab: "active", q: `Pack child ${kids}`, page: 1 }, { now: at("2026-10-23") }));
+    const row = list.rows.find((r) => r.enrollmentId === enrollment);
+    expect(row?.packText).toBe("Sessions low · 2 of 3 left · until 19 Nov");
   });
 });

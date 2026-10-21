@@ -1,10 +1,10 @@
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { assertCan } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate } from "@/lib/dates";
+import { addDays, formatDayMonth, isIsoDate } from "@/lib/dates";
 import { BadRequestError, ConflictError, NotFoundError } from "@/lib/errors";
 import { uuidv7 } from "@/lib/ids";
 import { attendance } from "@/modules/attendance/schema";
@@ -15,7 +15,7 @@ import type { Payer } from "@/modules/students/payer";
 import { students } from "@/modules/students/schema";
 import { tenantToday } from "@/modules/tenancy/repo";
 import type { Actor } from "./invoicing";
-import { type FeePlan, type Invoice, invoices, type SessionPack, sessionPacks } from "./schema";
+import { type FeePlan, feePlans, type Invoice, invoices, type SessionPack, sessionPacks } from "./schema";
 import { addCharge, issueDrafts } from "./service";
 
 // Prepaid session packs (finance spec, addendum 2026-10-21).
@@ -79,7 +79,7 @@ export async function packBalance(tx: Tx, enrollmentIds: string[], day: string):
     .from(attendance)
     .innerJoin(sessions, eq(sessions.id, attendance.sessionId))
     .innerJoin(enrollments, and(eq(enrollments.batchId, sessions.batchId), eq(enrollments.studentId, attendance.studentId)))
-    .where(and(inArray(enrollments.id, [...new Set(packs.map((r) => r.p.enrollmentId))]), inArray(attendance.status, ["present", "late"])))
+    .where(and(inArray(enrollments.id, [...new Set(packs.map((r) => r.p.enrollmentId))]), inArray(attendance.status, ["present", "late"]), ne(sessions.status, "cancelled")))
     .orderBy(asc(sessions.sessionDate), asc(sessions.startsAt));
   const used = new Map<string, number>();
   for (const m of marks) {
@@ -92,6 +92,30 @@ export async function packBalance(tx: Tx, enrollmentIds: string[], day: string):
     out.set(p.enrollmentId, { left: was.left + left, until: was.until ?? (left > 0 ? p.validUntil : null) });
   }
   return out;
+}
+
+export const LOW_SESSIONS = 2;
+export type PackStatus = { left: number; total: number; until: string | null; low: boolean };
+
+// Sessions left for each enrollment on a session-pack plan, counting none when no pack is paid and current.
+export async function packStatus(tx: Tx, enrollmentIds: string[], day: string): Promise<Map<string, PackStatus>> {
+  const out = new Map<string, PackStatus>();
+  if (!enrollmentIds.length) return out;
+  const plans = await tx.select({ id: enrollments.id, plan: feePlans }).from(enrollments).innerJoin(feePlans, eq(feePlans.id, enrollments.feePlanId)).where(and(inArray(enrollments.id, enrollmentIds), eq(feePlans.kind, "package")));
+  const balances = await packBalance(tx, plans.map((r) => r.id), day);
+  for (const { id, plan } of plans) {
+    const total = packTerms(plan)?.sessions;
+    if (!total) continue;
+    const b = balances.get(id) ?? { left: 0, until: null };
+    out.set(id, { left: b.left, total, until: b.until, low: b.left <= LOW_SESSIONS });
+  }
+  return out;
+}
+
+// "7 of 10 left · until 20 Dec", "Sessions low · 2 of 10 left · until 20 Dec" or "No sessions left".
+export function packText(s: PackStatus): string {
+  if (s.left <= 0) return "No sessions left";
+  return `${s.low ? "Sessions low · " : ""}${s.left} of ${s.total} left${s.until ? ` · until ${formatDayMonth(s.until)}` : ""}`;
 }
 
 export const extendSchema = z.object({

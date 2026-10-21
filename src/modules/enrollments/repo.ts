@@ -82,13 +82,14 @@ export function placedWhere(tx: Tx, day: string, f: { programId?: string; batchI
   return exists(tx.select({ one: sql`1` }).from(enrollments).innerJoin(batches, eq(batches.id, enrollments.batchId)).where(and(...on)));
 }
 
-export type OnRoster = { batchId: string; studentId: string; name: string; code: string; paused: boolean };
+export type OnRoster = { enrollmentId: string; batchId: string; studentId: string; name: string; code: string; paused: boolean };
 
 // Who is on each batch's roster on `day`; paused = paused on or before that day.
 export async function onRoster(tx: Tx, batchIds: string[], day: string): Promise<OnRoster[]> {
   if (!batchIds.length) return [];
   return tx
     .select({
+      enrollmentId: enrollments.id,
       batchId: enrollments.batchId,
       studentId: enrollments.studentId,
       name: students.fullName,
