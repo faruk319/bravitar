@@ -826,9 +826,9 @@ describe("the invoice list", () => {
     // a term plan with 3 installments, all billed; the second one
     const [first, second, third] = [...installments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     expect(installments).toHaveLength(3);
-    expect((await list({ q: numbered(second) })).rows[0]?.installment).toEqual({ n: 2, of: 3 });
-    expect((await list({ q: numbered(first) })).rows[0]?.installment).toEqual({ n: 1, of: 3 });
-    expect((await list({ q: numbered(third) })).rows[0]?.installment).toEqual({ n: 3, of: 3 });
+    expect((await list({ q: numbered(second) })).rows[0]?.installment).toMatchObject({ n: 2, of: 3 });
+    expect((await list({ q: numbered(first) })).rows[0]?.installment).toMatchObject({ n: 1, of: 3 });
+    expect((await list({ q: numbered(third) })).rows[0]?.installment).toMatchObject({ n: 3, of: 3 });
     expect((await list({ q: numbered(karate) })).rows[0]?.installment).toBeNull(); // a monthly fee is no installment
     expect((await list({ q: numbered(first) })).rows[0]?.programs).toEqual(["Class 9"]);
   });

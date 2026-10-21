@@ -2,6 +2,7 @@ import { allows } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import type { Tx } from "@/lib/db/client";
 import { sum } from "@/lib/money/paise";
+import { upcomingFlags } from "@/modules/fees/billing";
 import type { InvoiceRow } from "@/modules/fees/repo";
 import { attendanceTrend, studentAttendance } from "@/modules/attendance/service";
 import { studentBatches } from "@/modules/enrollments/service";
@@ -11,18 +12,18 @@ import { studentOverview } from "./service";
 
 const CARD_INVOICES = 6;
 
-// A term plan's later installments that are not yet due read Upcoming; the earliest unpaid one and past-due ones keep their word.
+// Installment invoices by payer and series, each series in due order; the later not-yet-due ones read Upcoming.
 function laterInstallments(list: InvoiceRow[]): Set<string> {
   const out = new Set<string>();
   const series = new Map<string, InvoiceRow[]>();
-  for (const i of list) if (i.installment) series.set(`${i.billToName}|${i.installment.of}|${i.programs.join()}`, [...(series.get(`${i.billToName}|${i.installment.of}|${i.programs.join()}`) ?? []), i]);
+  for (const i of list) {
+    if (!i.installment) continue;
+    const key = `${i.payerGuardianId ?? i.payerMemberId ?? ""}|${i.installment.seq}`;
+    series.set(key, [...(series.get(key) ?? []), i]);
+  }
   for (const group of series.values()) {
-    let first = true;
-    for (const i of group.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0))) {
-      if (i.display !== "due" && i.display !== "overdue" && i.display !== "part_paid") continue;
-      if (!first && i.display === "due") out.add(i.id);
-      first = false;
-    }
+    group.sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
+    upcomingFlags(group.map((i) => i.display)).forEach((later, n) => later && out.add(group[n]?.id ?? ""));
   }
   return out;
 }

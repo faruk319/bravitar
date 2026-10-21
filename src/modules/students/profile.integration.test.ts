@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { addDays, todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
@@ -200,5 +201,69 @@ describe("the fees card is per payer", () => {
     expect(f?.advance).toEqual([{ payerName: "Aunt Advance", advancePaise: 50000n }]);
     expect(f?.receipts.length).toBeGreaterThan(0);
     expect(f?.receipts[0]?.fromAdvance).toBe(true);
+  });
+  describe("term plans and two advances", () => {
+    const start = todayIn("Asia/Kolkata");
+    const termBatch = async (name: string, programId: string, offsets: number[], from = start) => {
+      const p = await withTenant(T, (tx) => createPlan(tx, owner, { name: `${name} plan`, kind: "term", installments: offsets.map((o, n) => ({ label: `Part ${n + 1}`, amountPaise: "100000", dueOffsetDays: o })) }));
+      const b = await withTenant(T, (tx) => createBatch(tx, owner, { name, programId, slots: [{ weekday: 3, startTime: "17:00", endTime: "18:00" }], startDate: from, defaultFeePlanId: p.id }));
+      return b.id;
+    };
+    const program = (name: string) => withTenant(T, (tx) => addProgram(tx, owner, { name })).then((p) => p.id);
+    const bill = async (studentId: string, enrollmentIds: string[], at = new Date()) => {
+      await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now: at, enrollmentIds }));
+      const ids = (await withTenant(T, (tx) => tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.studentId, studentId)))).map((r) => r.id);
+      await withTenant(T, (tx) => issueInvoices(tx, owner, ids, { now: at }));
+    };
+    const words = async (id: string) => ((await profile(owner, id)).fees?.invoices ?? []).filter((i) => i.installment).sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+
+    it("a term child: the first unpaid installment is Due, the later ones Upcoming", async () => {
+      const s = await kid("Term Card");
+      const b = await termBatch("Term Karate", await program("Term program"), [0, 30, 60]);
+      const e = await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b, startDate: start }));
+      await bill(s.student.id, [e.id]);
+      const f = (await profile(owner, s.student.id)).fees;
+      const rows = await words(s.student.id);
+      expect(rows.map((i) => [i.display, f?.upcoming.includes(i.id)])).toEqual([["due", false], ["due", true], ["due", true]]);
+    });
+
+    it("a past-due later installment stays Overdue; only the not-yet-due one waits", async () => {
+      const s = await kid("Term Late");
+      const b = await termBatch("Term Late B", await program("Late program"), [0, 10, 20, 400], addDays(start, -60));
+      const e = await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b, startDate: addDays(start, -60) }));
+      await bill(s.student.id, [e.id], new Date(Date.now() - 60 * 86_400_000));
+      const f = (await profile(owner, s.student.id)).fees;
+      const rows = await words(s.student.id);
+      expect(rows.map((i) => [i.display, f?.upcoming.includes(i.id)])).toEqual([["overdue", false], ["overdue", false], ["overdue", false], ["due", true]]);
+    });
+
+    it("two term plans of one program keep a series each: both start with a Due installment", async () => {
+      const s = await kid("Two Series");
+      const pid = await program("Shared program");
+      const [b1, b2] = [await termBatch("Series A", pid, [0, 30]), await termBatch("Series B", pid, [0, 30])];
+      const [e1, e2] = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b1, startDate: start })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b2, startDate: start }))];
+      await bill(s.student.id, [e1.id, e2.id]);
+      const f = (await profile(owner, s.student.id)).fees;
+      const rows = await words(s.student.id);
+      expect(rows).toHaveLength(4);
+      expect(rows.filter((i) => f?.upcoming.includes(i.id))).toHaveLength(2);
+      expect(rows.filter((i) => i.installment?.n === 1).every((i) => !f?.upcoming.includes(i.id))).toBe(true);
+    });
+
+    it("both payers hold advance: Father and Mother both appear", async () => {
+      const s = await kid("Both Advance");
+      const mother = await withTenant(T, (tx) => addFamilyMember(tx, owner, s.student.id, { fullName: "Mother Both", phone: phone(), relation: "mother" }));
+      const pid = await program("Both program");
+      const [b1, b2] = [await termBatch("Both A", pid, [0]), await termBatch("Both B", pid, [0])];
+      const [e1, e2] = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b1, startDate: start })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: b2, startDate: start }))];
+      await withTenant(T, async (tx) => {
+        await tx.update(enrollments).set({ payerGuardianId: s.guardian.id, payerMemberId: null }).where(eq(enrollments.id, e1.id));
+        await tx.update(enrollments).set({ payerGuardianId: mother.id, payerMemberId: null }).where(eq(enrollments.id, e2.id));
+      });
+      for (const g of [s.guardian.id, mother.id])
+        await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: s.student.id, branchId: branch, amountPaise: "30000", payerGuardianId: g, allocations: [] }, { now: new Date() }));
+      const f = (await profile(owner, s.student.id)).fees;
+      expect(f?.advance.map((a) => a.payerName).sort()).toEqual(["Both Advance Parent", "Mother Both"]);
+    });
   });
 });

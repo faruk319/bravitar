@@ -308,7 +308,7 @@ export type InvoiceRow = Omit<Invoice, "billToName"> & {
   students: string[];
   display: DisplayStatus;
   programs: string[]; // by name, through the lines' enrollments and batches
-  installment: { n: number; of: number } | null; // "2 of 4", for a term plan's installment
+  installment: { n: number; of: number; seq: string } | null; // "2 of 4"; seq names the series, for a term plan's installment
 };
 
 // Overdue is worked out when reading (due date passed), never stored.
@@ -420,7 +420,7 @@ export async function programsOnInvoice(tx: Tx, invoiceId: string): Promise<Invo
 }
 
 // "2 of 4" for the installment invoices among these lines: the position from the key, the size from every key of that series.
-async function installmentsOf(tx: Tx, lines: Pick<LineRow, "invoiceId" | "billingKey">[]): Promise<Map<string, { n: number; of: number }>> {
+async function installmentsOf(tx: Tx, lines: Pick<LineRow, "invoiceId" | "billingKey">[]): Promise<Map<string, { n: number; of: number; seq: string }>> {
   const mine = new Map<string, NonNullable<ReturnType<typeof installmentOf>>>();
   for (const l of lines) {
     const i = installmentOf(l.billingKey);
@@ -436,7 +436,7 @@ async function installmentsOf(tx: Tx, lines: Pick<LineRow, "invoiceId" | "billin
     const s = series.get(i.seq) ?? { keys: 0, last: -1 };
     series.set(i.seq, { keys: s.keys + 1, last: Math.max(s.last, i.index) });
   }
-  return new Map([...mine].map(([invoiceId, i]) => [invoiceId, { n: i.index + 1, of: Math.max(series.get(i.seq)?.keys ?? 0, i.index + 1) }]));
+  return new Map([...mine].map(([invoiceId, i]) => [invoiceId, { n: i.index + 1, of: Math.max(series.get(i.seq)?.keys ?? 0, i.index + 1), seq: i.seq }]));
 }
 
 export async function listInvoices(tx: Tx, branchIds: string[], opts: InvoiceFilter & { sort?: InvoiceSort; limit?: number; offset?: number }): Promise<InvoiceRow[]> {
@@ -634,7 +634,7 @@ export async function studentPlanRowOf(tx: Tx, branchIds: string[], enrollmentId
   return row;
 }
 
-export type BilledLine = { inv: Invoice; line: InvoiceLine; installment: { n: number; of: number } | null };
+export type BilledLine = { inv: Invoice; line: InvoiceLine; installment: { n: number; of: number; seq: string } | null };
 
 // Every line of the non-void invoices that carry this enrollment, oldest due first.
 export async function billedLinesOf(tx: Tx, enrollmentId: string): Promise<BilledLine[]> {

@@ -21,7 +21,7 @@ import { guardiansOfMembers, leadGuardians } from "@/modules/students/repo";
 import { requireStudent } from "@/modules/students/service";
 import { getBranch, getOwnTenant, tenantToday, updateOwnTenant } from "@/modules/tenancy/repo";
 import { queryReader, type SearchParams } from "@/lib/url-query";
-import { type Cycle, type DisplayStatus, displayStatus, lineAmounts, nextRecurringBill, spreadOver } from "./billing";
+import { type Cycle, type DisplayStatus, displayStatus, lineAmounts, nextRecurringBill, spreadOver, upcomingFlags } from "./billing";
 import { type ManualLine, manualLine } from "./charge";
 import type { InvoiceQuery } from "./invoice-query";
 import { type Actor, chains, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
@@ -801,12 +801,10 @@ export async function studentPlanDetail(tx: Tx, ctx: ScopedCtx, enrollmentId: st
   }
   // On a term plan only the earliest unpaid installment is due; later ones not yet due wait.
   if (row.kind === "term") {
-    let first = true;
-    for (const t of timeline) {
-      if (t.status !== "due" && t.status !== "overdue" && t.status !== "part_paid") continue;
-      if (!first && t.status === "due") t.status = "upcoming";
-      first = false;
-    }
+    const wait = upcomingFlags(timeline.map((t) => (t.status === "upcoming" ? "due" : t.status)));
+    timeline.forEach((t, n) => {
+      if (wait[n]) t.status = "upcoming";
+    });
   }
   const counted = timeline.filter((t) => t.status !== "draft");
   const [billedPaise, paidPaise] = [sum(counted.map((t) => t.amountPaise)), sum(counted.map((t) => t.paidPaise))];

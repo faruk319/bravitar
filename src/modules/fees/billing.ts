@@ -117,6 +117,17 @@ export function displayStatus(inv: Pick<Invoice, "status" | "dueDate">, today: s
   }
 }
 
+// A term plan's installments in due order: only the earliest unpaid one reads Due; later not-yet-due ones read Upcoming, past-due ones stay Overdue.
+export function upcomingFlags(statuses: DisplayStatus[]): boolean[] {
+  let first = true;
+  return statuses.map((s) => {
+    if (s !== "due" && s !== "overdue" && s !== "part_paid") return false;
+    const later = !first && s === "due";
+    first = false;
+    return later;
+  });
+}
+
 // "installment|<root>|<plan>|<i>" is the i-th installment (from 0) of one plan; `seq` names the series.
 const INSTALLMENT_KEY = /^installment\|([^|]+\|[^|]+)\|(\d+)$/;
 export function installmentOf(billingKey: string | null): { seq: string; index: number } | null {

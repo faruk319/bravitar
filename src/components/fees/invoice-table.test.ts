@@ -51,14 +51,14 @@ describe("invoice table", () => {
   });
 
   it("an installment says where it sits in its plan, in place of a period", () => {
-    const out = text(table(render([inv("1", { periodStart: null, periodEnd: null, installment: { n: 2, of: 4 } })])));
+    const out = text(table(render([inv("1", { periodStart: null, periodEnd: null, installment: { n: 2, of: 4, seq: "s" } })])));
     expect(out).toContain("Karate Installment 2 of 4 ₹1,500");
     // Positive control: a monthly fee shows its month in that place.
     expect(text(table(render([inv("1")])))).toContain("Karate Oct 2026 ₹1,500");
   });
 
   it("a plan with one installment shows no position", () => {
-    const out = text(table(render([inv("1", { periodStart: null, periodEnd: null, installment: { n: 1, of: 1 } })])));
+    const out = text(table(render([inv("1", { periodStart: null, periodEnd: null, installment: { n: 1, of: 1, seq: "s" } })])));
     expect(out).not.toContain("Installment");
     expect(out).toContain("Karate — ₹1,500");
   });
