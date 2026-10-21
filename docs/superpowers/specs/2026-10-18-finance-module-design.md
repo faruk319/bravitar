@@ -452,3 +452,19 @@ lint && pnpm test && pnpm test:isolation`, then a Chrome check, then a commit.
 12. Not built: plan descriptions, per-plan discount rules, large-discount approval, bulk select.
 13. Auto-issue covers every generated draft (nightly, Generate now, redrafts), never manual drafts.
 14. A desk charge below its amount is refused rather than left part paid.
+
+## Addendum 2026-10-21 — Session packs (PT and per-session fees)
+
+User decisions, asked before building:
+- **Prepaid pack.** A fee plan of kind `package` (already in the schema, never billed) sells N sessions for one price, valid for D days. Plan fields: sessions, days valid, price.
+- **A session is used when attendance is marked Present or Late** for that enrollment's batch. PT is a one-student batch with a coach — no new scheduling.
+- **No sessions left → marking Present/Late is refused** ("No sessions left — sell a new pack"). Absent and not-marked never use a session.
+- **Staff sell the next pack** (no automatic invoice). The roster, student card and student plans show "sessions left"; ≤ 2 left reads "Sessions low".
+- **Expiry:** unused sessions lapse on the expiry date. Staff with `invoices:manage` may extend a pack's expiry with a reason (audited).
+
+Design (my calls, for review):
+- New tenant-scoped table `session_packs` (enrollment, student, invoice, sessions, valid_from, valid_until, extension reason) with RLS, FORCE RLS and its isolation test.
+- Selling a pack is a fourth purpose in the collect drawer, **Session pack**, on the desk-charge path (R4): the pack's invoice is created, issued and paid in full in one step, and the pack starts that day. `fees:collect` is enough.
+- Usage is derived, never stored: Present/Late marks on the enrollment's sessions inside a pack's window, used oldest pack first. Sessions left = sessions − used, for packs not yet expired.
+- The attendance check happens in the attendance service when marking (also on amend), inside the same transaction.
+- Nightly billing still skips `package` plans.

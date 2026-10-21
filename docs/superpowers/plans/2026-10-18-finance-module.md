@@ -1005,6 +1005,26 @@ it("Finance › Reports and the moved pages have their titles", () => {
 
 ---
 
+## Slice 11b — Session packs (added 2026-10-21; build after Task 17, before Task 18)
+
+### Task 19: Session packs — data, selling and the pack plan
+
+**Files:** Create `migrations/0043_session_packs.sql`, `src/modules/fees/packs.ts` (repo + service for packs), its isolation registration; Modify `src/modules/fees/schema.ts`, `src/modules/fees/service.ts` (`planSchema` for kind `package`: sessions, validDays, amount), `src/components/fees/plan-editor.tsx` (Session pack type), `src/modules/payments/service.ts` (`recordPayment` purpose `pack`), `src/components/payments/payment-form.tsx` (fourth purpose "Session pack").
+
+**Interfaces:** `session_packs(id, tenant_id, enrollment_id, student_id, invoice_id, sessions int > 0, valid_from date, valid_until date, extended_reason text null, created_by, created_at)`; `sellPack(tx, actor, { enrollmentId, payer }, now): Promise<{ pack, invoice }>` (desk-charge path, R4 order, paid in full); `packBalance(tx, enrollmentIds, day): Map<enrollmentId, { left: number; until: string | null }>` (derived from Present/Late marks, oldest pack first); `extendPack(tx, ctx, id, { until, reason })` (`invoices:manage`, audited).
+
+- [ ] Tests first (RED): a pack sold at the desk issues and pays its invoice and starts today; usage counts only Present/Late inside the window, oldest pack first; expiry lapses unused sessions; extend needs `invoices:manage` and is audited; tenant isolation for `session_packs`.
+- [ ] Implement; migration up/down; full gate; commit `fees: prepaid session packs`.
+
+### Task 20: Session packs — attendance block and "sessions left" everywhere
+
+**Files:** Modify `src/modules/attendance/service.ts` (refuse Present/Late with no session left, also on amend), the roster and coach screens that mark attendance, `src/modules/fees/service.ts` (`planRowsOf`: next bill becomes "7 of 10 left · until 20 Dec"), `src/components/students/fees-card.tsx`.
+
+- [ ] Tests first (RED): marking Present with 0 left is refused with "No sessions left — sell a new pack"; Absent is allowed; the last session can be marked; after a new pack is sold it works again; student plans and the card show sessions left and "Sessions low" at ≤ 2.
+- [ ] Implement; full gate; commit `attendance: a pack's last session is the last one marked`.
+
+---
+
 ## Slice 12 — Seed and docs
 
 ### Task 18: Seed, docs and a final sweep
