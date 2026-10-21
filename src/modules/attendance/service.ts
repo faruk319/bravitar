@@ -133,7 +133,8 @@ export async function saveAttendance(tx: Tx, ctx: ScopedCtx, id: string, input: 
     if (e.mark !== m.status || e.note !== note) changes.push({ studentId: m.studentId, from: e.mark, to: m.status, note, by: e.markedBy });
   }
   const counts = (m: Mark | null) => m === "present" || m === "late";
-  for (const ch of changes) if (counts(ch.to) && !counts(ch.from) && (entries.get(ch.studentId)?.sessionsLeft ?? 1) <= 0) throw new BadRequestError("No sessions left — sell a new pack");
+  const empty = changes.filter((ch) => counts(ch.to) && !counts(ch.from) && (entries.get(ch.studentId)?.sessionsLeft ?? 1) <= 0).map((ch) => entries.get(ch.studentId)?.name ?? "A student");
+  if (empty.length) throw new BadRequestError(`No sessions left for ${empty.join(", ")} — sell a new pack`);
   const isTrial = (ch: { studentId: string }) => Boolean(entries.get(ch.studentId)?.trial);
   await upsertMarks(
     tx,

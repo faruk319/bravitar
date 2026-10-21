@@ -183,7 +183,7 @@ describe("marking against a pack", () => {
     return id;
   }
   const save = (id: string, kid: string, status: Mark, day: string) => withTenant(T, (tx) => saveAttendance(tx, owner, id, { marks: [{ studentId: kid, status }] }, { now: new Date(at(day).getTime() + 3_600_000) }));
-  const NONE = { status: 400, message: "No sessions left — sell a new pack" };
+  const NONE = { status: 400, message: expect.stringMatching(/^No sessions left for Pack child \d+ — sell a new pack$/) };
 
   it("refuses Present and Late with none left, allows Absent, and the last session can be marked", async () => {
     const { kid, enrollment } = await enrolled();
@@ -199,6 +199,18 @@ describe("marking against a pack", () => {
     await sell(kid, enrollment, "2026-10-25");
     await save(extra, kid, "late", "2026-10-25");
     expect((await balance(enrollment, "2026-10-25"))?.left).toBe(2);
+  });
+
+  it("refuses the whole save and names only the student with none left", async () => {
+    const empty = await enrolled();
+    const fine = await enrolled();
+    await sell(fine.kid, fine.enrollment, "2026-10-21");
+    const id = await classOn("2026-10-22");
+    const both = withTenant(T, (tx) => saveAttendance(tx, owner, id, { marks: [{ studentId: fine.kid, status: "present" }, { studentId: empty.kid, status: "present" }] }, { now: new Date(at("2026-10-22").getTime() + 3_600_000) }));
+    const name = `Pack child ${kids - 1}`;
+    await expect(both).rejects.toMatchObject({ status: 400, message: `No sessions left for ${name} — sell a new pack` });
+    const rows = await withTenant(T, (tx) => tx.select().from(attendance).where(eq(attendance.sessionId, id)));
+    expect(rows).toEqual([]);
   });
 
   it("applies when a mark is amended, but not to a mark that already counts", async () => {
