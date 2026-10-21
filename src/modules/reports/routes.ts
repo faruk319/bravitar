@@ -3,10 +3,11 @@ import { selectedBranchIds } from "@/lib/auth/server";
 import { toCsv } from "@/lib/csv";
 import type { Tx } from "@/lib/db/client";
 import { NotFoundError } from "@/lib/errors";
+import { liveModules } from "@/modules/billing/repo";
 import { discountsPage } from "@/modules/fees/service";
 import { advanceHeld, collectionList, parseCollectionQuery } from "@/modules/payments/service";
-import { admissionsRows, advanceRows, atRiskRows, attendanceRows, collectionRows, collectionsRows, discountLineRows, duesRows, enquiryRows } from "./csv";
-import { admissionsReport, atRisk, attendanceReport, collectionRegister, enquiryFunnel, outstandingDues, type Range, thisMonth } from "./service";
+import { admissionsRows, advanceRows, atRiskRows, attendanceRows, collectionRows, collectionsRows, discountLineRows, duesRows, enquiryRows, revenueRows } from "./csv";
+import { admissionsReport, atRisk, attendanceReport, collectionRegister, enquiryFunnel, outstandingDues, type Range, revenueReport, thisMonth } from "./service";
 
 type Csv = { rows: string[][]; stamp: string };
 const span = (r: Range) => `${r.from}-to-${r.to}`;
@@ -17,7 +18,7 @@ const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range, params: URLSear
     const list = await collectionList(tx, ctx, parseCollectionQuery(Object.fromEntries(params)), { unpaged: true });
     return { rows: collectionsRows(list.rows), stamp: list.today };
   },
-  collection: async (tx, ctx, range) => ({ rows: collectionRows(await collectionRegister(tx, ctx, range)), stamp: span(range) }),
+  collection: async (tx, ctx, range, params) => ({ rows: collectionRows(await collectionRegister(tx, ctx, { ...range, programId: params.get("program") || undefined })), stamp: span(range) }),
   dues: async (tx, ctx) => {
     const r = await outstandingDues(tx, ctx);
     return { rows: duesRows(r), stamp: r.asOf };
@@ -32,6 +33,10 @@ const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range, params: URLSear
   advance: async (tx, ctx, range, params) => {
     const rows = await advanceHeld(tx, ctx);
     return { rows: advanceRows(params.get("owes") === "1" ? rows.filter((r) => r.owesPaise > 0n) : rows), stamp: range.to };
+  },
+  revenue: async (tx, ctx, range) => {
+    const names = new Map((await liveModules(tx)).map((m) => [m.key, m.name]));
+    return { rows: revenueRows(await revenueReport(tx, ctx, range), (k) => names.get(k) ?? k), stamp: span(range) };
   },
   enquiries: async (tx, ctx, range) => ({ rows: enquiryRows(await enquiryFunnel(tx, ctx, range)), stamp: span(range) }),
 };

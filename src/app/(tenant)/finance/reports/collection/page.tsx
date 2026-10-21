@@ -8,6 +8,7 @@ import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage, selectedBranchIds } from "@/lib/auth/server";
 import { formatDate, formatDayMonth, formatMonthYear } from "@/lib/dates";
 import { withTenant } from "@/lib/db/with-tenant";
+import { listPrograms } from "@/modules/batches/repo";
 import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import { METHOD_LABEL } from "@/modules/payments/labels";
@@ -27,35 +28,54 @@ function Totals({ title, rows, of, label = (k) => k }: { title: string; rows: To
 
 // Each day opens that day's collection sheet; a month opens its own register.
 function byDay(r: CollectionRegister) {
+  const back = (from: string, to: string) => r.refunds.byDay.filter((t) => t.key >= from && t.key <= to).reduce((n, t) => n + t.totalPaise, 0n);
   const { unit, buckets } = collectionBuckets(r);
   return buckets.map((b) => {
     const when = unit === "day" ? formatDate(b.from) : formatMonthYear(b.from);
     return {
       key: b.from,
       tick: unit === "day" ? formatDayMonth(b.from) : formatMonthYear(b.from),
-      tip: `${when} · ${formatPaise(b.totalPaise)} · ${receipts(b.count)}`,
+      tip: `${when} · ${formatPaise(b.totalPaise)} · ${receipts(b.count)}${back(b.from, b.to) > 0n ? ` · Refunded ${formatPaise(back(b.from, b.to))}` : ""}`,
       value: Number(b.totalPaise),
       valueText: formatPaise(b.totalPaise),
-      href: unit === "day" ? `/finance/collections?period=all&from=${b.from}&to=${b.from}` : `/reports/collection?from=${b.from}&to=${b.to}`,
+      href: unit === "day" ? `/finance/collections?period=all&from=${b.from}&to=${b.from}` : `/finance/reports/collection?from=${b.from}&to=${b.to}`,
     };
   });
 }
 
 // docs/03 §11: receipts by day, method and staff; a day's total equals its collection sheet.
-export default async function CollectionReportPage({ searchParams }: PageProps<"/reports/collection">) {
+export default async function CollectionReportPage({ searchParams }: PageProps<"/finance/reports/collection">) {
   const session = await requireStaffPage();
   const ctx = { ...scopedCtx(session), branchIds: await selectedBranchIds(session) };
   if (!allows(ctx, "reports:view")) return <Gate permission="reports:view">{null}</Gate>;
   const sp = await searchParams;
-  const r = await withTenant(session.tenant.id, async (tx) => collectionRegister(tx, ctx, pickRange(sp, await thisMonth(tx))));
+  const [r, programs] = await withTenant(session.tenant.id, async (tx) => {
+    const programId = typeof sp.program === "string" && sp.program ? sp.program : undefined;
+    return [await collectionRegister(tx, ctx, { ...pickRange(sp, await thisMonth(tx)), programId }), await listPrograms(tx)] as const;
+  });
+  const program = typeof sp.program === "string" ? sp.program : "";
+  const qs = `from=${r.from}&to=${r.to}${program ? `&program=${program}` : ""}`;
   return (
     <Gate permission="reports:view">
       <PageHeader title="Collection register">
         <p className="text-caption text-muted-foreground">
           {receipts(r.total.count)} · {formatPaise(r.total.totalPaise)}
+          {r.refunds.totalPaise > 0n ? ` · Refunded ${formatPaise(r.refunds.totalPaise)}` : ""}
         </p>
       </PageHeader>
-      <RangeForm from={r.from} to={r.to} {...(allows(ctx, "reports:export") ? { csv: `/api/reports/collection?from=${r.from}&to=${r.to}` } : {})} />
+      <RangeForm from={r.from} to={r.to} {...(allows(ctx, "reports:export") ? { csv: `/api/reports/collection?${qs}` } : {})}>
+        <label className="flex flex-col gap-1 text-label">
+          Program
+          <select name="program" defaultValue={program} className="h-9 w-44 rounded-md border border-neutral-300 bg-white px-2 text-body">
+            <option value="">All programs</option>
+            {programs.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </RangeForm>
       <Card className="mb-5">
         <CardHeader title="By day" />
         <Columns label="Collected by day" columns={byDay(r)} />

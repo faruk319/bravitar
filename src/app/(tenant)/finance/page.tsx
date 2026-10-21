@@ -107,7 +107,7 @@ export default async function FinanceOverviewPage({ searchParams }: PageProps<"/
               <BarList
                 items={bars([
                   ...(c ? [{ key: "collected", label: "Collected this month", paise: c.month.total, href: "/finance/collections?period=month" }] : []),
-                  ...(owed && monthOutstanding !== undefined ? [{ key: "outstanding", label: "Outstanding on this month's invoices", paise: monthOutstanding, href: "/finance/invoices?status=open" }] : []),
+                  ...(owed && monthOutstanding !== undefined ? [{ key: "outstanding", label: "Outstanding on this month's invoices", paise: monthOutstanding, href: `/finance/invoices?status=open&issuedFrom=${revenue?.from}&issuedTo=${revenue?.to}` }] : []),
                 ])}
               />
             </Card>

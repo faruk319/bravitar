@@ -16,7 +16,7 @@ import { addProgram, createBatch } from "@/modules/batches/service";
 import { enroll } from "@/modules/enrollments/service";
 import { insertInvoice, insertLines, updateInvoice } from "@/modules/fees/repo";
 import { allocateNumber } from "@/modules/numbering/repo";
-import { cancelPayment, collectionList, collectionSheet, recordPayment } from "@/modules/payments/service";
+import { cancelPayment, collectionList, collectionSheet, recordPayment, refundPayment } from "@/modules/payments/service";
 import { localToUtc } from "@/modules/sessions/occurrences";
 import { reconcileSessions } from "@/modules/sessions/reconcile";
 import { sessions } from "@/modules/sessions/schema";
@@ -311,8 +311,17 @@ describe("CSV downloads", () => {
     expect((await table("/api/reports/collections?period=today")).length).toBe(1 + everything);
   });
 
+  it("the revenue CSV has one row per program with billed, collected, outstanding", async () => {
+    const range = { from: addDays(today, -30), to: today };
+    const lines = (await (await csvAs("owner", `/api/reports/revenue?from=${range.from}&to=${range.to}`)).text()).replace(/^\uFEFF/, "").trim().split(/\r?\n/);
+    const r = await withTenant(T, (tx) => revenueReport(tx, owner, range));
+    expect(lines[0]).toBe("Activity,Program,Billed,Collected,Outstanding");
+    expect(lines.length).toBe(1 + new Set(r.rows.map((x) => x.programId)).size + 1); // header, programs, the Advance row
+    expect(lines.at(-1)?.startsWith("Advance")).toBe(true);
+  });
+
   it("every CSV needs reports:export, not just reports:view", async () => {
-    for (const name of ["collections", "collection", "dues", "admissions", "attendance", "at-risk", "enquiries"]) {
+    for (const name of ["revenue", "collections", "collection", "dues", "admissions", "attendance", "at-risk", "enquiries"]) {
       expect((await csvAs("owner", `/api/reports/${name}`)).status, name).toBe(200);
       expect((await csvAs("viewer", `/api/reports/${name}`)).status, name).toBe(403);
     }
@@ -377,6 +386,56 @@ describe("finance overview", () => {
     expect(r.advancePaise).toBe(20_000n);
     expect(r.rows.reduce((n, x) => n + x.outstandingPaise, 0n)).toBe(49_999n);
     expect(r.rows.find((x) => x.programName === "Karate")?.billedPaise).toBe(33_333n);
+  });
+
+  describe("the register and the revenue CSV", () => {
+    const DAY = new Date("2026-08-10T06:30:00Z");
+    const day = { from: "2026-08-10", to: "2026-08-10" };
+    const programs: Record<string, { id: string; enrollmentId: string }> = {};
+    let kid = { studentId: "", guardianId: "" };
+    const paidOn = (amountPaise: number, allocations?: { invoiceId: string; amountPaise: string }[]) =>
+      withTenant(T2, (tx) => recordPayment(tx, boss, { requestId: uuidv7(), memberId: kid.studentId, branchId: main, amountPaise: String(amountPaise), method: "cash", ...(allocations ? { allocations } : {}) }, { now: DAY }));
+    // An issued invoice of one line on a program (or on none, with a zero-amount line) and its payment.
+    const billed = async (program: string, lineAmount: bigint, total: bigint) => {
+      const inv = await withTenant(T2, async (tx) => {
+        const i = await insertInvoice(tx, { tenantId: T2, branchId: main, studentId: kid.studentId, payerGuardianId: kid.guardianId, billToName: "Payer", issueDate: "2026-08-10", dueDate: "2026-08-30", subtotalPaise: total, totalPaise: total });
+        await insertLines(tx, [{ tenantId: T2, invoiceId: i.id, enrollmentId: programs[program]?.enrollmentId ?? "", studentId: kid.studentId, kind: "tuition" as const, description: "Fee", unitPaise: lineAmount, amountPaise: lineAmount }]);
+        return updateInvoice(tx, i.id, { number: await allocateNumber(tx, T2, "invoice", "2026-27"), fy: "2026-27", status: "issued", issuedAt: DAY });
+      });
+      return paidOn(Number(total), [{ invoiceId: inv.id, amountPaise: String(total) }]);
+    };
+
+    beforeAll(async () => {
+      const made = await withTenant(T2, (tx) => createStudent(tx, boss, { fullName: "Kid Three", branchId: main, guardian: { fullName: "Parent Three", phone: "98755 10003", relation: "mother" }, consents: { dataProcessing: true } }));
+      kid = { studentId: made.student.id, guardianId: made.guardian.id };
+      for (const name of ["Judo", "Chess"]) {
+        const id = (await withTenant(T2, (tx) => addProgram(tx, boss, { name }))).id;
+        const b = (await withTenant(T2, (tx) => createBatch(tx, boss, { name: `${name} batch`, programId: id, branchId: main, slots: [{ weekday: 2, startTime: "07:00", endTime: "08:00" }], startDate: "2026-08-01" }))).id;
+        programs[name] = { id, enrollmentId: (await withTenant(T2, (tx) => enroll(tx, boss, { studentId: kid.studentId, batchId: b, startDate: "2026-08-01" }))).id };
+      }
+    });
+
+    it("the register shows the range's refunds beside its total", async () => {
+      const p = await paidOn(150_000);
+      await withTenant(T2, (tx) => refundPayment(tx, boss, p.id, { amountPaise: "50000", reason: "Left early" }, { now: DAY }));
+      const r = await withTenant(T2, (tx) => collectionRegister(tx, boss, day));
+      expect(r.total.totalPaise).toBe(150_000n);
+      expect(r.refunds).toEqual({ count: 1, totalPaise: 50_000n, byDay: [{ key: "2026-08-10", count: 1, totalPaise: 50_000n }] });
+    });
+
+    it("the register filters by program", async () => {
+      const [judo, chess] = [await billed("Judo", 20_000n, 20_000n), await billed("Chess", 30_000n, 30_000n)];
+      const ids = async (programId: string) => (await withTenant(T2, (tx) => collectionRegister(tx, boss, { ...day, programId }))).rows.map((x) => x.id);
+      expect(await ids(programs["Judo"]?.id ?? "")).toEqual([judo.id]);
+      expect(await ids(programs["Chess"]?.id ?? "")).toEqual([chess.id]);
+    });
+
+    it("a receipt on an invoice whose lines weigh nothing goes to Not linked, so rows plus advance equal collected", async () => {
+      await billed("Judo", 0n, 10_000n);
+      const r = await withTenant(T2, (tx) => revenueReport(tx, boss, day));
+      expect(r.rows.reduce((n, x) => n + x.collectedPaise, 0n) + r.advancePaise).toBe(r.collectedPaise);
+      expect(r.rows.find((x) => x.programName === "Not linked to a program")?.collectedPaise).toBe(10_000n);
+    });
   });
 
   it("due in 7 days counts today through today + 6", async () => {

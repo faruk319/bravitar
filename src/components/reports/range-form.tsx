@@ -1,9 +1,10 @@
 import { Download } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 // The report's dates (GET, so the address can be shared) and its CSV.
-export function RangeForm({ from, to, csv, keep = {} }: { from?: string; to?: string; csv?: string; keep?: Record<string, string> }) {
+export function RangeForm({ from, to, csv, keep = {}, children }: { from?: string; to?: string; csv?: string; keep?: Record<string, string>; children?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end gap-2">
       {from && to ? (
@@ -19,6 +20,7 @@ export function RangeForm({ from, to, csv, keep = {} }: { from?: string; to?: st
             To
             <Input type="date" name="to" defaultValue={to} className="w-44" />
           </label>
+          {children}
           <Button type="submit" variant="outline">
             Show
           </Button>

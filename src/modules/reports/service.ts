@@ -10,7 +10,7 @@ import { type EnquiryReport, enquiryReport } from "@/modules/enquiries/service";
 import { spreadOver } from "@/modules/fees/billing";
 import { draftSummary, duesByPayer, issuedLinesBetween, linesWithProgram, owedSummary, type PayerDues, payersOverdue, statusMix } from "@/modules/fees/repo";
 import { balanceShares } from "@/modules/fees/service";
-import { advanceHolders, collectedByDay, collectedOn, paymentsRecordedBetween, receiptAllocationsBetween, refundedBetween, type SheetPayment } from "@/modules/payments/repo";
+import { advanceHolders, collectedByDay, collectedOn, paymentsRecordedBetween, receiptAllocationsBetween, refundedBetween, refundsByDay, type SheetPayment } from "@/modules/payments/repo";
 import { COUNTED } from "@/modules/payments/service";
 import { payerKey } from "@/modules/students/payer";
 import { activeStudentsOf, joinedBetween, leftBetween, type StudentMove } from "@/modules/students/repo";
@@ -40,20 +40,23 @@ function totalsBy(counted: SheetPayment[], key: (p: SheetPayment) => string): To
   return [...out.values()];
 }
 
-export type CollectionRegister = Range & { rows: SheetPayment[]; total: Total; byDay: Total[]; byMethod: Total[]; byCollector: Total[] };
+export type CollectionRegister = Range & { rows: SheetPayment[]; total: Total; refunds: { count: number; totalPaise: Paise; byDay: Total[] }; byDay: Total[]; byMethod: Total[]; byCollector: Total[] };
 
 // Counted by the day each payment was recorded, as the collection sheet is,
 // so a day's total here equals that day's sheet (docs/03 §11 acceptance).
-export async function collectionRegister(tx: Tx, ctx: ScopedCtx, input: Range): Promise<CollectionRegister> {
+export async function collectionRegister(tx: Tx, ctx: ScopedCtx, input: Range & { programId?: string | undefined }): Promise<CollectionRegister> {
   assertCan(ctx, "reports:view");
+  const { programId } = input;
   const range = rangeSchema.parse(input);
-  const rows = await paymentsRecordedBetween(tx, ctx.branchIds, range.from, range.to);
+  const rows = await paymentsRecordedBetween(tx, ctx.branchIds, range.from, range.to, programId);
+  const refunded = await refundsByDay(tx, ctx.branchIds, range.from, range.to, programId);
   const counted = rows.filter((p) => COUNTED.has(p.status));
   const by = (key: (p: SheetPayment) => string) => totalsBy(counted, key);
   return {
     ...range,
     rows,
     total: { key: "total", count: counted.length, totalPaise: sum(counted.map((p) => p.amountPaise)) },
+    refunds: { count: refunded.reduce((n, d) => n + d.count, 0), totalPaise: sum(refunded.map((d) => d.total)), byDay: refunded.map((d) => ({ key: d.day, count: d.count, totalPaise: d.total })) },
     byDay: by((p) => p.recordedOn),
     byMethod: by((p) => p.method),
     byCollector: by((p) => p.collectorName ?? "Online"),
@@ -193,7 +196,8 @@ export async function revenueReport(tx: Tx, ctx: ScopedCtx, input: Range): Promi
       advancePaise += p.amountPaise - sum(p.receipts.map((r) => r.amountPaise));
       for (const r of p.receipts) {
         const on = byInvoice.get(r.invoiceId) ?? [];
-        if (!on.length) rowOf(none).collectedPaise += r.amountPaise;
+        // Lines that weigh nothing can't take a share, so the receipt is not linked.
+        if (on.every((l) => l.weight === 0n)) rowOf(none).collectedPaise += r.amountPaise;
         const shares = spreadOver(r.amountPaise, on.map((l) => ({ id: l.lineId, weight: l.weight })));
         for (const l of on) rowOf(l).collectedPaise += shares.get(l.lineId) ?? 0n;
       }

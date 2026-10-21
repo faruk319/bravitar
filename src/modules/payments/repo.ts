@@ -305,8 +305,21 @@ export async function paymentsRecordedOn(tx: Tx, branchId: string, day: string, 
 }
 
 // The collection register: every day in [from, to] in the viewer's branches.
-export async function paymentsRecordedBetween(tx: Tx, branchIds: string[], from: string, to: string): Promise<SheetPayment[]> {
-  return recorded(tx, and(paymentScope(branchIds), gte(payments.recordedOn, from), lte(payments.recordedOn, to)));
+export async function paymentsRecordedBetween(tx: Tx, branchIds: string[], from: string, to: string, programId?: string): Promise<SheetPayment[]> {
+  return recorded(tx, and(paymentScope(branchIds), gte(payments.recordedOn, from), lte(payments.recordedOn, to), programId ? paidForProgram(tx, programId) : undefined));
+}
+
+// Payments that put money on an invoice line of this program, as the collections filter reads it.
+function paidForProgram(tx: Tx, programId: string): SQL {
+  return exists(
+    tx
+      .select({ one: sql`1` })
+      .from(paymentAllocations)
+      .innerJoin(invoiceLines, eq(invoiceLines.invoiceId, paymentAllocations.invoiceId))
+      .innerJoin(enrollments, eq(enrollments.id, invoiceLines.enrollmentId))
+      .innerJoin(batches, eq(batches.id, enrollments.batchId))
+      .where(and(eq(paymentAllocations.paymentId, payments.id), eq(paymentAllocations.kind, "receipt"), eq(batches.programId, programId))),
+  );
 }
 
 // ---- the collections list (docs/superpowers/specs/2026-10-18-finance-module-design.md "Collections")
@@ -488,6 +501,18 @@ export async function refundedBetween(tx: Tx, branchIds: string[], from: string,
     .innerJoin(payments, eq(payments.id, refunds.paymentId))
     .where(and(gte(refunds.refundedOn, from), lte(refunds.refundedOn, to), paymentScope(branchIds)));
   return BigInt(r?.total ?? "0");
+}
+
+// Refunds made in [from, to], by the day they were made; with a program, only those of its payments.
+export async function refundsByDay(tx: Tx, branchIds: string[], from: string, to: string, programId?: string): Promise<{ day: string; count: number; total: Paise }[]> {
+  const rows = await tx
+    .select({ day: refunds.refundedOn, count: sql<number>`count(*)::int`, total: sql<string>`sum(${refunds.amountPaise})::text` })
+    .from(refunds)
+    .innerJoin(payments, eq(payments.id, refunds.paymentId))
+    .where(and(gte(refunds.refundedOn, from), lte(refunds.refundedOn, to), paymentScope(branchIds), programId ? paidForProgram(tx, programId) : undefined))
+    .groupBy(refunds.refundedOn)
+    .orderBy(asc(refunds.refundedOn));
+  return rows.map((r) => ({ day: r.day, count: r.count, total: BigInt(r.total) }));
 }
 
 // The revenue chart: one row per calendar month in [from, to], by recorded date.

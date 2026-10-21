@@ -7,7 +7,7 @@ import type { DiscountLine } from "@/modules/fees/repo";
 import type { AdvanceHolder, PaymentRow } from "@/modules/payments/repo";
 import type { PaymentMethod } from "@/modules/payments/schema";
 import { LEFT_REASON_LABELS } from "@/modules/students/schema";
-import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, type CollectionRegister, type DuesReport } from "./service";
+import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, type CollectionRegister, type DuesReport, type RevenueReport } from "./service";
 
 // Each report as spreadsheet rows; amounts in plain rupees so Excel can add them up.
 
@@ -19,6 +19,7 @@ export function collectionRows(r: CollectionRegister): string[][] {
     ["Recorded on", "Receipt", "Family", "Method", "Collected by", "Amount", "Status"],
     ...r.rows.map((p) => [p.recordedOn, p.receiptNumber, p.billToName, METHOD_LABEL[p.method], p.collectorName ?? "Online", rupeesText(p.amountPaise), p.status === "cancelled" ? `Cancelled: ${p.cancelReason ?? ""}` : ""]),
     ["Total", String(r.total.count), "", "", "", rupeesText(r.total.totalPaise), ""],
+    ["Refunded", String(r.refunds.count), "", "", "", rupeesText(r.refunds.totalPaise), ""],
     [],
     ...totals("By day", r.byDay),
     ...totals("By method", r.byMethod, (k) => METHOD_LABEL[k as PaymentMethod]),
@@ -127,4 +128,19 @@ export function discountLineRows(lines: DiscountLine[]): string[][] {
 
 export function advanceRows(rows: AdvanceHolder[]): string[][] {
   return [["Payer", "Students", "Branch", "Advance", "Since", "Receipts", "Still owes"], ...rows.map((r) => [r.name, r.children.join(", "), r.branchName, rupeesText(r.advancePaise), r.since, r.receipts.map((x) => x.receiptNumber).join(", "), rupeesText(r.owesPaise)])];
+}
+
+// One row per program (its batches added up), then the advance no invoice took.
+export function revenueRows(r: RevenueReport, activity: (key: string) => string): string[][] {
+  const programs = new Map<string, RevenueReport["rows"][number]>();
+  for (const x of r.rows) {
+    const key = x.programId ?? "";
+    const p = programs.get(key);
+    programs.set(key, p ? { ...p, billedPaise: p.billedPaise + x.billedPaise, collectedPaise: p.collectedPaise + x.collectedPaise, outstandingPaise: p.outstandingPaise + x.outstandingPaise } : x);
+  }
+  return [
+    ["Activity", "Program", "Billed", "Collected", "Outstanding"],
+    ...[...programs.values()].map((x) => [x.activityKey ? activity(x.activityKey) : "", x.programName, rupeesText(x.billedPaise), rupeesText(x.collectedPaise), rupeesText(x.outstandingPaise)]),
+    ["Advance", "", "", rupeesText(r.advancePaise), ""],
+  ];
 }

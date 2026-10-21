@@ -16,7 +16,7 @@ describe("navFor", () => {
     expect(hrefs(groups)).toEqual(hrefs(NAV_GROUPS));
     expect(hrefs(groups)).toEqual([
       "/dashboard", "/today", "/attendance", "/students", "/enquiries", "/batches",
-      "/finance", "/finance/collections", "/finance/invoices", "/finance/student-plans", "/finance/fee-plans", "/finance/discounts", "/reports",
+      "/finance", "/finance/collections", "/finance/invoices", "/finance/student-plans", "/finance/fee-plans", "/finance/discounts", "/finance/reports", "/reports",
       "/staff", "/messages", "/settings", "/billing",
     ]);
   });
@@ -137,13 +137,21 @@ describe("crumbsFor", () => {
   it("static subroutes carry their own title and never an ellipsis", () => {
     expect(crumbsFor("/batches/calendar").at(-1)).toEqual({ label: { text: "Calendar" }, href: null });
     expect(crumbsFor("/students/import").at(-1)).toEqual({ label: { labelKey: "student", form: "many", prefix: "Import " }, href: null });
-    expect(crumbsFor("/reports/dues")).toEqual([
+    expect(crumbsFor("/reports/attendance")).toEqual([
       { label: { text: "Reports" }, href: "/reports" },
-      { label: { text: "Outstanding dues" }, href: null },
+      { label: { text: "Attendance summary" }, href: null },
     ]);
     for (const path of ["/batches/holidays", "/batches/new", "/students/new", "/staff/roles", "/reports/at-risk"]) {
       expect(JSON.stringify(crumbsFor(path))).not.toContain("…");
     }
+  });
+
+  it("Finance › Reports and the moved pages have their titles", () => {
+    expect(crumbsFor("/finance/reports/collection")).toEqual([
+      { label: { text: "Finance" }, href: null },
+      { label: { text: "Reports" }, href: "/finance/reports" },
+      { label: { text: "Collection register" }, href: null },
+    ]);
   });
 
   it("a named page under a static subroute keeps the subroute as a link", () => {
