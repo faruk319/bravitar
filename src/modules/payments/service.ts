@@ -715,13 +715,16 @@ export async function collectionList(tx: Tx, ctx: ScopedCtx, q: CollectionQuery,
   const { today } = await clock(tx, opts.now);
   const { page: asked, ...wanted } = q;
   // Collecting without payments:read shows your receipts of today, whatever the address asks.
-  const applied: Omit<CollectionQuery, "page"> = own ? { period: "today", collectorId: ctx.staffId, sort: wanted.sort } : wanted;
+  // Dates replace the tab: with a From or To the list is All between them, so a past day is one step away.
+  const applied: Omit<CollectionQuery, "page"> = own ? { period: "today", collectorId: ctx.staffId, sort: wanted.sort } : wanted.from || wanted.to ? { ...wanted, period: "all" } : wanted;
   const { period, sort, ...filters } = applied;
-  const ranges: Record<CollectionPeriod, PeriodRange> = { today: periodRange("today", today), week: periodRange("week", today), month: periodRange("month", today), all: periodRange("all", today) };
+  const dated = Boolean(filters.from || filters.to);
+  const ranges: Record<CollectionPeriod, PeriodRange> = dated
+    ? { today: periodRange("all", today), week: periodRange("all", today), month: periodRange("all", today), all: periodRange("all", today) }
+    : { today: periodRange("today", today), week: periodRange("week", today), month: periodRange("month", today), all: periodRange("all", today) };
   const counts = await periodCounts(tx, { ...filters, branchIds: ctx.branchIds }, ranges);
   const matched = counts[period];
   const page = opts.unpaged ? 1 : Math.min(asked, Math.max(1, Math.ceil(matched / PAGE_SIZE))); // a page past the end shows the last
-  // The tab and the dates both narrow the list.
   const [from, to] = [latest(ranges[period].from, filters.from), earliest(ranges[period].to, filters.to)];
   const rows = await paymentList(tx, { ...filters, from, to, branchIds: ctx.branchIds }, { sort, ...(opts.unpaged ? {} : { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }) });
   const day = from && from === to ? from : null;

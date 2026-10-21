@@ -55,7 +55,7 @@ export default async function CollectionReportPage({ searchParams }: PageProps<"
           {receipts(r.total.count)} · {formatPaise(r.total.totalPaise)}
         </p>
       </PageHeader>
-      <RangeForm from={r.from} to={r.to} csv={`/api/reports/collection?from=${r.from}&to=${r.to}`} />
+      <RangeForm from={r.from} to={r.to} {...(allows(ctx, "reports:export") ? { csv: `/api/reports/collection?from=${r.from}&to=${r.to}` } : {})} />
       <Card className="mb-5">
         <CardHeader title="By day" />
         <Columns label="Collected by day" columns={byDay(r)} />

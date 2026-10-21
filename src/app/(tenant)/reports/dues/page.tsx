@@ -32,7 +32,7 @@ export default async function DuesReportPage() {
       <PageHeader title="Outstanding dues">
         <p className="text-caption text-muted-foreground">As of {formatDate(r.asOf)}, by days past the due date</p>
       </PageHeader>
-      <RangeForm csv="/api/reports/dues" />
+      {allows(ctx, "reports:export") ? <RangeForm csv="/api/reports/dues" /> : null}
       {owed ? (
         <Card className="mb-5">
           <CardHeader title={`${formatPaise(owed)} owed`} />

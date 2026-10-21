@@ -1468,7 +1468,10 @@ describe("payments", () => {
       expect((await list({ period: "week" })).counts).toEqual({ today: 11, week: 11, month: 12, all: 13 });
       const upi = await list({ period: "month", method: "upi" });
       expect([upi.counts, upi.matched]).toEqual([{ today: 1, week: 1, month: 1, all: 1 }, 1]);
-      expect(ids(await list({ period: "today", from: "2026-09-14", to: "2026-09-14" }))).toEqual([]); // the dates narrow the tab
+      // Dates replace the tab: a past day under Today is that day, and every tab counts the same.
+      const dated = await list({ period: "today", from: "2026-09-14", to: "2026-09-14" });
+      expect([ids(dated), dated.applied.period, Object.values(dated.counts)]).toEqual([[P.late.id], "all", [1, 1, 1, 1]]);
+      expect(dated.sheets?.map((s) => s.day)).toEqual(["2026-09-14"]);
     });
 
     it("sorts newest, oldest or biggest first, ten to a page, and a page past the end shows the last", async () => {

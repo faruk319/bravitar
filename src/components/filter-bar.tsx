@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { withQuery } from "@/lib/url-query";
 import { cn } from "@/lib/utils";
 
 export type Option = { id: string; name: string };
@@ -41,9 +42,6 @@ function DateField({ name, label, url, send }: { name: string; label: string; ur
   );
 }
 
-// The address with its query, or the bare path when none is left. Not url-query's: that reads with zod, which stays out of the client bundle.
-const at = (path: string, p: URLSearchParams) => (p.toString() ? `${path}?${p.toString()}` : path);
-
 // The address after the bar changes some params: an empty one is dropped, and the list goes back to page 1.
 export function nextHref(path: string, current: string, next: Record<string, string>): string {
   const p = new URLSearchParams(current);
@@ -52,7 +50,7 @@ export function nextHref(path: string, current: string, next: Record<string, str
     else p.delete(k);
   }
   p.delete("page");
-  return at(path, p);
+  return withQuery(path, p);
 }
 
 type Props = {
@@ -90,7 +88,7 @@ export function FilterBar({ path, search, selects, dates, sorts }: Props) {
   const own = ["q", ...selects.map((s) => s.name), ...dates.map((d) => d.name)];
   const rest = new URLSearchParams(params.toString());
   for (const k of [...own, "page"]) rest.delete(k);
-  const clear = at(path, rest);
+  const clear = withQuery(path, rest);
   const searchBox = (
     <div className={cn("relative min-w-0", sorts && "flex-1")}>
       <Search className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" aria-hidden />

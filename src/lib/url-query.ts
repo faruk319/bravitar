@@ -1,5 +1,7 @@
-import { z } from "zod";
 import { isIsoDate } from "@/lib/dates";
+
+// Same shape zod's uuid() takes, so this module stays out of the client bundle with the filter bar.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -13,7 +15,7 @@ export function queryReader(sp: SearchParams) {
     one,
     id: (k: string) => {
       const v = one(k);
-      return v && z.uuid().safeParse(v).success ? v : undefined;
+      return v && UUID.test(v) ? v : undefined;
     },
     day: (k: string) => {
       const v = one(k);

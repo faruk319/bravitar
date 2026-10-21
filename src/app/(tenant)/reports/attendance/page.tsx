@@ -77,7 +77,7 @@ export default async function AttendanceReportPage({ searchParams }: PageProps<"
           {overall === null ? "Nothing marked" : `${overall}% attendance`} · {classes} {classes === 1 ? "class" : "classes"} marked
         </p>
       </PageHeader>
-      <RangeForm from={r.from} to={r.to} keep={byStudent ? { view: "students" } : {}} csv={`/api/reports/attendance?from=${r.from}&to=${r.to}`} />
+      <RangeForm from={r.from} to={r.to} keep={byStudent ? { view: "students" } : {}} {...(allows(ctx, "reports:export") ? { csv: `/api/reports/attendance?from=${r.from}&to=${r.to}` } : {})} />
       <SegmentedTabs
         label="Attendance summary"
         items={[

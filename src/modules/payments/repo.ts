@@ -261,13 +261,11 @@ export type PaymentRow = SheetPayment & {
   display: PaymentDisplay;
 };
 
-const refundedSql = sql`coalesce((SELECT sum(r.amount_paise) FROM app.refunds r WHERE r.payment_id = ${payments.id}), 0)`;
-
 // paymentDisplay() as SQL, for the status filter; a test keeps the two agreeing.
 const displaySql = sql<PaymentDisplay>`CASE
   WHEN ${payments.status} = 'cancelled' THEN 'cancelled'
-  WHEN ${payments.status} = 'refunded' OR (${refundedSql} > 0 AND ${refundedSql} >= ${payments.amountPaise}) THEN 'refunded'
-  WHEN ${refundedSql} > 0 THEN 'part_refunded'
+  WHEN ${payments.status} = 'refunded' OR (${refundedFrom} > 0 AND ${refundedFrom} >= ${payments.amountPaise}) THEN 'refunded'
+  WHEN ${refundedFrom} > 0 THEN 'part_refunded'
   ELSE 'received' END`;
 
 function paymentWhere(tx: Tx, f: PaymentFilter): SQL | undefined {
@@ -313,7 +311,7 @@ const DETAIL_CHUNK = 1000; // payments whose invoices are looked up together, so
 // A page of payments, or all of them with no limit, each with what it paid and for whom.
 export async function paymentList(tx: Tx, f: PaymentFilter, opts: { sort: PaymentSort; limit?: number; offset?: number }): Promise<PaymentRow[]> {
   const query = tx
-    .select({ ...sheetColumns, refunded: sql<string>`${refundedSql}::text` })
+    .select({ ...sheetColumns, refunded: sql<string>`${refundedFrom}::text` })
     .from(payments)
     .leftJoin(staffUsers, eq(staffUsers.id, payments.receivedBy))
     .where(paymentWhere(tx, f))

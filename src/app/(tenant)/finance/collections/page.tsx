@@ -87,6 +87,7 @@ function Sheet({ s, titled, timeZone }: { s: CollectionSheet; titled: boolean; t
   const empty = !s.payments.length && !s.refunds.rows.length;
   return (
     <Card>
+      <p className="mb-1 text-label text-muted-foreground">{s.day === s.today ? `Today, ${formatDate(s.day)}` : formatDate(s.day)}</p>
       {titled ? <CardHeader title={s.branch.name} /> : null}
       {empty ? (
         <p className="text-body text-muted-foreground">No payments recorded on this day.</p>

@@ -28,7 +28,7 @@ export default async function AtRiskPage() {
           {formatDate(r.from)} to {formatDate(r.to)}
         </p>
       </PageHeader>
-      {reports ? <RangeForm csv="/api/reports/at-risk" /> : null}
+      {reports && allows(ctx, "reports:export") ? <RangeForm csv="/api/reports/at-risk" /> : null}
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         {r.attendance ? (
           <Card>

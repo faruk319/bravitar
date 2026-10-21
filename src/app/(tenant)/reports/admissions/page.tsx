@@ -47,7 +47,7 @@ export default async function AdmissionsReportPage({ searchParams }: PageProps<"
   return (
     <Gate permission="reports:view">
       <PageHeader title="Admissions and dropouts" />
-      <RangeForm from={r.from} to={r.to} csv={`/api/reports/admissions?from=${r.from}&to=${r.to}`} />
+      <RangeForm from={r.from} to={r.to} {...(allows(ctx, "reports:export") ? { csv: `/api/reports/admissions?from=${r.from}&to=${r.to}` } : {})} />
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
         <List title="Joined" rows={r.joined} />
         <List title="Left" rows={r.left} reasons />
