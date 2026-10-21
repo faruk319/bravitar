@@ -5,12 +5,13 @@ import { uuidv7 } from "@/lib/ids";
 import { type Paise, sum } from "@/lib/money/paise";
 import { batches } from "@/modules/batches/schema";
 import { enrollments } from "@/modules/enrollments/schema";
-import { likeOf, linesOf, payerIs, programsOf } from "@/modules/fees/repo";
+import { likeOf, linesOf, payerIs, payerNames, programsOf } from "@/modules/fees/repo";
 import { type Invoice, invoiceLines, invoices } from "@/modules/fees/schema";
 import { staffUsers } from "@/modules/staff/schema";
 import { type Payer, payerKey, payerOf } from "@/modules/students/payer";
-import { guardiansOfMembers, payerContacts } from "@/modules/students/repo";
+import { activeStudentsOf, guardiansOfMembers, payerContacts } from "@/modules/students/repo";
 import { guardians, studentGuardians, students } from "@/modules/students/schema";
+import { branches } from "@/modules/tenancy/schema";
 import { type PaymentDisplay, paymentDisplay } from "./labels";
 import { type AllocationKind, type LinkStatus, type Payment, type PaymentLink, type PaymentMethod, paymentAllocations, paymentLinks, payments, type Refund, refunds } from "./schema";
 
@@ -125,6 +126,78 @@ export async function unusedPaymentsOfPayers(tx: Tx, payers: Payer[], branchId: 
   const memberIds = payers.flatMap((p) => (p.kind === "member" ? [p.memberId] : []));
   const whose = [guardianIds.length ? inArray(payments.payerGuardianId, guardianIds) : undefined, memberIds.length ? inArray(payments.payerMemberId, memberIds) : undefined].filter((w) => w !== undefined);
   return whose.length ? unusedWhere(tx, and(or(...whose), eq(payments.branchId, branchId))) : [];
+}
+
+export type AdvanceHolder = {
+  payerKey: string;
+  payer: Payer;
+  name: string;
+  children: string[];
+  branchId: string;
+  branchName: string;
+  advancePaise: Paise;
+  since: string;
+  receipts: { paymentId: string; receiptNumber: string }[];
+  owesPaise: Paise;
+};
+
+// Unused money grouped by payer and branch (branchIds empty = all), with what each still owes there.
+export async function advanceHolders(tx: Tx, branchIds: string[]): Promise<AdvanceHolder[]> {
+  const rows = await tx
+    .select({
+      id: payments.id,
+      receiptNumber: payments.receiptNumber,
+      recordedOn: payments.recordedOn,
+      branchId: payments.branchId,
+      payerGuardianId: payments.payerGuardianId,
+      payerMemberId: payments.payerMemberId,
+      unused: sql<string>`(${payments.amountPaise} - ${allocatedTo} - ${refundedFrom})::text`,
+    })
+    .from(payments)
+    .where(and(eq(payments.status, "confirmed"), paymentScope(branchIds)))
+    .orderBy(asc(payments.recordedOn), asc(payments.createdAt), asc(payments.id));
+  const groups = new Map<string, { payer: Payer; branchId: string; advancePaise: Paise; since: string; receipts: AdvanceHolder["receipts"] }>();
+  for (const r of rows) {
+    const unused = BigInt(r.unused);
+    const payer = payerOf(r);
+    if (unused <= 0n || !payer) continue;
+    const key = `${payerKey(payer)}|${r.branchId}`;
+    const g = groups.get(key) ?? { payer, branchId: r.branchId, advancePaise: 0n, since: r.recordedOn, receipts: [] };
+    g.advancePaise += unused;
+    g.receipts.push({ paymentId: r.id, receiptNumber: r.receiptNumber });
+    groups.set(key, g);
+  }
+  if (!groups.size) return [];
+  const payers = [...new Map([...groups.values()].map((g) => [payerKey(g.payer), g.payer])).values()];
+  const [names, kids, branchRows, owed] = await Promise.all([
+    payerNames(tx, payers),
+    activeStudentsOf(tx, { branchIds }, payers),
+    tx.select({ id: branches.id, name: branches.name }).from(branches),
+    tx
+      .select({ payerGuardianId: invoices.payerGuardianId, payerMemberId: invoices.payerMemberId, branchId: invoices.branchId, owes: sql<string>`sum(${invoices.totalPaise} - ${invoices.paidPaise})::text` })
+      .from(invoices)
+      .where(and(inArray(invoices.status, ["issued", "part_paid"]), branchIds.length ? inArray(invoices.branchId, branchIds) : undefined))
+      .groupBy(invoices.payerGuardianId, invoices.payerMemberId, invoices.branchId),
+  ]);
+  const branchName = new Map(branchRows.map((b) => [b.id, b.name]));
+  const owes = new Map<string, Paise>(owed.flatMap((o) => { const p = payerOf(o); return p ? [[`${payerKey(p)}|${o.branchId}`, BigInt(o.owes)] as [string, Paise]] : []; }));
+  return [...groups.entries()]
+    .map(([key, g]) => {
+      const k = payerKey(g.payer);
+      return {
+        payerKey: k,
+        payer: g.payer,
+        name: names.get(k) ?? "",
+        children: [...new Set(kids.filter((c) => c.payerKey === k).map((c) => c.student.fullName))].sort(),
+        branchId: g.branchId,
+        branchName: branchName.get(g.branchId) ?? "",
+        advancePaise: g.advancePaise,
+        since: g.since,
+        receipts: g.receipts,
+        owesPaise: owes.get(key) ?? 0n,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || a.branchName.localeCompare(b.branchName));
 }
 
 // One payment's money: on invoices, refunded, and what's left unused.

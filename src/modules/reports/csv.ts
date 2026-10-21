@@ -3,7 +3,8 @@ import type { MarkCounts } from "@/modules/attendance/repo";
 import { LOST_REASON_LABELS, SOURCE_LABELS } from "@/modules/enquiries/lists";
 import type { EnquiryReport } from "@/modules/enquiries/service";
 import { DISPLAY_LABEL, METHOD_LABEL } from "@/modules/payments/labels";
-import type { PaymentRow } from "@/modules/payments/repo";
+import type { DiscountLine } from "@/modules/fees/repo";
+import type { AdvanceHolder, PaymentRow } from "@/modules/payments/repo";
 import type { PaymentMethod } from "@/modules/payments/schema";
 import { LEFT_REASON_LABELS } from "@/modules/students/schema";
 import { AT_RISK, type AdmissionsReport, type AtRisk, type AttendanceReport, type CollectionRegister, type DuesReport } from "./service";
@@ -118,4 +119,12 @@ export function enquiryRows(r: EnquiryReport): string[][] {
     ["Why they were lost", "Enquiries"],
     ...r.lost.map((l) => [l.reason ? LOST_REASON_LABELS[l.reason] : "No reason", String(l.count)]),
   ];
+}
+
+export function discountLineRows(lines: DiscountLine[]): string[][] {
+  return [["Invoice", "Issued", "Student", "Line", "Discount", "Reason"], ...lines.map((l) => [l.number ?? "Draft", l.issueDate, l.studentName ?? "", l.description, rupeesText(l.discountPaise), l.discountNote ?? ""])];
+}
+
+export function advanceRows(rows: AdvanceHolder[]): string[][] {
+  return [["Payer", "Students", "Branch", "Advance", "Since", "Receipts", "Still owes"], ...rows.map((r) => [r.name, r.children.join(", "), r.branchName, rupeesText(r.advancePaise), r.since, r.receipts.map((x) => x.receiptNumber).join(", "), rupeesText(r.owesPaise)])];
 }

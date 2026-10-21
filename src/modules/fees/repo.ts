@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, gt, gte, ilike, inArray, isNotNull, isNull, like, lt, lte, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, gte, ilike, inArray, isNotNull, isNull, like, lt, lte, ne, not, or, type SQL, sql } from "drizzle-orm";
 import { addDays } from "@/lib/dates";
 import type { Tx } from "@/lib/db/client";
 import { uuidv7 } from "@/lib/ids";
@@ -104,6 +104,35 @@ export async function discountsOf(tx: Tx, studentIds: string[]): Promise<GivenDi
     .where(inArray(studentDiscounts.studentId, studentIds))
     .orderBy(desc(studentDiscounts.validFrom), desc(studentDiscounts.createdAt));
   return rows.map((r) => ({ ...r.g, name: r.name, kind: r.kind, value: r.value, approvedByName: r.approvedByName }));
+}
+
+export type GivenRow = GivenDiscount & { studentName: string; running: boolean };
+
+// Every discount given to a member in these branches (empty = all); running = not ended by today.
+export async function givenDiscounts(tx: Tx, branchIds: string[], f: { state?: "running" | "ended"; q?: string }, today: string): Promise<GivenRow[]> {
+  const live = sql`(${studentDiscounts.validTo} IS NULL OR ${studentDiscounts.validTo} >= ${today})`;
+  const rows = await tx
+    .select({ g: studentDiscounts, name: discounts.name, kind: discounts.kind, value: discounts.value, approvedByName: staffUsers.fullName, studentName: students.fullName })
+    .from(studentDiscounts)
+    .innerJoin(discounts, eq(discounts.id, studentDiscounts.discountId))
+    .innerJoin(students, eq(students.id, studentDiscounts.studentId))
+    .leftJoin(staffUsers, eq(staffUsers.id, studentDiscounts.approvedBy))
+    .where(and(branchIds.length ? inArray(students.branchId, branchIds) : undefined, f.state === "running" ? live : f.state === "ended" ? not(live) : undefined, f.q ? or(ilike(students.fullName, likeOf(f.q)), ilike(discounts.name, likeOf(f.q))) : undefined))
+    .orderBy(desc(studentDiscounts.validFrom), desc(studentDiscounts.createdAt));
+  return rows.map((r) => ({ ...r.g, name: r.name, kind: r.kind, value: r.value, approvedByName: r.approvedByName, studentName: r.studentName, running: !r.g.validTo || r.g.validTo >= today }));
+}
+
+export type DiscountLine = { invoiceId: string; number: string | null; issueDate: string; studentName: string | null; description: string; discountPaise: Paise; discountNote: string | null };
+
+// Discounts taken off invoice lines, for invoices issued in the range.
+export async function discountLines(tx: Tx, branchIds: string[], range: { from: string; to: string }): Promise<DiscountLine[]> {
+  return tx
+    .select({ invoiceId: invoices.id, number: invoices.number, issueDate: invoices.issueDate, studentName: students.fullName, description: invoiceLines.description, discountPaise: invoiceLines.discountPaise, discountNote: invoiceLines.discountNote })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .leftJoin(students, eq(students.id, invoiceLines.studentId))
+    .where(and(inArray(invoices.status, ["issued", "part_paid", "paid", "overdue"]), gte(invoices.issueDate, range.from), lte(invoices.issueDate, range.to), gt(invoiceLines.discountPaise, 0n), branchIds.length ? inArray(invoices.branchId, branchIds) : undefined))
+    .orderBy(desc(invoices.issueDate), asc(sql`length(${invoices.number})`), asc(invoices.number), asc(invoiceLines.id));
 }
 
 // ---- billing inputs

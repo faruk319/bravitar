@@ -43,6 +43,7 @@ export const NAV_GROUPS: NavGroup[] = [
           { href: "/finance/invoices", label: { text: "Invoices" }, icon: "Receipt", permission: "invoices:read" },
           { href: "/finance/student-plans", label: { text: "Student plans" }, icon: "Repeat", permission: "invoices:read" },
           { href: "/finance/fee-plans", label: { text: "Fee plans" }, icon: "FileText", permission: "fee_plans:manage" },
+          { href: "/finance/discounts", label: { text: "Discounts & credits" }, icon: "BadgePercent", permission: "invoices:read" },
         ],
       },
       { href: "/reports", label: { text: "Reports" }, icon: "BarChart3", permission: "reports:view" },

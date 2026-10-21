@@ -3,8 +3,9 @@ import { selectedBranchIds } from "@/lib/auth/server";
 import { toCsv } from "@/lib/csv";
 import type { Tx } from "@/lib/db/client";
 import { NotFoundError } from "@/lib/errors";
-import { collectionList, parseCollectionQuery } from "@/modules/payments/service";
-import { admissionsRows, atRiskRows, attendanceRows, collectionRows, collectionsRows, duesRows, enquiryRows } from "./csv";
+import { discountsPage } from "@/modules/fees/service";
+import { advanceHeld, collectionList, parseCollectionQuery } from "@/modules/payments/service";
+import { admissionsRows, advanceRows, atRiskRows, attendanceRows, collectionRows, collectionsRows, discountLineRows, duesRows, enquiryRows } from "./csv";
 import { admissionsReport, atRisk, attendanceReport, collectionRegister, enquiryFunnel, outstandingDues, type Range, thisMonth } from "./service";
 
 type Csv = { rows: string[][]; stamp: string };
@@ -26,6 +27,11 @@ const CSV: Record<string, (tx: Tx, ctx: ScopedCtx, range: Range, params: URLSear
   "at-risk": async (tx, ctx) => {
     const r = await atRisk(tx, ctx);
     return { rows: atRiskRows(r), stamp: r.to };
+  },
+  discounts: async (tx, ctx, range) => ({ rows: discountLineRows((await discountsPage(tx, ctx, { tab: "given", ...range })).lines), stamp: span(range) }),
+  advance: async (tx, ctx, range, params) => {
+    const rows = await advanceHeld(tx, ctx);
+    return { rows: advanceRows(params.get("owes") === "1" ? rows.filter((r) => r.owesPaise > 0n) : rows), stamp: range.to };
   },
   enquiries: async (tx, ctx, range) => ({ rows: enquiryRows(await enquiryFunnel(tx, ctx, range)), stamp: span(range) }),
 };

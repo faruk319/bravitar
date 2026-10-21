@@ -15,6 +15,7 @@ import { insertEnrollment, updateEnrollment } from "@/modules/enrollments/repo";
 import { insertInvoice, insertLines, insertPlan, updateInvoice } from "@/modules/fees/repo";
 import { type Invoice, invoiceLines, invoices } from "@/modules/fees/schema";
 import { issueInvoices, voidInvoice } from "@/modules/fees/service";
+import { messageLog } from "@/modules/messaging/schema";
 import { allocateNumber } from "@/modules/numbering/repo";
 import { listRoles, staffBranchIds } from "@/modules/staff/repo";
 import { createStaffMember, loadAccessContext } from "@/modules/staff/service";
@@ -31,6 +32,7 @@ import { collectedByMonth, familyContact, insertPayment } from "./repo";
 import { applyAdvanceRoute, cancelPaymentRoute, recordPaymentRoute, refundPaymentRoute } from "./routes";
 import { type Payment, paymentAllocations, payments, refunds } from "./schema";
 import {
+  advanceHeld,
   applyAdvanceNow,
   cancelPayment,
   collectedToday,
@@ -756,6 +758,53 @@ describe("payments", () => {
           advancedBatch: (await batch("Advanced", advanced.id, main)).id,
           otherBatch: (await batch("Beginner (second branch)", beginner.id, other)).id,
         });
+      });
+    });
+
+    describe("advance held", () => {
+      const held = (as: ScopedCtx = owner) => withTenant(T, (tx) => advanceHeld(tx, as));
+      const mine = (rows: Awaited<ReturnType<typeof held>>, mum: string) => rows.filter((r) => r.payerKey === keyOf(mum));
+      const setup = async () => {
+        const kid = await family();
+        const mum = payerOfFamily.get(kid) ?? "";
+        const first = await pay(kid, 500);
+        await pay(kid, 200, { branchId: other });
+        const inv = await bill(kid, 1500);
+        return { kid, mum, first, inv };
+      };
+
+      it("is one row per payer per branch and adds up to the unused money", async () => {
+        const { mum, kid } = await setup();
+        const rows = mine(await held(), mum);
+        expect(rows.map((r) => [r.branchName, r.advancePaise])).toEqual([["Main branch", rupees(500)], ["Second branch", rupees(200)]]);
+        expect(rows[0]).toMatchObject({ children: [name(kid)], since: "2026-09-24" });
+        expect(rows[0]?.receipts).toHaveLength(1);
+      });
+
+      it("shows a viewer limited to one branch only that branch", async () => {
+        const { mum } = await setup();
+        expect(mine(await held({ ...owner, branchIds: [main] }), mum).map((r) => r.branchName)).toEqual(["Main branch"]);
+      });
+
+      it("flags advance held while the payer still owes", async () => {
+        const { mum } = await setup();
+        const rows = mine(await held(), mum);
+        expect(rows.find((r) => r.branchName === "Main branch")?.owesPaise).toBe(rupees(1500));
+        expect(rows.find((r) => r.branchName === "Second branch")?.owesPaise).toBe(0n);
+      });
+
+      it("needs invoices:read", async () => {
+        await expect(held(teacher)).rejects.toMatchObject({ status: 403 });
+      });
+
+      it("using it now skips the reminders queued about the invoices it paid", async () => {
+        const { mum, inv } = await setup();
+        const [m] = await withTenant(T, (tx) =>
+          tx.insert(messageLog).values({ tenantId: T, toPhone: "+919876543210", channel: "whatsapp", templateKey: "fee_due", category: "fees", language: "en", body: "due", relatedType: "invoice", relatedId: inv.id }).returning({ id: messageLog.id }),
+        );
+        await applyNow(mum, main);
+        const [after] = await withTenant(T, (tx) => tx.select({ status: messageLog.status }).from(messageLog).where(eq(messageLog.id, m?.id ?? "")));
+        expect(after?.status).toBe("skipped");
       });
     });
 

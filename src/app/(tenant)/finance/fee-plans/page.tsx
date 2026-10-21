@@ -1,16 +1,14 @@
 import { EmptyState } from "@/components/empty-state";
-import { AddDiscount, DiscountToggle } from "@/components/fees/discounts";
 import { PlanEditor, type PlanForm } from "@/components/fees/plan-editor";
 import { Money } from "@/components/money";
 import { PageHeader } from "@/components/page-header";
 import { Gate } from "@/components/shell/gate";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { allows } from "@/lib/auth/can";
 import { scopedCtx } from "@/lib/auth/route";
 import { requireStaffPage } from "@/lib/auth/server";
 import { withTenant } from "@/lib/db/with-tenant";
-import { formatPaise } from "@/lib/money/format";
 import { cn } from "@/lib/utils";
 import type { PlanRow } from "@/modules/fees/repo";
 import { feeSetup } from "@/modules/fees/service";
@@ -42,7 +40,7 @@ export default async function FeePlansPage() {
   const session = await requireStaffPage();
   const ctx = scopedCtx(session);
   if (!allows(ctx, "fee_plans:manage")) return <Gate permission="fee_plans:manage">{null}</Gate>;
-  const { plans, discounts, programs } = await withTenant(session.tenant.id, (tx) => feeSetup(tx, ctx));
+  const { plans, programs } = await withTenant(session.tenant.id, (tx) => feeSetup(tx, ctx));
   const programChoices = programs.map((p) => ({ id: p.id, name: p.name }));
 
   return (
@@ -55,8 +53,7 @@ export default async function FeePlansPage() {
           </PlanEditor>
         }
       />
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_360px]">
-        <Card className="overflow-hidden p-0 md:p-0">
+              <Card className="overflow-hidden p-0 md:p-0">
           {plans.length ? (
             <ul className="divide-y divide-neutral-100">
               {plans.map((p) => (
@@ -77,24 +74,6 @@ export default async function FeePlansPage() {
             <EmptyState title="No fee plans yet" hint="Monthly, quarterly or term fees." />
           )}
         </Card>
-        <Card>
-          <CardHeader title="Discounts" action={<AddDiscount />} />
-          {discounts.length ? (
-            <ul className="divide-y divide-neutral-100">
-              {discounts.map((d) => (
-                <li key={d.id} className="flex min-h-12 items-center justify-between gap-3">
-                  <span className={cn("text-body", !d.isActive && "text-neutral-500")}>
-                    {d.name} <span className="text-caption text-muted-foreground">· {d.kind === "percent" ? `${d.value}%` : formatPaise(BigInt(d.value))}</span>
-                  </span>
-                  <DiscountToggle id={d.id} isActive={d.isActive} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-body text-muted-foreground">None yet.</p>
-          )}
-        </Card>
-      </div>
     </Gate>
   );
 }

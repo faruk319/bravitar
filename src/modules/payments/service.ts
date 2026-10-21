@@ -24,6 +24,8 @@ import { activeStudentsOf, getStudent, guardiansOfMembers, leadGuardians } from 
 import { getBranch, getOwnTenant, listBranches } from "@/modules/tenancy/repo";
 import { oldestFirst, picked, refundFrom, type Share } from "./allocation";
 import {
+  type AdvanceHolder,
+  advanceHolders,
   collectedOn,
   collectorOptions,
   getPayment,
@@ -482,10 +484,11 @@ export async function refundPayment(tx: Tx, ctx: ScopedCtx, id: string, input: z
 // The payer's unused money in a branch pays that payer's open invoices, oldest
 // money to the oldest invoice, never another payer's. Runs when invoices are
 // issued (docs/03 §9).
-export async function applyAdvance(tx: Tx, by: Actor, payer: Payer, branchId: string): Promise<Paise> {
+async function moveAdvance(tx: Tx, by: Actor, payer: Payer, branchId: string): Promise<{ applied: Paise; invoiceIds: string[] }> {
   await lockPayer(tx, payer);
   const [unused, open] = await Promise.all([unusedPayments(tx, payer, branchId), openInvoices(tx, payer, branchId)]);
   const balances = open.map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
+  const invoiceIds = new Set<string>();
   let applied = 0n;
   for (const u of unused) {
     for (const s of oldestFirst(u.unused, balances).shares) {
@@ -494,9 +497,14 @@ export async function applyAdvance(tx: Tx, by: Actor, payer: Payer, branchId: st
       const b = balances.find((x) => x.invoiceId === s.invoiceId);
       if (b) b.balance -= s.amountPaise;
       applied += s.amountPaise;
+      invoiceIds.add(s.invoiceId);
     }
   }
-  return applied;
+  return { applied, invoiceIds: [...invoiceIds] };
+}
+
+export async function applyAdvance(tx: Tx, by: Actor, payer: Payer, branchId: string): Promise<Paise> {
+  return (await moveAdvance(tx, by, payer, branchId)).applied;
 }
 
 export const applyAdvanceSchema = z.object({ branchId: z.uuid(), payerGuardianId: z.uuid().optional(), payerMemberId: z.uuid().optional() });
@@ -509,7 +517,15 @@ export async function applyAdvanceNow(tx: Tx, ctx: ScopedCtx, input: z.input<typ
   const payer: Payer | undefined = data.payerGuardianId && !data.payerMemberId ? { kind: "guardian", guardianId: data.payerGuardianId } : data.payerMemberId && !data.payerGuardianId ? { kind: "member", memberId: data.payerMemberId } : undefined;
   if (!payer) throw new BadRequestError("Pick one payer");
   await requireBranch(tx, ctx, data.branchId);
-  return { appliedPaise: await applyAdvance(tx, actor(ctx), payer, data.branchId) };
+  const { applied, invoiceIds } = await moveAdvance(tx, actor(ctx), payer, data.branchId);
+  await skipAbout(tx, "invoice", invoiceIds, "A payment came in first");
+  return { appliedPaise: applied };
+}
+
+// Who holds advance, per branch, for the Advance tab of Discounts & credits.
+export async function advanceHeld(tx: Tx, ctx: ScopedCtx): Promise<AdvanceHolder[]> {
+  assertCan(ctx, "invoices:read");
+  return advanceHolders(tx, ctx.branchIds);
 }
 
 // Voiding an invoice with money on it: each payment's money comes off as a

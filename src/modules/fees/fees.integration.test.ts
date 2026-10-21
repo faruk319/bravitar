@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { auditLog } from "@/lib/db/audit";
@@ -34,7 +34,7 @@ import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoiceLines, invoices } from "./schema";
-import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, studentPlanDetail, studentPlanList, type StudentPlanQuery, voidInvoice } from "./service";
+import { createDiscount, createInvoice, createPlan, createScreen, editDraft, discountsPage, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, studentPlanDetail, studentPlanList, type StudentPlanQuery, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -1132,6 +1132,44 @@ describe("sending invoices automatically", () => {
     await expect(save({ invoiceIssue: "auto" }, desk)).rejects.toMatchObject({ status: 403 });
     expect(await save({ invoiceIssue: "auto" })).toMatchObject({ invoiceIssue: "auto" });
     expect(await lastAudit("settings.fees")).toMatchObject({ actorId: owner.staffId, before: { invoiceIssue: "review" }, after: { invoiceIssue: "auto" } });
+  });
+});
+
+describe("the discounts and credits page", () => {
+  const WIDE = { from: "2000-01-01", to: "2100-01-01" };
+  const page = (tab: "discounts" | "given", q: { state?: "running" | "ended"; q?: string; from?: string; to?: string } = {}, as: ScopedCtx = owner) =>
+    withTenant(T, (tx) => discountsPage(tx, as, { tab, ...WIDE, ...q }, { now: NOW }));
+
+  it("given discounts: running and ended", async () => {
+    const f = await family("Given Kid");
+    const kid = f.ids[0] ?? "";
+    const [a, b] = [await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Given A", kind: "percent", value: 10 })), await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Given B", kind: "amount", value: 50000 }))];
+    const kept = await withTenant(T, (tx) => giveDiscount(tx, owner, kid, { discountId: a.id, reason: "One", validFrom: M0 }));
+    const ended = await withTenant(T, (tx) => giveDiscount(tx, owner, kid, { discountId: b.id, reason: "Two", validFrom: M0 }));
+    await withTenant(T, (tx) => endDiscount(tx, owner, ended.id));
+    const ids = async (state: "running" | "ended") => (await page("given", { state, q: "Given Kid" })).given.map((g) => g.id);
+    expect(await ids("running")).toEqual([kept.id]);
+    expect(await ids("ended")).toEqual([ended.id]);
+    expect((await page("given", { q: "Given Kid" })).given.map((g) => [g.studentName, g.running]).sort()).toEqual([["Given Kid", false], ["Given Kid", true]]);
+  });
+
+  it("discount lines in a range add up to the invoices' discounts", async () => {
+    const kid = (await family("Lines Kid")).ids[0] ?? "";
+    const d = await withTenant(T, (tx) => createDiscount(tx, owner, { name: "Lines 10%", kind: "percent", value: 10 }));
+    await withTenant(T, (tx) => giveDiscount(tx, owner, kid, { discountId: d.id, reason: "Test", validFrom: M0 }));
+    await gen(M1, [await join(kid, "Karate A", M0)]);
+    const mine = (await invoicesOf([kid])).map((i) => i.id);
+    await withTenant(T, (tx) => issueInvoices(tx, owner, mine, { now: at(M1) }));
+    const { lines, linesTotal } = await page("given");
+    const [row] = await withTenant(T, (tx) => tx.select({ n: sql<string>`coalesce(sum(${invoices.discountPaise}), 0)::text` }).from(invoices).where(and(inArray(invoices.status, ["issued", "part_paid", "paid", "overdue"]), gte(invoices.issueDate, WIDE.from), lte(invoices.issueDate, WIDE.to))));
+    expect(lines.length).toBeGreaterThan(0);
+    expect(linesTotal).toBe(BigInt(row?.n ?? "0"));
+    expect(sum(lines.map((l) => l.discountPaise))).toBe(linesTotal);
+  });
+
+  it("the catalogue is open to fee_plans:manage, the rest needs invoices:read", async () => {
+    expect((await page("discounts")).catalogue.length).toBeGreaterThan(0);
+    await expect(page("given", {}, teacher)).rejects.toMatchObject({ status: 403 });
   });
 });
 

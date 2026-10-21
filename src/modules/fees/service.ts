@@ -27,10 +27,14 @@ import type { InvoiceQuery } from "./invoice-query";
 import { type Actor, chains, defaultPayerFor, type GenerateResult, generateInvoices, retotal, voidAndRebill } from "./invoicing";
 import {
   admissionBilled,
+  type DiscountLine,
+  discountLines,
   discountsOf,
+  givenDiscounts,
   draftIds,
   draftSummary,
   type GivenDiscount,
+  type GivenRow,
   getDiscount,
   getInvoice,
   getPlan,
@@ -173,10 +177,24 @@ export async function setPlanActive(tx: Tx, ctx: ScopedCtx, id: string, isActive
   return after;
 }
 
-export async function feeSetup(tx: Tx, ctx: ScopedCtx): Promise<{ plans: PlanRow[]; discounts: Discount[]; programs: Program[] }> {
+export async function feeSetup(tx: Tx, ctx: ScopedCtx): Promise<{ plans: PlanRow[]; programs: Program[] }> {
   assertCan(ctx, "fee_plans:manage");
-  const [plans, discounts, programs] = await Promise.all([listPlans(tx), listDiscounts(tx), listPrograms(tx, { activeOnly: true })]);
-  return { plans, discounts, programs };
+  const [plans, programs] = await Promise.all([listPlans(tx), listPrograms(tx, { activeOnly: true })]);
+  return { plans, programs };
+}
+
+export type DiscountsQuery = { tab: "discounts" | "given" | "advance"; state?: "running" | "ended"; q?: string; from?: string; to?: string };
+export type DiscountsPage = { range: { from: string; to: string }; catalogue: Discount[]; given: GivenRow[]; lines: DiscountLine[]; linesTotal: Paise };
+
+// The Discounts tab needs invoices:read or fee_plans:manage; the Given tab, invoices:read. Range defaults to this month.
+export async function discountsPage(tx: Tx, ctx: ScopedCtx, q: DiscountsQuery, opts: { now?: Date } = {}): Promise<DiscountsPage> {
+  if (!allows(ctx, "fee_plans:manage")) assertCan(ctx, "invoices:read");
+  const today = todayIn(await timeZone(tx), opts.now);
+  const range = { from: q.from && isIsoDate(q.from) ? q.from : `${today.slice(0, 7)}-01`, to: q.to && isIsoDate(q.to) ? q.to : today };
+  const given = q.tab === "given";
+  if (given) assertCan(ctx, "invoices:read");
+  const [catalogue, rows, lines] = await Promise.all([q.tab === "discounts" ? listDiscounts(tx) : [], given ? givenDiscounts(tx, ctx.branchIds, q, today) : [], given ? discountLines(tx, ctx.branchIds, range) : []]);
+  return { range, catalogue, given: rows, lines, linesTotal: sum(lines.map((l) => l.discountPaise)) };
 }
 
 export type PlanChoice = Pick<FeePlan, "id" | "name" | "kind" | "billingCycle" | "amountPaise">;

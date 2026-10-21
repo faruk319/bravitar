@@ -114,3 +114,16 @@ export function EndDiscount({ id }: { id: string }) {
     </Button>
   );
 }
+
+export function UseAdvance({ branchId, payerKey }: { branchId: string; payerKey: string }) {
+  const a = useAction();
+  const [kind, id] = payerKey.split(":");
+  return (
+    <>
+      <Button size="sm" variant="outline" disabled={a.busy} onClick={() => void a.run(() => send("/api/payments/advance", "POST", { branchId, ...(kind === "guardian" ? { payerGuardianId: id } : { payerMemberId: id }) }))}>
+        Use advance now
+      </Button>
+      {a.error ? <span className="text-caption text-danger-700">{a.error}</span> : null}
+    </>
+  );
+}
