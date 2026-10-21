@@ -107,6 +107,8 @@ export const planSchema = z.object({
   graceDays: z.number().int().min(0).max(90).optional(),
   taxRateBp: z.number().int().min(0).max(10_000).optional(),
   installments: z.array(z.object({ label: z.string().trim().min(1, "Name each installment").max(40), amountPaise: paise, dueOffsetDays: z.number().int().min(0).max(1000) })).max(12).optional(),
+  sessions: z.number().int().min(1).max(1000).optional(), // a session pack
+  validDays: z.number().int().min(1).max(1000).optional(),
 });
 export type PlanInput = z.input<typeof planSchema>;
 
@@ -121,12 +123,17 @@ function planColumns(data: z.infer<typeof planSchema>) {
     return { ...base, billingCycle: "one_time" as const, amountPaise: sum(parts.map((p) => p.amountPaise)), metadata: { installments } };
   }
   if (!data.amountPaise) throw new BadRequestError("Enter the fee");
+  if (data.kind === "package") {
+    if (!data.sessions) throw new BadRequestError("Enter the sessions");
+    if (!data.validDays) throw new BadRequestError("Enter the days valid");
+    return { ...base, billingCycle: "one_time" as const, amountPaise: data.amountPaise, metadata: { sessions: data.sessions, valid_days: data.validDays } };
+  }
   if (data.kind !== "recurring") return { ...base, billingCycle: "one_time" as const, amountPaise: data.amountPaise, metadata: {} };
   if (!data.billingCycle) throw new BadRequestError("Pick how often");
   return { ...base, billingCycle: data.billingCycle, amountPaise: data.amountPaise, metadata: {} };
 }
 
-const planAudit = (p: FeePlan) => ({ name: p.name, kind: p.kind, billingCycle: p.billingCycle, amountPaise: String(p.amountPaise), admissionFeePaise: String(p.admissionFeePaise), taxRateBp: p.taxRateBp, isActive: p.isActive });
+const planAudit = (p: FeePlan) => ({ name: p.name, kind: p.kind, billingCycle: p.billingCycle, amountPaise: String(p.amountPaise), admissionFeePaise: String(p.admissionFeePaise), taxRateBp: p.taxRateBp, isActive: p.isActive, ...(p.kind === "package" ? { sessions: p.metadata.sessions, validDays: p.metadata.valid_days } : {}) });
 
 async function checkProgram(tx: Tx, programId: string | null | undefined): Promise<void> {
   if (programId && !(await getProgram(tx, programId))) throw new NotFoundError("Program");
@@ -427,7 +434,10 @@ const editSchema = manualInvoiceSchema.omit({ issue: true });
 const payerColumns = (p: Payer) => ({ payerGuardianId: p.kind === "guardian" ? p.guardianId : null, payerMemberId: p.kind === "member" ? p.memberId : null });
 
 // No billing key: the nightly run neither bills these again nor adds to their invoice. Tax only with a GSTIN.
-function chargeRows(tenantId: string, invoiceId: string, studentId: string, lines: ManualLine[], gst: boolean) {
+// A session pack is billed as tuition; every other desk charge is a ManualLine.
+export type ChargeLine = Omit<ManualLine, "kind"> & { kind: ManualLine["kind"] | "tuition" };
+
+function chargeRows(tenantId: string, invoiceId: string, studentId: string, lines: ChargeLine[], gst: boolean) {
   return lines.map((l) => {
     const a = lineAmounts(l.amountPaise, 1, [], gst ? (l.taxRateBp ?? 0) : 0);
     return { tenantId, invoiceId, studentId, enrollmentId: l.enrollmentId ?? null, kind: l.kind, description: l.description, unitPaise: l.amountPaise, discountPaise: a.discount, taxPaise: a.tax, amountPaise: a.net, billingKey: null };
@@ -454,7 +464,7 @@ async function payerOfCharge(tx: Tx, data: Pick<z.output<typeof manualInvoiceSch
 }
 
 // A draft of one-off charges for a student, billed to the payer given (the caller has checked the payer). via: where it was made, for the audit.
-export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; branchId: string; payer: Payer; lines: ManualLine[]; dueDate: string; via?: "collect" }, opts: { now?: Date } = {}): Promise<Invoice> {
+export async function addCharge(tx: Tx, by: Actor, input: { studentId: string; branchId: string; payer: Payer; lines: ChargeLine[]; dueDate: string; via?: "collect" }, opts: { now?: Date } = {}): Promise<Invoice> {
   const [tenant, names] = await Promise.all([getOwnTenant(tx), payerNames(tx, [input.payer])]);
   const inv = await insertInvoice(tx, {
     tenantId: by.tenantId,

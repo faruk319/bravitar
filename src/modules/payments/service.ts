@@ -14,6 +14,8 @@ import type { Actor } from "@/modules/fees/invoicing";
 import { getInvoice, type LineRow, linesOf, lockInvoicing, payerNames } from "@/modules/fees/repo";
 import type { FeePlan, Invoice } from "@/modules/fees/schema";
 import { type ManualLine, manualLine } from "@/modules/fees/charge";
+import { lineAmounts } from "@/modules/fees/billing";
+import { packTerms, sellPack } from "@/modules/fees/packs";
 import { addCharge, issueDrafts } from "@/modules/fees/service";
 import { afterPayment } from "@/modules/messaging/reminders";
 import { skipAbout } from "@/modules/messaging/repo";
@@ -121,6 +123,7 @@ export const paymentSchema = z.object({
   payerGuardianId: z.uuid().optional(), // who is paying; left out, it is the payer of the invoices ticked or the only one with dues
   payerMemberId: z.uuid().optional(),
   charge: manualLine.omit({ taxRateBp: true }).optional(), // a one-off charge for the member, made here and paid in full first
+  pack: z.object({ enrollmentId: z.uuid() }).optional(), // a session pack sold here, paid in full first like a charge
 });
 export type PaymentInput = z.input<typeof paymentSchema>;
 
@@ -139,7 +142,7 @@ function checkReceivedOn(receivedOn: string, today: string, fyStartMonth: number
 }
 
 export type DueRow = OpenInvoiceRow & { description: string; students: string[] };
-export type PlanLine = { enrollmentId: string; studentName: string; programName: string; batchName: string; planName: string; kind: FeePlan["kind"]; cycle: FeePlan["billingCycle"]; amountPaise: Paise };
+export type PlanLine = { enrollmentId: string; studentName: string; programName: string; batchName: string; planName: string; kind: FeePlan["kind"]; cycle: FeePlan["billingCycle"]; amountPaise: Paise; packPaise?: Paise }; // packPaise: a session pack's price with GST
 // One person who might be paying: what they owe in the branch (oldest first), the advance they hold there and the plans they pay for.
 // relation reads "Mother", "Father"...: the guardian's to the opened member, else to a sibling; null for a member paying for themselves.
 export type PayerOption = { key: string; payer: Payer; name: string; relation: string | null; open: DueRow[]; advancePaise: Paise; plans: PlanLine[] };
@@ -159,6 +162,12 @@ export type CollectScreen = {
 
 // What an open invoice is for, from its lines: "Swimming Beginner · Oct 2026".
 const dueWhat = (lines: LineRow[]): string => [...new Set(lines.map((l) => [l.description, periodLabel(l.periodStart, l.periodEnd)].filter(Boolean).join(" · ")))].join(", ");
+
+// What the desk takes for a pack: the price, plus GST when the academy charges it (as the pack's invoice line works it out).
+const packPrice = (plan: FeePlan, gst: boolean): Paise => {
+  const a = lineAmounts(plan.amountPaise, 1, [], gst ? plan.taxRateBp : 0);
+  return a.net + a.tax;
+};
 
 // Everything the collect screen needs for one member (and their siblings) at one branch: each payer
 // with their own dues, advance and plans, and the one to pre-select.
@@ -201,7 +210,7 @@ export async function collectScreen(tx: Tx, ctx: ScopedCtx, memberId: string, br
       continue;
     }
     const key = payerKey(payer);
-    plans.set(key, [...(plans.get(key) ?? []), { enrollmentId: e.id, studentName, programName, batchName, planName: plan.name, kind: plan.kind, cycle: plan.billingCycle, amountPaise: plan.amountPaise }]);
+    plans.set(key, [...(plans.get(key) ?? []), { enrollmentId: e.id, studentName, programName, batchName, planName: plan.name, kind: plan.kind, cycle: plan.billingCycle, amountPaise: plan.amountPaise, ...(packTerms(plan) ? { packPaise: packPrice(plan, gst) } : {}) }]);
   }
 
   // Who is likely paying: whoever owes; with nobody owing, the members' guardians, else the member themselves.
@@ -306,6 +315,14 @@ async function deskCharge(tx: Tx, ctx: ScopedCtx, to: { memberId: string; branch
   return { invoiceId: issued.id, amountPaise: issued.totalPaise };
 }
 
+// A session pack sold at the desk for one of the opened member's programs in this branch, paid in full like a charge.
+async function deskPack(tx: Tx, ctx: ScopedCtx, to: { memberId: string; branchId: string; payer: Payer }, enrollmentId: string, now: Date): Promise<Share> {
+  if (!(await payerInScope(tx, [to.memberId], to.payer))) throw new BadRequestError("That payer isn't one of this student's payers");
+  if (!(await currentEnrollmentsOf(tx, [to.memberId])).some((p) => p.e.id === enrollmentId && p.branchId === to.branchId)) throw new BadRequestError("Pick one of this student's programs");
+  const { invoice } = await sellPack(tx, actor(ctx), { enrollmentId, payer: to.payer }, now);
+  return { invoiceId: invoice.id, amountPaise: invoice.totalPaise };
+}
+
 // Oldest invoice first unless invoices are picked; what is left is the family's
 // advance in this branch. A charge made here is paid in full before either. The
 // receipt number is taken in this transaction, so a failure gives it back.
@@ -325,7 +342,8 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   const earlier = await paymentByRequest(tx, data.requestId);
   const payer = earlier ? payerOfRow(earlier) : await payerOfPayment(tx, data, memberIds);
   // Issuing a charge takes the invoicing lock before the payer's, as every issue does; the other order could deadlock.
-  if (data.charge) await lockInvoicing(tx, ctx.tenantId);
+  if (data.charge && data.pack) throw new BadRequestError("Add a charge or a session pack, not both");
+  if (data.charge || data.pack) await lockInvoicing(tx, ctx.tenantId);
   await lockPayer(tx, payer);
   // Checked under the lock, so a double tap waits for the first and returns it.
   const again = await paymentByRequest(tx, data.requestId);
@@ -337,9 +355,12 @@ export async function recordPayment(tx: Tx, ctx: ScopedCtx, input: PaymentInput,
   if (charge && data.amountPaise < charge.amountPaise) throw new BadRequestError("A charge added here is paid in full");
   // Only the invoices the screen showed: a shared payer's other family is settled on its own screen.
   const open = (await openInvoices(tx, payer, data.branchId, memberIds)).map((i) => ({ invoiceId: i.id, balance: i.totalPaise - i.paidPaise }));
-  const rest = data.amountPaise - (charge?.amountPaise ?? 0n);
+  const to = { memberId: data.memberId, branchId: data.branchId, payer };
+  const first = charge ? await deskCharge(tx, ctx, to, charge, { now, today }) : data.pack ? await deskPack(tx, ctx, to, data.pack.enrollmentId, now) : undefined;
+  if (data.pack && first && data.amountPaise < first.amountPaise) throw new BadRequestError("A session pack is paid in full");
+  const rest = data.amountPaise - (first?.amountPaise ?? 0n);
   const split = data.allocations ? picked(rest, open, data.allocations) : oldestFirst(rest, open);
-  const shares = charge ? [await deskCharge(tx, ctx, { memberId: data.memberId, branchId: data.branchId, payer }, charge, { now, today }), ...split.shares] : split.shares;
+  const shares = first ? [first, ...split.shares] : split.shares;
   const fy = financialYear(today, fyStartMonth);
   const receiptNumber = await allocateNumber(tx, ctx.tenantId, "receipt", fy);
   const billToName = (await payerNames(tx, [payer])).get(payerKey(payer));

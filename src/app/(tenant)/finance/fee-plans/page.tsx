@@ -18,7 +18,7 @@ const EVERY: Record<string, string> = { monthly: "Every month", quarterly: "Ever
 function howBilled(p: PlanRow): string {
   if (p.kind === "recurring") return EVERY[p.billingCycle] ?? p.billingCycle;
   if (p.kind === "term") return `Term · ${p.metadata.installments?.length ?? 0} installments`;
-  return p.kind === "package" ? "Package (later)" : "One-time";
+  return p.kind === "package" ? `Session pack · ${p.metadata.sessions ?? 0} sessions, ${p.metadata.valid_days ?? 0} days` : "One-time";
 }
 
 const formOf = (p: PlanRow): PlanForm => ({
@@ -34,6 +34,8 @@ const formOf = (p: PlanRow): PlanForm => ({
   taxRateBp: p.taxRateBp,
   isActive: p.isActive,
   installments: p.metadata.installments ?? [],
+  sessions: p.metadata.sessions ?? null,
+  validDays: p.metadata.valid_days ?? null,
 });
 
 export default async function FeePlansPage() {

@@ -112,7 +112,7 @@ function chargesFor(b: Billable, c: { today: string; from: string; proration: "f
         opens: first && ch === all[0],
       }));
   }
-  if (plan.kind === "package") return []; // TODO(V2): package credits (docs/04). Stored, never billed yet.
+  if (plan.kind === "package") return []; // a session pack is sold at the desk, never billed
   // Term and one-time: every installment at once, one invoice each, due from the start date.
   if (!openOn(e, c.today)) return [];
   const parts =

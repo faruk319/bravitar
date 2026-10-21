@@ -119,7 +119,7 @@ beforeAll(async () => {
         { label: "3rd installment", amountPaise: "500000", dueOffsetDays: 240 },
       ],
     },
-    swim: { name: "Swim 10 sessions", kind: "package", amountPaise: "300000" },
+    swim: { name: "Swim 10 sessions", kind: "package", amountPaise: "300000", sessions: 10, validDays: 60 },
   };
   for (const [k, p] of Object.entries(plans)) plan[k] = (await withTenant(T, (tx) => createPlan(tx, owner, p))).id;
   const batches: [string, string, string][] = [

@@ -12,7 +12,7 @@ const paise = (name: string) => bigint(name, { mode: "bigint" });
 export const PLAN_KINDS = ["recurring", "term", "package", "one_time"] as const;
 export const BILLING_CYCLES = ["monthly", "quarterly", "half_yearly", "yearly", "one_time"] as const;
 export type Installment = { label: string; amount_paise: number; due_offset_days: number }; // docs/04 format
-export type PlanMetadata = { installments?: Installment[] };
+export type PlanMetadata = { installments?: Installment[]; sessions?: number; valid_days?: number }; // the last two: a session pack
 
 export const feePlans = app.table("fee_plans", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -106,7 +106,23 @@ export const invoiceLines = app.table("invoice_lines", {
   billingKey: text("billing_key"),
 });
 
+// Mirrors migrations/0043_session_packs.sql. Sessions used are derived from attendance, never stored.
+export const sessionPacks = app.table("session_packs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+  enrollmentId: uuid("enrollment_id").notNull().references(() => enrollments.id),
+  studentId: uuid("student_id").notNull().references(() => students.id),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id),
+  sessions: integer("sessions").notNull(),
+  validFrom: date("valid_from").notNull(),
+  validUntil: date("valid_until").notNull(),
+  extendedReason: text("extended_reason"),
+  createdBy: uuid("created_by").references(() => staffUsers.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type FeePlan = typeof feePlans.$inferSelect;
+export type SessionPack = typeof sessionPacks.$inferSelect;
 export type Discount = typeof discounts.$inferSelect;
 export type StudentDiscount = typeof studentDiscounts.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;

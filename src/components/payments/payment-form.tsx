@@ -25,13 +25,14 @@ const METHODS = [
   ["cheque", "Cheque", "Cheque number (optional)"],
 ] as const;
 type Method = (typeof METHODS)[number][0];
-type Purpose = "fees" | "advance" | "charge";
+type Purpose = "fees" | "advance" | "charge" | "pack";
 
 const PER: Record<string, string> = { monthly: "a month", quarterly: "every 3 months", half_yearly: "every 6 months", yearly: "a year" };
 export const payerIds = (p: Payer) => (p.kind === "guardian" ? { payerGuardianId: p.guardianId } : { payerMemberId: p.memberId });
 const PAID_IN_FULL = "A charge added here is paid in full"; // the server's words
+const PACK_IN_FULL = "A session pack is paid in full";
 
-const planText = (p: PlanLine) => `${p.planName} · ${formatPaise(p.amountPaise)} ${p.kind === "recurring" ? (PER[p.cycle] ?? "") : p.kind === "term" ? "in installments" : "once"}`.trim();
+const planText = (p: PlanLine) => `${p.planName} · ${formatPaise(p.amountPaise)} ${p.kind === "recurring" ? (PER[p.cycle] ?? "") : p.kind === "term" ? "in installments" : p.kind === "package" ? "a pack" : "once"}`.trim();
 
 // Overdue beats Part paid (spec, words on screen); -700 text, accent has only 600.
 function dueStatus(i: DueRow, today: string): [string, string] {
@@ -88,6 +89,9 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
     return new Set((asked.length ? asked : payer.open).map((i) => i.id));
   });
   const [charge, setCharge] = useState<ChargeInput>({ kind: "other", description: "", amount: "", enrollmentId: "" });
+  // Packs sell only for the opened member's own programs on a pack plan.
+  const packs = payer.plans.filter((p) => p.packPaise !== undefined && screen.enrollments.some((e) => e.id === p.enrollmentId));
+  const [packId, setPackId] = useState(packs[0]?.enrollmentId ?? "");
   const [typed, setTyped] = useState<string | null>(null);
   const [custom, setCustom] = useState<Record<string, string> | null>(null);
   const [method, setMethod] = useState<Method>("cash");
@@ -101,13 +105,14 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
 
   const mode: Purpose = purpose === "fees" && !owes ? "advance" : purpose; // nothing open (say, after Use advance now) leaves no fees to pay
   const charging = mode === "charge";
+  const pack = mode === "pack" ? packs.find((p) => p.enrollmentId === packId) : undefined;
   const tickable = owes && mode !== "advance";
   const rows = tickable ? payer.open.filter((i) => ticked.has(i.id)) : [];
   const ticks = sum(rows.map((i) => i.balancePaise));
-  const cost = charging ? (parseRupees(charge.amount) ?? 0n) : 0n;
+  const cost = charging ? (parseRupees(charge.amount) ?? 0n) : (pack?.packPaise ?? 0n);
   const amount = typed ?? asInput(ticks + cost);
   const paise = parseRupees(amount);
-  const live = paise ? (paise < cost ? { error: PAID_IN_FULL } : preview(paise - cost, rows, tickable ? custom : null)) : undefined;
+  const live = paise ? (paise < cost ? { error: pack ? PACK_IN_FULL : PAID_IN_FULL } : preview(paise - cost, rows, tickable ? custom : null)) : undefined;
   const split = live && "split" in live ? live.split : undefined;
   const stillDue = split ? split.stillDue + sum(payer.open.map((i) => i.balancePaise)) - ticks : 0n; // the unticked ones are still due too
   const many = new Set([...payer.plans.map((p) => p.studentName), ...payer.open.flatMap((i) => i.students)]).size > 1;
@@ -132,6 +137,7 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
   async function submit() {
     if (charging && !charge.description.trim()) return setError("Say what the charge is for");
     if (charging && !cost) return setError("Enter the charge amount");
+    if (mode === "pack" && !pack) return setError("Pick the session pack");
     if (!paise) return setError("Enter the amount received");
     if (!split) return setError(live && "error" in live ? live.error : "Check the amounts");
     setBusy(true);
@@ -144,6 +150,7 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
       amountPaise: String(paise),
       method,
       allocations: split.shares.map((s) => ({ invoiceId: s.invoiceId, amountPaise: String(s.amountPaise) })),
+      ...(pack ? { pack: { enrollmentId: pack.enrollmentId } } : {}),
       ...(charging ? { charge: { kind: charge.kind, description: charge.description.trim(), amountPaise: String(cost), ...(charge.enrollmentId ? { enrollmentId: charge.enrollmentId } : {}) } } : {}),
       ...(reference.trim() ? { reference: reference.trim() } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -205,6 +212,7 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
               ["fees", "Fees due"],
               ["advance", "Advance"],
               ["charge", "New charge"],
+              ...(packs.length ? ([["pack", "Session pack"]] as const) : []),
             ] as const
           ).map(([value, label]) => (
             <label key={value} className={cn("flex min-h-12 cursor-pointer items-center gap-2 rounded-full border border-border px-4 text-label has-checked:border-accent-600 has-checked:bg-accent-50", value === "fees" && !owes && "cursor-not-allowed opacity-50")}>
@@ -222,15 +230,28 @@ export function PaymentForm({ screen, payer, preselect, requestId }: { screen: C
         </fieldset>
       ) : null}
 
+      {mode === "pack" && packs.length > 1 ? (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="pay-pack">Session pack</Label>
+          <select id="pay-pack" value={packId} onChange={(e) => setPackId(e.target.value)} className="h-12 rounded-lg border border-border bg-background px-3 text-base">
+            {packs.map((p) => (
+              <option key={p.enrollmentId} value={p.enrollmentId}>
+                {p.planName} · {p.programName}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2">
         <Label htmlFor="pay-amount">Amount received</Label>
         <div className="relative">
           <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-body text-muted-foreground">₹</span>
           <Input id="pay-amount" inputMode="decimal" autoComplete="off" className="pl-7 text-number tabular-nums" value={amount} onChange={(e) => setTyped(e.target.value)} />
         </div>
-        {charging && cost > 0n && split ? (
+        {(charging || pack) && cost > 0n && split ? (
           <p className="flex justify-between gap-3 text-caption">
-            <span>{charge.description.trim() || KINDS.find(([kind]) => kind === charge.kind)?.[1]}</span>
+            <span>{pack ? pack.planName : charge.description.trim() || KINDS.find(([kind]) => kind === charge.kind)?.[1]}</span>
             <Money paise={cost} />
           </p>
         ) : null}

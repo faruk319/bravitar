@@ -30,12 +30,15 @@ export type PlanForm = {
   taxRateBp: number;
   isActive: boolean;
   installments: Installment[];
+  sessions: number | null; // a session pack
+  validDays: number | null;
 };
 
 const KINDS = [
   ["recurring", "Recurring"],
   ["term", "Term in installments"],
   ["one_time", "One-time"],
+  ["package", "Session pack"],
 ] as const;
 const CYCLES = [
   ["monthly", "Every month"],
@@ -107,6 +110,7 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
             graceDays: Number(str("graceDays") || 0),
             taxRateBp: Number(str("gst")) * 100,
             ...(kind === "recurring" ? { billingCycle: str("billingCycle"), billingDay: Number(str("billingDay") || 1) } : {}),
+            ...(kind === "package" ? { sessions: Number(str("sessions") || 0) || undefined, validDays: Number(str("validDays") || 0) || undefined } : {}),
             ...(kind === "term"
               ? { installments: rows.map((r, i) => ({ label: r.label.trim(), amountPaise: String(amounts[i] ?? 0n), dueOffsetDays: Number(r.days || 0) })) }
               : { amountPaise: String(amount) }),
@@ -125,7 +129,6 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
                   {l}
                 </option>
               ))}
-              {plan?.kind === "package" ? <option value="package">Package (later)</option> : null}
             </select>
           </Field>
           <Field label="Program" id="plan-program">
@@ -153,6 +156,17 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
             </Field>
             <Field label="Bills on day" id="plan-day">
               <Input id="plan-day" name="billingDay" type="number" inputMode="numeric" min={1} max={28} defaultValue={plan?.billingDay ?? 1} />
+            </Field>
+          </div>
+        ) : null}
+
+        {kind === "package" ? (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Sessions" id="plan-sessions">
+              <Input id="plan-sessions" name="sessions" type="number" inputMode="numeric" min={1} max={1000} defaultValue={plan?.sessions ?? 10} />
+            </Field>
+            <Field label="Days valid" id="plan-valid">
+              <Input id="plan-valid" name="validDays" type="number" inputMode="numeric" min={1} max={1000} defaultValue={plan?.validDays ?? 30} />
             </Field>
           </div>
         ) : null}
@@ -206,7 +220,7 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
             </div>
           </fieldset>
         ) : (
-          <Field label="Fee (₹)" id="plan-amount">
+          <Field label={kind === "package" ? "Price (₹)" : "Fee (₹)"} id="plan-amount">
             <Input id="plan-amount" name="amount" inputMode="decimal" defaultValue={plan && plan.kind !== "term" ? rupeesInput(plan.amountPaise) : ""} placeholder="800" />
           </Field>
         )}
