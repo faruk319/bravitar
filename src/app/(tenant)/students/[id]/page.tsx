@@ -191,7 +191,7 @@ export default async function StudentPage({ params, searchParams }: PageProps<"/
         <div className={column}>
           {o.fees ? (
             <div className="order-2 xl:order-none">
-              <FeesCard fees={o.fees} nextDue={o.nextDue ?? null} plans={o.batches ? o.batches.current.flatMap((e) => (e.planName ? [e.planName] : [])) : undefined} />
+              <FeesCard fees={o.fees} nextDue={o.nextDue ?? null} student={s.id} canCollect={allows(ctx, "fees:collect")} canInvoice={canDiscount} />
             </div>
           ) : null}
           {o.fees ? (

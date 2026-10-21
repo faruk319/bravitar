@@ -13,7 +13,7 @@ import type { Enrollment } from "@/modules/enrollments/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { payerInScope } from "@/modules/payments/repo";
 import { unusedPayments } from "@/modules/payments/repo";
-import { applyAdvance } from "@/modules/payments/service";
+import { applyAdvance, type PlanLine } from "@/modules/payments/service";
 import { staffNames } from "@/modules/staff/repo";
 import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/payer";
 import { RELATION_LABELS } from "@/modules/students/relations";
@@ -62,6 +62,7 @@ import {
   studentPlanRowOf,
   billedLinesOf,
   type StudentPlanBase,
+  studentPlansOf,
   studentPlanTabCounts,
   openInstallments,
   type PlanRow,
@@ -732,6 +733,27 @@ async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promi
       outstandingPaise: owed.get(e.id) ?? 0n,
     };
   });
+}
+
+export type CardPlan = PlanLine & { nextBill: string | null; payerName: string };
+
+// The student's running plans for the fees card, and the advance each payer holds in their branch.
+export async function studentCardPlans(tx: Tx, ctx: ScopedCtx, studentId: string, today: string): Promise<{ plans: CardPlan[]; advance: { payerName: string; advancePaise: Paise }[] }> {
+  assertCan(ctx, "invoices:read");
+  const base = await studentPlansOf(tx, studentId);
+  const rows = await planRowsOf(tx, base, today);
+  const lead = await leadGuardians(tx, [studentId]);
+  const payers = new Map<string, { payer: Payer; branchId: string; name: string }>();
+  base.forEach((b, n) => {
+    const payer = safePayer(b.e, lead.get(studentId));
+    if (payer) payers.set(payerKey(payer), { payer, branchId: b.branchId, name: rows[n]?.payerName ?? "" });
+  });
+  const advance: { payerName: string; advancePaise: Paise }[] = [];
+  for (const { payer, branchId, name } of payers.values()) {
+    const held = sum((await unusedPayments(tx, payer, branchId)).map((u) => u.unused));
+    if (held > 0n) advance.push({ payerName: name, advancePaise: held });
+  }
+  return { plans: rows.map(({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, payerName }) => ({ enrollmentId, studentName, programName, batchName, planName, kind, cycle, amountPaise, nextBill, payerName })), advance };
 }
 
 export type TimelineRow = { invoiceId: string; number: string | null; label: string; status: DisplayStatus | "upcoming"; amountPaise: Paise; paidPaise: Paise; dueDate: string };

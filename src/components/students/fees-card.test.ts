@@ -20,7 +20,8 @@ const inv = (id: string, billToName: string, totalPaise: bigint, over: Partial<I
   totalPaise, paidPaise: 0n, status: "issued", voidReason: null, issuedAt: when, createdAt: when, createdBy: null, issuedBy: null, students: [], display: "due", programs: [], installment: null, ...over,
 });
 const paidInv = (id: string, billToName: string, totalPaise: bigint, over: Partial<InvoiceRow> = {}) => inv(id, billToName, totalPaise, { paidPaise: totalPaise, status: "paid", display: "paid", ...over });
-const render = (fees: Omit<Fees, "discounts">, nextDue: string | null = null) => renderToStaticMarkup(createElement(FeesCard, { fees: { ...fees, discounts: [] }, nextDue, plans: ["Karate Monthly"] }));
+const render = (fees: Pick<Fees, "today" | "invoices" | "receipts"> & Partial<Fees>, nextDue: string | null = null) =>
+  renderToStaticMarkup(createElement(FeesCard, { fees: { discounts: [], plans: [], advance: [], upcoming: [], totals: { billedPaise: 0n, paidPaise: 0n, outstandingPaise: 0n }, ...fees }, nextDue, student: "s", canCollect: true, canInvoice: true }));
 const text = (html: string) => html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 
 describe("fees card", () => {
@@ -60,10 +61,11 @@ describe("fees card", () => {
   });
 
   it("a payment shows date, amount, method and who it paid for", () => {
-    const out = text(render({ today: "2026-10-10", invoices: [paidInv("2", "Aunt Mehta", 100000n)], receipts: [{ paymentId: "p", invoiceId: "2", receiptNumber: "R-1", receivedOn: "2026-10-03", method: "upi", net: 100000n }] }));
+    const out = text(render({ today: "2026-10-10", invoices: [paidInv("2", "Aunt Mehta", 100000n)], receipts: [{ paymentId: "p", invoiceId: "2", receiptNumber: "R-1", receivedOn: "2026-10-03", method: "upi", net: 100000n, fromAdvance: true }] }));
     expect(out).toContain("UPI · Aunt Mehta");
     expect(out).toContain("3 Oct 2026");
     expect(out).toContain("Last payment ₹1,000");
+    expect(out).toContain("from advance");
   });
 
   it("an earlier unpaid invoice is listed apart from this month's", () => {

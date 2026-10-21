@@ -178,4 +178,27 @@ describe("the fees card is per payer", () => {
     expect(after.fees?.receipts.map((r) => [r.invoiceId, r.net])).toEqual([[auntInvoice?.id, 100000n]]);
     expect(after.fees?.invoices.map((i) => [i.billToName, i.status]).sort()).toEqual([["Aunt Fees", "paid"], ["Split Fees Parent", "issued"]]);
   });
+  it("the card carries plans, totals, per-payer advance and where each payment came from", async () => {
+    const s = await kid("Advance Fees");
+    const aunt = await withTenant(T, (tx) => addFamilyMember(tx, owner, s.student.id, { fullName: "Aunt Advance", phone: phone(), relation: "other" }));
+    const [karate, dance] = [await batchOn("Adv Karate", (await plan("Adv Karate Plan", "80000")).id), await batchOn("Adv Dance", (await plan("Adv Dance Plan", "100000")).id)];
+    const [ek, ed] = [await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: karate, startDate: `${month}-01` })), await withTenant(T, (tx) => enroll(tx, owner, { studentId: s.student.id, batchId: dance, startDate: `${month}-01` }))];
+    await withTenant(T, async (tx) => {
+      await tx.update(enrollments).set({ payerGuardianId: s.guardian.id, payerMemberId: null }).where(eq(enrollments.id, ek.id));
+      await tx.update(enrollments).set({ payerGuardianId: aunt.id, payerMemberId: null }).where(eq(enrollments.id, ed.id));
+    });
+    for (const [g, amountPaise] of [[s.guardian.id, "50000"], [aunt.id, "150000"]] as const)
+      await withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId: s.student.id, branchId: branch, amountPaise, payerGuardianId: g, allocations: [] }, { now }));
+    await withTenant(T, (tx) => generateInvoices(tx, { actorType: "system", tenantId: T }, { now, enrollmentIds: [ek.id, ed.id] }));
+    const all = (await withTenant(T, (tx) => tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.studentId, s.student.id)))).map((r) => r.id);
+    await withTenant(T, (tx) => issueInvoices(tx, owner, all, { now }));
+    const f = (await profile(owner, s.student.id)).fees;
+    const [sumTotals, sumPaid] = [(f?.invoices ?? []).reduce((a, i) => a + i.totalPaise, 0n), (f?.invoices ?? []).reduce((a, i) => a + i.paidPaise, 0n)];
+    expect(f?.plans.map((p) => [p.programName, p.amountPaise, p.payerName, p.nextBill !== null]).sort()).toEqual([["Adv Dance program", 100000n, "Aunt Advance", true], ["Adv Karate program", 80000n, "Advance Fees Parent", true]]);
+    expect(f?.totals).toEqual({ billedPaise: sumTotals, paidPaise: sumPaid, outstandingPaise: sumTotals - sumPaid });
+    expect(sumPaid).toBe(150000n);
+    expect(f?.advance).toEqual([{ payerName: "Aunt Advance", advancePaise: 50000n }]);
+    expect(f?.receipts.length).toBeGreaterThan(0);
+    expect(f?.receipts[0]?.fromAdvance).toBe(true);
+  });
 });

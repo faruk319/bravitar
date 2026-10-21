@@ -624,6 +624,11 @@ export async function nextInstallmentDue(tx: Tx, enrollmentIds: string[]): Promi
 }
 
 // One enrollment's placement, whatever its status (a transferred one too), if the branches reach its student.
+// A student's placements on a fee plan that are still running (active or paused).
+export async function studentPlansOf(tx: Tx, studentId: string): Promise<StudentPlanBase[]> {
+  return planFrom(tx).where(and(eq(enrollments.studentId, studentId), inArray(enrollments.status, ["active", "paused"]))).orderBy(asc(enrollments.startDate), asc(enrollments.id));
+}
+
 export async function studentPlanRowOf(tx: Tx, branchIds: string[], enrollmentId: string): Promise<StudentPlanBase | undefined> {
   const [row] = await planFrom(tx).where(and(eq(enrollments.id, enrollmentId), isNull(students.deletedAt), branchIds.length ? inArray(students.branchId, branchIds) : undefined)).limit(1);
   return row;
