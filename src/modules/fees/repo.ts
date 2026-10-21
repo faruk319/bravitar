@@ -420,7 +420,7 @@ export async function programsOnInvoice(tx: Tx, invoiceId: string): Promise<Invo
 }
 
 // "2 of 4" for the installment invoices among these lines: the position from the key, the size from every key of that series.
-async function installmentsOf(tx: Tx, lines: LineRow[]): Promise<Map<string, { n: number; of: number }>> {
+async function installmentsOf(tx: Tx, lines: Pick<LineRow, "invoiceId" | "billingKey">[]): Promise<Map<string, { n: number; of: number }>> {
   const mine = new Map<string, NonNullable<ReturnType<typeof installmentOf>>>();
   for (const l of lines) {
     const i = installmentOf(l.billingKey);
@@ -568,7 +568,7 @@ export async function owedSummary(tx: Tx, branchIds: string[], today: string): P
 export type StudentPlanTab = "active" | "paused" | "ended";
 const TAB_STATUS: Record<StudentPlanTab, Enrollment["status"]> = { active: "active", paused: "paused", ended: "left" };
 export type StudentPlanFilter = { q?: string | undefined; programId?: string | undefined; batchId?: string | undefined; planId?: string | undefined };
-export type StudentPlanBase = { e: Enrollment; plan: FeePlan; studentName: string; studentCode: string; batchName: string; programName: string };
+export type StudentPlanBase = { branchId: string; e: Enrollment; plan: FeePlan; studentName: string; studentCode: string; batchName: string; programName: string };
 
 // Enrollments with a fee plan; a transferred one is not listed, its next enrollment is.
 function planWhere(branchIds: string[], f: StudentPlanFilter): SQL | undefined {
@@ -582,7 +582,7 @@ function planWhere(branchIds: string[], f: StudentPlanFilter): SQL | undefined {
 }
 
 const planFrom = (tx: Tx) =>
-  tx.select({ e: enrollments, plan: feePlans, studentName: students.fullName, studentCode: students.code, batchName: batches.name, programName: programs.name })
+  tx.select({ branchId: students.branchId, e: enrollments, plan: feePlans, studentName: students.fullName, studentCode: students.code, batchName: batches.name, programName: programs.name })
     .from(enrollments)
     .innerJoin(feePlans, eq(feePlans.id, enrollments.feePlanId))
     .innerJoin(students, eq(students.id, enrollments.studentId))
@@ -621,6 +621,26 @@ export async function nextInstallmentDue(tx: Tx, enrollmentIds: string[]): Promi
     .where(and(inArray(invoiceLines.enrollmentId, enrollmentIds), eq(invoiceLines.kind, "tuition"), eq(feePlans.kind, "term"), inArray(invoices.status, ["draft", "issued", "part_paid"])))
     .groupBy(invoiceLines.enrollmentId);
   return new Map(rows.flatMap((r) => (r.enrollmentId ? [[r.enrollmentId, r.due] as const] : [])));
+}
+
+// One enrollment's placement, whatever its status (a transferred one too), if the branches reach its student.
+export async function studentPlanRowOf(tx: Tx, branchIds: string[], enrollmentId: string): Promise<StudentPlanBase | undefined> {
+  const [row] = await planFrom(tx).where(and(eq(enrollments.id, enrollmentId), isNull(students.deletedAt), branchIds.length ? inArray(students.branchId, branchIds) : undefined)).limit(1);
+  return row;
+}
+
+export type BilledLine = { inv: Invoice; line: InvoiceLine; installment: { n: number; of: number } | null };
+
+// Every line of the non-void invoices that carry this enrollment, oldest due first.
+export async function billedLinesOf(tx: Tx, enrollmentId: string): Promise<BilledLine[]> {
+  const rows = await tx
+    .select({ inv: invoices, line: invoiceLines })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(and(ne(invoices.status, "void"), inArray(invoiceLines.invoiceId, tx.select({ id: invoiceLines.invoiceId }).from(invoiceLines).where(eq(invoiceLines.enrollmentId, enrollmentId)))))
+    .orderBy(asc(invoices.dueDate), asc(invoices.issueDate), asc(invoices.createdAt), asc(invoiceLines.id));
+  const position = await installmentsOf(tx, rows.map((r) => r.line));
+  return rows.map((r) => ({ ...r, installment: position.get(r.inv.id) ?? null }));
 }
 
 export type OpenLine = { invoiceId: string; lineId: string; enrollmentId: string | null; weight: Paise; balance: Paise };

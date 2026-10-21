@@ -133,7 +133,9 @@ export function InvoiceFacts({ d }: { d: InvoiceView & Partial<Pick<InvoiceDetai
             <ul className="space-y-1.5">
               {d.programs.map((p) => (
                 <li key={p.enrollmentId}>
-                  {p.programName} · {p.batchName}
+                  <Link href={`/finance/student-plans/${p.enrollmentId}`} className="hover:underline">
+                    {p.programName} · {p.batchName}
+                  </Link>
                   {p.planName ? <span className="block text-caption text-muted-foreground">{p.planName}</span> : null}
                 </li>
               ))}

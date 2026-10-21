@@ -6,7 +6,7 @@ import { sql as runtimeSql } from "@/lib/db/client";
 import { deleteTenantsCompletely } from "@/lib/db/isolation/teardown";
 import { platformSql } from "@/lib/db/platform";
 import { withTenant } from "@/lib/db/with-tenant";
-import { addDays, todayIn } from "@/lib/dates";
+import { addDays, periodLabel, todayIn } from "@/lib/dates";
 import { uuidv7 } from "@/lib/ids";
 import { financialYear } from "@/lib/money/fy";
 import { roundHalfUp, sum } from "@/lib/money/paise";
@@ -34,7 +34,7 @@ import { runInvoicesGenerate } from "./job";
 import { insertInvoice, linesOf, owedSummary, updateInvoice } from "./repo";
 import { paymentAllocations } from "@/modules/payments/schema";
 import { type Invoice, invoiceLines, invoices } from "./schema";
-import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, studentPlanList, type StudentPlanQuery, voidInvoice } from "./service";
+import { createDiscount, createInvoice, createPlan, createScreen, editDraft, editScreen, endDiscount, generateNow, giveDiscount, installmentsDue, invoiceDetail, invoiceList, type InvoiceList, issueInvoices, type PlanInput, saveFeeSettings, setPlanActive, studentFees, studentPlanDetail, studentPlanList, type StudentPlanQuery, voidInvoice } from "./service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const today = todayIn("Asia/Kolkata");
@@ -1201,5 +1201,72 @@ describe("the student plans list", () => {
 
   it("needs invoices:read", async () => {
     await expect(plans({}, teacher)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("a student plan's detail", () => {
+  const detail = (id: string, now: Date = NOW) => withTenant(T, (tx) => studentPlanDetail(tx, owner, id, { now }));
+  const setup = async (name: string, create: PlanInput) => {
+    const programId = (await withTenant(T, (tx) => addProgram(tx, owner, { name: `${name} ${stamp}` }))).id;
+    const planId = (await withTenant(T, (tx) => createPlan(tx, owner, { ...create, name: `${name} plan` }))).id;
+    const batchId = (await withTenant(T, (tx) => createBatch(tx, owner, { name: `${name} batch`, programId, slots: [{ weekday: 1, startTime: "17:00", endTime: "18:00" }], startDate: addMonths(M0, -3), defaultFeePlanId: planId }))).id;
+    return { planId, batchId };
+  };
+  const issueAll = async (memberId: string) => {
+    const invs = await invoicesOf([memberId]);
+    await withTenant(T, (tx) => issueInvoices(tx, owner, invs.map((i) => i.id), { now: NOW }));
+    return invs;
+  };
+  const pay = (memberId: string, branchId: string, amount: string, allocations: { invoiceId: string; amountPaise: string }[]) =>
+    withTenant(T, (tx) => recordPayment(tx, owner, { requestId: uuidv7(), memberId, branchId, amountPaise: amount, allocations }));
+
+  let monthly = { e: "", invs: [] as Invoice[] };
+  beforeAll(async () => {
+    const s = await setup("Detail M", { name: "x", kind: "recurring", billingCycle: "monthly", amountPaise: "200000" });
+    const kid = (await family("Detail Monthly")).ids[0] ?? "";
+    const e = await withTenant(T, async (tx) => (await enroll(tx, owner, { studentId: kid, batchId: s.batchId, startDate: addMonths(M0, -1) })).id);
+    for (const day of [addMonths(M0, -1), M0, M1]) await gen(day, [e]);
+    const invs = await issueAll(kid);
+    // Month 1 paid in full, month 2 half; 300 more stays as the payer's advance.
+    await pay(kid, invs[0]?.branchId ?? "", "330000", [{ invoiceId: invs[0]?.id ?? "", amountPaise: "200000" }, { invoiceId: invs[1]?.id ?? "", amountPaise: "100000" }]);
+    monthly = { e, invs };
+  });
+
+  it("a monthly plan's timeline: first paid, second part paid, third due", async () => {
+    const d = await detail(monthly.e);
+    expect(d.timeline.map((t) => t.status)).toEqual(["paid", "part_paid", "due"]);
+    expect(d.timeline.map((t) => t.label)).toEqual([0, 1, 2].map((i) => periodLabel(addMonths(M0, i - 1), monthEndOf(addMonths(M0, i - 1)))));
+  });
+
+  it("totals: billed, paid by spread, outstanding, the payer's advance", async () => {
+    const d = await detail(monthly.e);
+    expect(d.totals).toEqual({ billedPaise: 600_000n, paidPaise: 300_000n, outstandingPaise: 300_000n, advancePaise: 30_000n });
+    expect(d.afterDiscountPaise).toBe(200_000n);
+    expect(d.branchId).toBe(monthly.invs[0]?.branchId);
+  });
+
+  it("only the earliest unpaid installment is due; later ones are upcoming", async () => {
+    const s = await setup("Detail T", { name: "x", kind: "term", installments: [0, 30, 60, 90].map((o, i) => ({ label: `Part ${i + 1}`, amountPaise: "100000", dueOffsetDays: o + 2 })) });
+    const kid = (await family("Detail Term")).ids[0] ?? "";
+    const e = await withTenant(T, async (tx) => (await enroll(tx, owner, { studentId: kid, batchId: s.batchId, startDate: M1 })).id);
+    await gen(M1, [e]);
+    const invs = await issueAll(kid);
+    await pay(kid, invs[0]?.branchId ?? "", "200000", invs.slice(0, 2).map((i) => ({ invoiceId: i.id, amountPaise: "100000" })));
+    const d = await detail(e);
+    expect(d.timeline.map((t) => [t.label, t.status])).toEqual([["Installment 1 of 4", "paid"], ["Installment 2 of 4", "paid"], ["Installment 3 of 4", "due"], ["Installment 4 of 4", "upcoming"]]);
+  });
+
+  it("changing the plan leaves earlier rows as billed", async () => {
+    const other = await setup("Detail C", { name: "x", kind: "recurring", billingCycle: "monthly", amountPaise: "50000" });
+    const before = await detail(monthly.e);
+    await withTenant(T, (tx) => setEnrollmentPlan(tx, owner, monthly.e, { feePlanId: other.planId }));
+    const after = await detail(monthly.e);
+    expect(after.row.planId).toBe(other.planId);
+    expect(after.timeline.slice(0, 2)).toEqual(before.timeline.slice(0, 2));
+  });
+
+  it("needs invoices:read; unknown plans are not found", async () => {
+    await expect(detail(monthly.e).then(() => withTenant(T, (tx) => studentPlanDetail(tx, teacher, monthly.e)))).rejects.toMatchObject({ status: 403 });
+    await expect(detail(uuidv7())).rejects.toMatchObject({ status: 404 });
   });
 });

@@ -3,7 +3,7 @@ import { allows, assertCan, ForbiddenError } from "@/lib/auth/can";
 import type { ScopedCtx } from "@/lib/auth/route";
 import { writeAudit } from "@/lib/db/audit";
 import type { Tx } from "@/lib/db/client";
-import { addDays, isIsoDate, todayIn } from "@/lib/dates";
+import { addDays, isIsoDate, periodLabel, todayIn } from "@/lib/dates";
 import { BadRequestError, ConflictError, isUniqueViolation, NotFoundError } from "@/lib/errors";
 import { type Paise, roundHalfUp, sum } from "@/lib/money/paise";
 import { getProgram, listBatchRows, listPrograms } from "@/modules/batches/repo";
@@ -12,6 +12,7 @@ import { currentEnrollmentsOf } from "@/modules/enrollments/repo";
 import type { Enrollment } from "@/modules/enrollments/schema";
 import { allocateNumber, currentFy } from "@/modules/numbering/repo";
 import { payerInScope } from "@/modules/payments/repo";
+import { unusedPayments } from "@/modules/payments/repo";
 import { applyAdvance } from "@/modules/payments/service";
 import { staffNames } from "@/modules/staff/repo";
 import { type Payer, payerKey, payerOf, planPayer } from "@/modules/students/payer";
@@ -58,6 +59,9 @@ import {
   openInvoiceLines,
   type StudentPlanTab,
   studentPlanRows,
+  studentPlanRowOf,
+  billedLinesOf,
+  type StudentPlanBase,
   studentPlanTabCounts,
   openInstallments,
   type PlanRow,
@@ -629,6 +633,7 @@ export type StudentPlanRow = {
   studentName: string;
   studentCode: string;
   programName: string;
+  batchId: string;
   batchName: string;
   planId: string;
   planName: string;
@@ -656,13 +661,28 @@ export type StudentPlanList = {
 
 export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuery, opts: { now?: Date } = {}): Promise<StudentPlanList> {
   assertCan(ctx, "invoices:read");
-  const [tenant, tz] = [await getOwnTenant(tx), await timeZone(tx)];
+  const tz = await timeZone(tx);
   const today = todayIn(tz, opts.now);
   const { page: asked, ...applied } = q;
   const [counts, programs, batches, plans] = await Promise.all([studentPlanTabCounts(tx, ctx.branchIds, applied), listPrograms(tx), listBatchRows(tx, ctx.branchIds, { includeEnded: true }), listPlans(tx)]);
   const matched = counts[q.tab];
   const page = Math.min(asked, Math.max(1, Math.ceil(matched / PAGE_SIZE)));
   const base = await studentPlanRows(tx, ctx.branchIds, { ...applied, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const rows = await planRowsOf(tx, base, today);
+  return {
+    today,
+    rows,
+    matched,
+    page,
+    pageSize: PAGE_SIZE,
+    counts,
+    applied,
+    options: { programs: programs.map((p) => ({ id: p.id, name: p.name })), batches: batches.map((b) => ({ id: b.id, name: b.name })), plans: plans.map((p) => ({ id: p.id, name: p.name })) },
+  };
+}
+
+async function planRowsOf(tx: Tx, base: StudentPlanBase[], today: string): Promise<StudentPlanRow[]> {
+  const tenant = await getOwnTenant(tx);
   const [enrollmentIds, studentIds] = [base.map((b) => b.e.id), [...new Set(base.map((b) => b.e.studentId))]];
   const [lead, links, termDue, lines] = await Promise.all([leadGuardians(tx, studentIds), enrollmentLinks(tx, studentIds), nextInstallmentDue(tx, enrollmentIds), openInvoiceLines(tx, enrollmentIds)]);
   const chain = chains(links);
@@ -678,7 +698,7 @@ export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuer
     for (const l of group) if (l.enrollmentId) owed.set(l.enrollmentId, (owed.get(l.enrollmentId) ?? 0n) + (shares.get(l.lineId) ?? 0n));
   }
 
-  const rows = base.map(({ e, plan, studentName, studentCode, programName, batchName }): StudentPlanRow => {
+  return base.map(({ e, plan, studentName, studentCode, programName, batchName }): StudentPlanRow => {
     const payer = payers.get(e.id);
     let nextBill: string | null = null;
     if (e.status === "active" && plan.kind === "recurring") {
@@ -693,6 +713,7 @@ export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuer
       studentName,
       studentCode,
       programName,
+      batchId: e.batchId,
       batchName,
       planId: plan.id,
       planName: plan.name,
@@ -707,15 +728,66 @@ export async function studentPlanList(tx: Tx, ctx: ScopedCtx, q: StudentPlanQuer
       outstandingPaise: owed.get(e.id) ?? 0n,
     };
   });
+}
+
+export type TimelineRow = { invoiceId: string; number: string | null; label: string; status: DisplayStatus | "upcoming"; amountPaise: Paise; paidPaise: Paise; dueDate: string };
+export type StudentPlanDetail = {
+  row: StudentPlanRow;
+  branchId: string;
+  discounts: GivenDiscount[];
+  afterDiscountPaise: Paise;
+  totals: { billedPaise: Paise; paidPaise: Paise; outstandingPaise: Paise; advancePaise: Paise };
+  timeline: TimelineRow[];
+};
+
+// One placement's whole billing story: the discounts running now, each invoice carrying it, what it owes and the payer's advance.
+export async function studentPlanDetail(tx: Tx, ctx: ScopedCtx, enrollmentId: string, opts: { now?: Date } = {}): Promise<StudentPlanDetail> {
+  assertCan(ctx, "invoices:read");
+  const base = await studentPlanRowOf(tx, ctx.branchIds, enrollmentId);
+  if (!base) throw new NotFoundError("Student plan not found");
+  const today = todayIn(await timeZone(tx), opts.now);
+  const [row] = await planRowsOf(tx, [base], today);
+  const [given, billed, [lead]] = await Promise.all([discountsOf(tx, [base.e.studentId]), billedLinesOf(tx, enrollmentId), [...(await leadGuardians(tx, [base.e.studentId])).values()]]);
+  if (!row) throw new NotFoundError("Student plan not found");
+  const running = given.filter((g) => g.validFrom <= today && (g.validTo === null || g.validTo >= today));
+  const advance = sum((await unusedPayments(tx, planPayer(base.e, lead), base.branchId)).map((u) => u.unused));
+
+  // An invoice's payments are shared over its lines by amount and tax, as in the list.
+  const weight = (l: { amountPaise: Paise; taxPaise: Paise }) => l.amountPaise + l.taxPaise;
+  const byInvoice = new Map<string, typeof billed>();
+  for (const b of billed) byInvoice.set(b.inv.id, [...(byInvoice.get(b.inv.id) ?? []), b]);
+  const timeline: TimelineRow[] = [];
+  for (const b of billed) {
+    if (b.line.enrollmentId !== enrollmentId || b.line.kind !== "tuition") continue;
+    const shares = spreadOver(b.inv.paidPaise, (byInvoice.get(b.inv.id) ?? []).map((x) => ({ id: x.line.id, weight: weight(x.line) })));
+    timeline.push({
+      invoiceId: b.inv.id,
+      number: b.inv.number,
+      label: b.installment ? `Installment ${b.installment.n} of ${b.installment.of}` : (periodLabel(b.line.periodStart ?? b.inv.periodStart, b.line.periodEnd ?? b.inv.periodEnd) ?? b.line.description),
+      status: displayStatus(b.inv, today),
+      amountPaise: weight(b.line),
+      paidPaise: shares.get(b.line.id) ?? 0n,
+      dueDate: b.inv.dueDate,
+    });
+  }
+  // On a term plan only the earliest unpaid installment is due; the rest wait.
+  if (row.kind === "term") {
+    let first = true;
+    for (const t of timeline) {
+      if (t.status !== "due" && t.status !== "overdue" && t.status !== "part_paid") continue;
+      if (!first && t.status === "due") t.status = "upcoming";
+      first = false;
+    }
+  }
+  const counted = timeline.filter((t) => t.status !== "draft");
+  const [billedPaise, paidPaise] = [sum(counted.map((t) => t.amountPaise)), sum(counted.map((t) => t.paidPaise))];
   return {
-    today,
-    rows,
-    matched,
-    page,
-    pageSize: PAGE_SIZE,
-    counts,
-    applied,
-    options: { programs: programs.map((p) => ({ id: p.id, name: p.name })), batches: batches.map((b) => ({ id: b.id, name: b.name })), plans: plans.map((p) => ({ id: p.id, name: p.name })) },
+    row,
+    branchId: base.branchId,
+    discounts: running,
+    afterDiscountPaise: lineAmounts(base.plan.amountPaise, 1, running.map((g) => ({ name: g.name, reason: g.reason, kind: g.kind, value: g.value })), 0).net,
+    totals: { billedPaise, paidPaise, outstandingPaise: billedPaise - paidPaise, advancePaise: advance },
+    timeline,
   };
 }
 
