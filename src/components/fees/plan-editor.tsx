@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { formatPaise } from "@/lib/money/format";
 import { parseRupees, sum } from "@/lib/money/paise";
+import { ordinal, splitInstallments } from "@/modules/fees/billing";
 import { send } from "@/lib/send";
 import type { Installment } from "@/modules/fees/schema";
 
@@ -32,8 +33,8 @@ export type PlanForm = {
 };
 
 const KINDS = [
-  ["recurring", "Repeats"],
-  ["term", "Installments"],
+  ["recurring", "Recurring"],
+  ["term", "Term in installments"],
   ["one_time", "One-time"],
 ] as const;
 const CYCLES = [
@@ -45,7 +46,6 @@ const CYCLES = [
 const GST_RATES = [0, 5, 12, 18, 28];
 
 type Row = { label: string; amount: string; days: string };
-const ordinal = (n: number) => `${n}${["th", "st", "nd", "rd"][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10 < 4 ? n % 10 : 0]}`;
 const rowsOf = (plan?: PlanForm): Row[] =>
   plan?.installments.length
     ? plan.installments.map((i) => ({ label: i.label, amount: rupeesInput(i.amount_paise), days: String(i.due_offset_days) }))
@@ -60,6 +60,14 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
   const [kind, setKind] = useState<PlanForm["kind"]>(plan?.kind ?? "recurring");
   const [rows, setRows] = useState<Row[]>(rowsOf(plan));
   const setRow = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const [gen, setGen] = useState({ total: "", count: "3", every: "90", first: "0" });
+  const fill = () => {
+    const total = parseRupees(gen.total);
+    const count = Number(gen.count);
+    if (total === undefined || !Number.isInteger(count) || count < 1 || count > 12) return;
+    const parts = splitInstallments({ totalPaise: total, count, everyDays: Number(gen.every) || 0, firstAfterDays: Number(gen.first) || 0 });
+    setRows(parts.map((p) => ({ label: p.label, amount: rupeesInput(String(p.amountPaise)), days: String(p.dueOffsetDays) })));
+  };
   const amounts = rows.map((r) => parseRupees(r.amount));
   const url = plan ? `/api/fee-plans/${plan.id}` : "/api/fee-plans";
 
@@ -152,6 +160,23 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
         {kind === "term" ? (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1.5 text-label">Installments</legend>
+            <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_4rem_5rem_5rem_auto]">
+              <Field label="Split ₹" id="split-total">
+                <Input id="split-total" inputMode="decimal" value={gen.total} onChange={(e) => setGen({ ...gen, total: e.target.value })} />
+              </Field>
+              <Field label="Count" id="split-count">
+                <Input id="split-count" inputMode="numeric" value={gen.count} onChange={(e) => setGen({ ...gen, count: e.target.value })} />
+              </Field>
+              <Field label="Every days" id="split-every">
+                <Input id="split-every" inputMode="numeric" value={gen.every} onChange={(e) => setGen({ ...gen, every: e.target.value })} />
+              </Field>
+              <Field label="First after" id="split-first">
+                <Input id="split-first" inputMode="numeric" value={gen.first} onChange={(e) => setGen({ ...gen, first: e.target.value })} />
+              </Field>
+              <Button type="button" variant="outline" onClick={fill}>
+                Split
+              </Button>
+            </div>
             <div className="grid grid-cols-[1fr_6.5rem_4.5rem_2.5rem] gap-2 text-caption text-muted-foreground">
               <span>Name</span>
               <span>₹</span>
@@ -177,7 +202,7 @@ export function PlanEditor({ plan, programs, trigger, children }: { plan?: PlanF
               >
                 <Plus /> Add installment
               </Button>
-              <span className="text-label tabular-nums">Total {formatPaise(sum(amounts.map((x) => x ?? 0n)))}</span>
+              <span className="text-label tabular-nums">Adds up to {formatPaise(sum(amounts.map((x) => x ?? 0n)))}</span>
             </div>
           </fieldset>
         ) : (

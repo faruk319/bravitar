@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, cycleContaining, DISPLAY_STATUSES, displayStatus, installmentOf, invoiceTotals, lineAmounts, nextRecurringBill, recurringCharges, spreadOver } from "./billing";
+import { addMonths, cycleContaining, DISPLAY_STATUSES, displayStatus, installmentOf, invoiceTotals, lineAmounts, nextRecurringBill, recurringCharges, spreadOver, splitInstallments } from "./billing";
 import { INVOICE_STATUSES } from "./schema";
 
 const plan = { cycle: "monthly" as const, billingDay: 1, amount: 80000n, proration: "full" as const };
@@ -128,5 +128,15 @@ describe("student plans", () => {
     expect(nextRecurringBill({ ...p, cycle: "quarterly", anchor: "2026-07-01", start: "2026-07-01" }, "2026-09-24")).toBe("2026-10-01");
     expect(nextRecurringBill({ ...p, pausedOn: "2026-09-20" }, "2026-09-24")).toBeNull();
     expect(nextRecurringBill({ ...p, end: "2026-09-30" }, "2026-09-24")).toBeNull();
+  });
+});
+
+describe("splitInstallments", () => {
+  it("splits ₹10,000 three ways, 90 days apart", () => {
+    expect(splitInstallments({ totalPaise: 1_000_000n, count: 3, everyDays: 90, firstAfterDays: 0 })).toEqual([
+      { label: "1st installment", amountPaise: 333_334n, dueOffsetDays: 0 },
+      { label: "2nd installment", amountPaise: 333_333n, dueOffsetDays: 90 },
+      { label: "3rd installment", amountPaise: 333_333n, dueOffsetDays: 180 },
+    ]);
   });
 });

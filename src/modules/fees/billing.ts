@@ -134,3 +134,14 @@ export function installmentOf(billingKey: string | null): { seq: string; index: 
   const m = billingKey ? INSTALLMENT_KEY.exec(billingKey) : null;
   return m ? { seq: m[1] ?? "", index: Number(m[2]) } : null;
 }
+
+export const ordinal = (n: number) => `${n}${["th", "st", "nd", "rd"][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10 < 4 ? n % 10 : 0]}`;
+
+/** Splits a term fee into equal installments, any odd paise on the earliest. */
+export function splitInstallments(input: { totalPaise: Paise; count: number; everyDays: number; firstAfterDays: number }): { label: string; amountPaise: Paise; dueOffsetDays: number }[] {
+  return split(input.totalPaise, input.count).map((amountPaise, i) => ({
+    label: `${ordinal(i + 1)} installment`,
+    amountPaise,
+    dueOffsetDays: input.firstAfterDays + i * input.everyDays,
+  }));
+}
